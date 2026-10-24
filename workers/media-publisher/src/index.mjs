@@ -63,8 +63,12 @@ function positiveNumber(raw, fallback, minimum, maximum) {
 export function assertDatabaseTarget(databaseUrl, env = process.env) {
   const url = new URL(databaseUrl);
   if (!url.protocol.startsWith("postgres")) throw new Error("DATABASE_URL_must_use_PostgreSQL");
-  if (url.hostname.toLowerCase() === "db.lkyaaokrpbqucjrnhrps.supabase.co"
-      && (env.SLOPTOGETHER_USE_CLIPSGG_DATABASE !== "true" || url.username !== "sloptogether_app")) {
+  const clipsDatabaseUsers={
+    "db.lkyaaokrpbqucjrnhrps.supabase.co":"sloptogether_app",
+    "aws-1-us-east-2.pooler.supabase.com":"sloptogether_app.lkyaaokrpbqucjrnhrps",
+  };
+  const expectedUser=clipsDatabaseUsers[url.hostname.toLowerCase()];
+  if (expectedUser && (env.SLOPTOGETHER_USE_CLIPSGG_DATABASE !== "true" || url.username !== expectedUser)) {
     throw new Error("The Clips.gg database requires the explicit opt-in and schema-scoped sloptogether_app login.");
   }
   return url;

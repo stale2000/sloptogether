@@ -1,6 +1,7 @@
 import "server-only";
 
 import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg";
+import { hasScopedClipsDatabaseUser,isClipsDatabase } from "./database-target";
 
 declare global {
    
@@ -24,9 +25,8 @@ function createPool(max=3,applicationName="sloptogether-web"): Pool {
   if (!url.protocol.startsWith("postgres")) {
     throw new Error("DATABASE_URL must use PostgreSQL");
   }
-  const clipsDatabaseHost = "db.lkyaaokrpbqucjrnhrps.supabase.co";
   const explicitlyAllowsClipsDatabase = process.env.SLOPTOGETHER_USE_CLIPSGG_DATABASE === "true";
-  if (url.hostname.toLowerCase() === clipsDatabaseHost && (!explicitlyAllowsClipsDatabase || url.username !== "sloptogether_app")) {
+  if (isClipsDatabase(url) && (!explicitlyAllowsClipsDatabase || !hasScopedClipsDatabaseUser(url))) {
     throw new Error("The Clips.gg database requires SLOPTOGETHER_USE_CLIPSGG_DATABASE=true and the schema-scoped sloptogether_app login.");
   }
 

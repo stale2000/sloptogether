@@ -23,6 +23,10 @@ describe("publicRuntimeStatus", () => {
     vi.stubEnv("DATABASE_URL","postgresql://sloptogether_app@db.lkyaaokrpbqucjrnhrps.supabase.co/postgres?sslmode=require");
     vi.stubEnv("SLOPTOGETHER_USE_CLIPSGG_DATABASE","true");
     expect(publicRuntimeStatus()).toMatchObject({twitchOAuth:true});
+    vi.stubEnv("DATABASE_URL","postgresql://sloptogether_app.lkyaaokrpbqucjrnhrps@aws-1-us-east-2.pooler.supabase.com:6543/postgres?sslmode=require");
+    expect(publicRuntimeStatus()).toMatchObject({twitchOAuth:true});
+    vi.stubEnv("DATABASE_URL","postgresql://postgres.lkyaaokrpbqucjrnhrps@aws-1-us-east-2.pooler.supabase.com:6543/postgres?sslmode=require");
+    expect(publicRuntimeStatus()).toMatchObject({twitchOAuth:false});
     vi.stubEnv("DATABASE_URL","postgresql://postgres@db.lkyaaokrpbqucjrnhrps.supabase.co/postgres?sslmode=require");
     expect(publicRuntimeStatus()).toMatchObject({twitchOAuth:false});
   });

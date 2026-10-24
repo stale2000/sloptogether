@@ -1,3 +1,5 @@
+import { hasScopedClipsDatabaseUser,isClipsDatabase } from "./database-target";
+
 export const appBasePath = "/sloptogether";
 
 export function publicOrigin(): string {
@@ -22,8 +24,8 @@ function twitchOAuthConfigured():boolean{
   if(!clientId||!clientSecret||!databaseUrl||!appUrl||!encryptionKey||encryptionKey.length<32)return false;
   try{
     const db=new URL(databaseUrl),site=new URL(appUrl),key=Buffer.from(encryptionKey,"base64");
-    const sharedClipsDb=db.hostname.toLowerCase()==="db.lkyaaokrpbqucjrnhrps.supabase.co";
-    const sharedDbAllowed=!sharedClipsDb||(process.env.SLOPTOGETHER_USE_CLIPSGG_DATABASE==="true"&&db.username==="sloptogether_app");
+    const sharedClipsDb=isClipsDatabase(db);
+    const sharedDbAllowed=!sharedClipsDb||(process.env.SLOPTOGETHER_USE_CLIPSGG_DATABASE==="true"&&hasScopedClipsDatabaseUser(db));
     return db.protocol.startsWith("postgres")&&sharedDbAllowed
       &&(site.protocol==="https:"||site.hostname==="localhost")&&site.pathname.endsWith("/sloptogether")
       &&!site.username&&!site.password&&!site.search&&!site.hash&&key.length===32;

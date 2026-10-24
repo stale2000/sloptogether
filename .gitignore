@@ -29,3 +29,5 @@ workers/runtime/tests/__pycache__/
 workers/runtime/local-state/
 workers/runtime/models/
 workers/runtime/cache/
+.vercel
+.env*
