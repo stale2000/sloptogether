@@ -30,3 +30,10 @@ test("uses verified CA TLS for the shared pooler and rejects missing CA configur
   assert.deepEqual(options.ssl,{ca,rejectUnauthorized:true});
   assert.throws(()=>databasePoolOptions(url,{SLOPTOGETHER_USE_CLIPSGG_DATABASE:"true"}),/SSL_CA_required/);
 });
+
+test("normalizes escaped Vercel CA newlines for the worker pool",()=>{
+  const url="postgresql://sloptogether_app.lkyaaokrpbqucjrnhrps@aws-1-us-east-2.pooler.supabase.com:6543/postgres";
+  const ca="-----BEGIN CERTIFICATE-----\nproduction-ca\n-----END CERTIFICATE-----";
+  const options=databasePoolOptions(url,{SLOPTOGETHER_USE_CLIPSGG_DATABASE:"true",SLOPTOGETHER_DATABASE_SSL_CA:ca.replace(/\n/g,"\\n")});
+  assert.equal(options.ssl.ca,ca);
+});

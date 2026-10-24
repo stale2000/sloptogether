@@ -56,6 +56,16 @@ it("uses the Supabase CA and removes conflicting sslmode settings for verified p
   expect(options.ssl).toEqual({ca,rejectUnauthorized:true});
 });
 
+it("normalizes the escaped newlines used by Vercel certificate environment variables",()=>{
+  const ca="-----BEGIN CERTIFICATE-----\nproduction-ca\n-----END CERTIFICATE-----";
+  vi.stubEnv("DATABASE_URL","postgresql://sloptogether_app.lkyaaokrpbqucjrnhrps@aws-1-us-east-2.pooler.supabase.com:6543/postgres");
+  vi.stubEnv("SLOPTOGETHER_USE_CLIPSGG_DATABASE","true");
+  vi.stubEnv("SLOPTOGETHER_DATABASE_SSL_CA",ca.replace(/\n/g,"\\n"));
+  createdPool=pool();
+  const options=(createdPool as unknown as {options:{ssl:{ca:string}}}).options;
+  expect(options.ssl.ca).toBe(ca);
+});
+
 it("requires verified CA configuration for the shared database in production",()=>{
   vi.stubEnv("NODE_ENV","production");
   vi.stubEnv("DATABASE_URL","postgresql://sloptogether_app.lkyaaokrpbqucjrnhrps@aws-1-us-east-2.pooler.supabase.com:6543/postgres");

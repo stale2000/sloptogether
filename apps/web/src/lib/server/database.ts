@@ -30,7 +30,7 @@ function createPool(max=3,applicationName="sloptogether-web"): Pool {
   if (isSharedClipsDb && (!explicitlyAllowsClipsDatabase || !hasScopedClipsDatabaseUser(url))) {
     throw new Error("The Clips.gg database requires SLOPTOGETHER_USE_CLIPSGG_DATABASE=true and the schema-scoped sloptogether_app login.");
   }
-  const databaseCa=process.env.SLOPTOGETHER_DATABASE_SSL_CA?.trim();
+  const databaseCa=process.env.SLOPTOGETHER_DATABASE_SSL_CA?.replace(/\\n/g,"\n").trim();
   if(isSharedClipsDb&&process.env.NODE_ENV==="production"&&!databaseCa){
     throw new Error("SLOPTOGETHER_DATABASE_SSL_CA is required for verified Clips.gg database TLS.");
   }

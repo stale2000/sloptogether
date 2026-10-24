@@ -81,7 +81,7 @@ export function databasePoolOptions(databaseUrl,env=process.env){
     "aws-1-us-east-2.pooler.supabase.com":"sloptogether_app.lkyaaokrpbqucjrnhrps",
   };
   const sharedClipsDb=Object.hasOwn(clipsDatabaseUsers,url.hostname.toLowerCase());
-  const ca=env.SLOPTOGETHER_DATABASE_SSL_CA?.trim();
+  const ca=env.SLOPTOGETHER_DATABASE_SSL_CA?.replace(/\\n/g,"\n").trim();
   if(sharedClipsDb&&!ca)throw new Error("SLOPTOGETHER_DATABASE_SSL_CA_required_for_shared_ClipsGG_database");
   if(ca&&!ca.includes("-----BEGIN CERTIFICATE-----"))throw new Error("SLOPTOGETHER_DATABASE_SSL_CA_invalid");
   const connectionUrl=new URL(databaseUrl);
