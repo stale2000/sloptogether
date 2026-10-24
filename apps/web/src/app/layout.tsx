@@ -10,7 +10,7 @@ export const metadata: Metadata = {
     template: "%s · SlopTogether",
   },
   description: "Shape the next scene. Watch the story move.",
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://clips.gg/sloptogether"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.clips.gg/sloptogether"),
   openGraph: { siteName: "SlopTogether", type: "website" },
 };
 

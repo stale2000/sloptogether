@@ -7,7 +7,7 @@ binding = "MEDIA_BUCKET"
 bucket_name = "sloptogether-media"
 
 [vars]
-APP_ORIGIN = "https://clips.gg"
+APP_ORIGIN = "https://www.clips.gg"
 
 # Configure UPLOAD_GATEWAY_SECRET and UPLOAD_TICKET_KEY with `wrangler secret put`.
 # Keep the bucket private and scope the deployment to the SlopTogether media bucket.

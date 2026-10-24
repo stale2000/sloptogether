@@ -147,7 +147,7 @@ class WorkerConfig:
             raise ValueError("trim_vsa_budget_policy_invalid")
         if trim_vsa_budget_policy == "adaptive" and (platform != "fal" or role_value != "generation"):
             raise ValueError("adaptive_trim_vsa_requires_pinned_fal_generation_profile")
-        api_base = os.environ.get("SLOPTOGETHER_API_BASE_URL", str(worker.get("api_base_url", "https://clips.gg/sloptogether/api/v1")))
+        api_base = os.environ.get("SLOPTOGETHER_API_BASE_URL", str(worker.get("api_base_url", "https://www.clips.gg/sloptogether/api/v1")))
         comfy = os.environ.get("SLOPTOGETHER_COMFY_URL", str(worker.get("comfy_url", "http://127.0.0.1:8188")))
         local_comfy = _https_service_url(comfy, "comfy", allow_loopback_http=True)
         parsed_local = urlsplit(local_comfy)

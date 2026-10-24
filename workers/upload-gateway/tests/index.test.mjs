@@ -22,7 +22,7 @@ test("native uploads need a valid ticket and accept a missing Content-Length",as
     return Response.json({authorized:true,...payload});
   };
   try{
-    const env={APP_ORIGIN:"https://clips.gg",UPLOAD_TICKET_KEY:secret,UPLOAD_GATEWAY_SECRET:"gateway-secret",MEDIA_BUCKET:{head:async()=>null,delete:async()=>assert.fail("valid streamed upload must stay stored"),put:async(_key,body)=>{for await(const chunk of body)written+=chunk.length;return {}}}};
+    const env={APP_ORIGIN:"https://www.clips.gg",UPLOAD_TICKET_KEY:secret,UPLOAD_GATEWAY_SECRET:"gateway-secret",MEDIA_BUCKET:{head:async()=>null,delete:async()=>assert.fail("valid streamed upload must stay stored"),put:async(_key,body)=>{for await(const chunk of body)written+=chunk.length;return {}}}};
     const request=new Request(`https://uploads.example/uploads/${uploadId}?ticket=${encodeURIComponent(ticket)}`,{method:"PUT",headers:{"Content-Type":"video/mp4"},body:bytes});
     assert.equal(request.headers.get("origin"),null);
     assert.equal(request.headers.get("content-length"),null);
@@ -35,4 +35,12 @@ test("native uploads need a valid ticket and accept a missing Content-Length",as
 test("browser uploads from an unapproved origin fail before storage",async()=>{
   const response=await gateway.fetch(new Request(`https://uploads.example/uploads/${uploadId}?ticket=invalid`,{method:"PUT",headers:{Origin:"https://attacker.example","Content-Type":"video/mp4"},body:new Uint8Array([1])}),{});
   assert.equal(response.status,403);
+});
+
+test("browser upload CORS uses Clips.gg's canonical www origin",async()=>{
+  const allowed=await gateway.fetch(new Request(`https://uploads.example/uploads/${uploadId}`,{method:"OPTIONS",headers:{Origin:"https://www.clips.gg"}}),{});
+  assert.equal(allowed.status,204);
+  assert.equal(allowed.headers.get("access-control-allow-origin"),"https://www.clips.gg");
+  const apex=await gateway.fetch(new Request(`https://uploads.example/uploads/${uploadId}`,{method:"PUT",headers:{Origin:"https://clips.gg"}}),{});
+  assert.equal(apex.status,403);
 });

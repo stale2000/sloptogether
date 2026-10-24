@@ -11,7 +11,7 @@ from sloptogether_worker.config import WorkerConfig, _https_service_url, _is_wsl
 
 class WorkerConfigurationTest(unittest.TestCase):
     def test_worker_api_is_https_except_literal_loopback(self) -> None:
-        self.assertEqual(_https_service_url("https://clips.gg/sloptogether/api/v1", "api"), "https://clips.gg/sloptogether/api/v1")
+        self.assertEqual(_https_service_url("https://www.clips.gg/sloptogether/api/v1", "api"), "https://www.clips.gg/sloptogether/api/v1")
         self.assertEqual(_https_service_url("http://127.0.0.1:8188", "comfy", allow_loopback_http=True), "http://127.0.0.1:8188")
         for url in ("http://clips.gg/sloptogether/api/v1", "http://127.0.0.1.evil:8188", "https://user:secret@host.invalid"):
             with self.subTest(url=url), self.assertRaises(ValueError):

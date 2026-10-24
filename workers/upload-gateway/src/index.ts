@@ -29,7 +29,7 @@ const MAX_TICKET_CHARS = 4096;
 
 function response(status: number, body: unknown, origin: string | null) {
   const headers = new Headers({ "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
-  if (origin === "https://clips.gg") {
+  if (origin === "https://www.clips.gg") {
     headers.set("Access-Control-Allow-Origin", origin);
     headers.set("Access-Control-Allow-Methods", "PUT, OPTIONS");
     headers.set("Access-Control-Allow-Headers", "Content-Type");
@@ -90,7 +90,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const origin = request.headers.get("origin");
     if (request.method === "OPTIONS") return response(204, null, origin);
-    if (origin !== null && origin !== "https://clips.gg") return response(403, { error: "origin_not_allowed" }, null);
+    if (origin !== null && origin !== "https://www.clips.gg") return response(403, { error: "origin_not_allowed" }, null);
     if (request.method !== "PUT") return response(405, { error: "method_not_allowed" }, origin);
     const url = new URL(request.url);
     const match = /^\/uploads\/([0-9a-f-]{36})$/i.exec(url.pathname);

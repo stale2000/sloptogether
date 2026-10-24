@@ -1,6 +1,6 @@
 [worker]
 # Credential is stored separately, in OS-protected user storage or an env var.
-api_base_url = "https://clips.gg/sloptogether/api/v1"
+api_base_url = "https://www.clips.gg/sloptogether/api/v1"
 role = "generation"
 channel_id = ""
 comfy_url = "http://127.0.0.1:8188"

@@ -116,7 +116,7 @@ export async function createPairing(request:Request){
       id,hmacKeySecret("pair-code:"+code),digest(pollSecret),JSON.stringify({installationId:body.installationId,displayName:body.displayName,platform:body.platform,clientVersion:body.clientVersion??""}),body.roles,expiresAt,ipHash,
     ]);
   });
-  const base=(process.env.PUBLIC_APP_URL??"https://clips.gg/sloptogether").replace(/\/$/,"");
+  const base=(process.env.PUBLIC_APP_URL??"https://www.clips.gg/sloptogether").replace(/\/$/,"");
   return {pairingId:id,pollSecret,userCode:code,verificationUri:`${base}/worker-pairing?pair=${encodeURIComponent(id)}`,expiresAt:expiresAt.toISOString()};
 }
 

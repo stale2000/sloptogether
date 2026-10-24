@@ -2,7 +2,7 @@
 
 Collaborative Twitch video generation: viewers vote through a Twitch Extension or chat, the shared worker runtime renders/upscales on Linux/Fal, and the streamer captures a 16:9 browser window in ordinary OBS. A Windows client can use the Linux nodes through WSL2; that inference path remains experimental pending RTX 4090 qualification. Configurable channel keys enable trusted workers and full streamer overrides; no OBS plugin or site-to-Twitch broadcaster is required.
 
-Public URL planned: **https://clips.gg/sloptogether**.
+Public URL: **https://www.clips.gg/sloptogether** (the apex domain redirects to `www`).
 
 ## Planning documents
 

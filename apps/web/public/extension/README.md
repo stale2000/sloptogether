@@ -4,7 +4,7 @@ These static assets are the Twitch voting/Bits panel, not an OBS plugin. The Twi
 
 ## EBS contract
 
-The frontend uses the fixed production app origin `https://clips.gg/sloptogether/api/v1`:
+The frontend uses the canonical production app origin `https://www.clips.gg/sloptogether/api/v1`:
 
 - `GET /channels/{twitchChannelId}/timeline` with `x-extension-jwt`; read the first OPEN election from its `elections` collection and approved subscriber-interrupt status. The frontend tolerates an `activeElection` or `election` convenience field during API integration.
 - `POST /elections/{electionId}/ballots` with `{ choiceId }` and `x-extension-jwt`; response status reports success or an HTTP error.

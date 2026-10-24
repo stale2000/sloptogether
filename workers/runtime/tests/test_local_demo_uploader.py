@@ -42,7 +42,7 @@ class LocalDemoUploaderTests(unittest.TestCase):
     def test_only_loopback_local_generation_targets_are_allowed(self):
         _MODULE.validate_local_target(self.config())
         config = self.config()
-        config.api_base_url = "https://clips.gg/sloptogether/api/v1"
+        config.api_base_url = "https://www.clips.gg/sloptogether/api/v1"
         with self.assertRaises(_MODULE.WorkerError) as raised:
             _MODULE.validate_local_target(config)
         self.assertEqual(raised.exception.code, "local_preview_endpoint_not_loopback")

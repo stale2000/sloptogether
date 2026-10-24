@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const API = "https://clips.gg/sloptogether/api/v1";
+  const API = "https://www.clips.gg/sloptogether/api/v1";
   const POLL_MS = 12000;
   const nodes = {
     status: document.getElementById("status"),

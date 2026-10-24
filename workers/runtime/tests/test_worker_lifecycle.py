@@ -29,7 +29,7 @@ class WorkerLifecycleTest(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self,*_args): return None
             def read(self,_limit): return b"{}"
-        config=SimpleNamespace(api_base_url="https://clips.gg/sloptogether/api/v1",request_timeout_seconds=3,worker_key=None,allowed_upload_hosts=(),local_s3_endpoint=None)
+        config=SimpleNamespace(api_base_url="https://www.clips.gg/sloptogether/api/v1",request_timeout_seconds=3,worker_key=None,allowed_upload_hosts=(),local_s3_endpoint=None)
         api=WorkerApi(config);api.token="slw_123e4567-e89b-42d3-a456-426614174000."+"a"*32
         api.opener=SimpleNamespace(open=Mock(return_value=Response()))
         api._request("GET","/worker/claim")
@@ -37,10 +37,10 @@ class WorkerLifecycleTest(unittest.TestCase):
         self.assertEqual(request.get_header("Authorization"),f"SlopWorker {api.token}")
 
     def test_worker_api_preserves_server_error_code_field(self) -> None:
-        config=SimpleNamespace(api_base_url="https://clips.gg/sloptogether/api/v1",request_timeout_seconds=3,worker_key=None,allowed_upload_hosts=(),local_s3_endpoint=None)
+        config=SimpleNamespace(api_base_url="https://www.clips.gg/sloptogether/api/v1",request_timeout_seconds=3,worker_key=None,allowed_upload_hosts=(),local_s3_endpoint=None)
         api=WorkerApi(config);api.token="slw_123e4567-e89b-42d3-a456-426614174000."+"a"*32
         response=urllib.error.HTTPError(
-            "https://clips.gg/sloptogether/api/v1/channels/localdemo/story-proposals",
+            "https://www.clips.gg/sloptogether/api/v1/channels/localdemo/story-proposals",
             409,"Conflict",{},BytesIO(b'{"error":"owner_generation_budget_unavailable","message":"No budget."}'),
         )
         api.opener=SimpleNamespace(open=Mock(side_effect=response))

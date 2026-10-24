@@ -1,6 +1,6 @@
 # clips.gg hosting audit for SlopTogether
 
-Inspected 2026-10-23. Required public URL: **https://clips.gg/sloptogether**.
+Inspected 2026-10-23. Requested public path: **https://clips.gg/sloptogether**; the live apex canonicalizes to `https://www.clips.gg`, so app callbacks and browser-origin checks must use `www`.
 
 ## Repository and current state
 
