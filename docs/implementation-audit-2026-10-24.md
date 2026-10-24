@@ -113,7 +113,7 @@ The review queue now refreshes every five seconds and preserves its previous ite
 
 ### P2 — Worker readiness, upscaling and Windows claims need real evidence
 
-The Fal session controller now waits for both authenticated Comfy wake pings before reporting both apps awake. This still does not prove worker API authentication, job polling or completed work. No SlopTogether apps or role secrets are provisioned, and the API/R2 endpoints they need are not deployed.
+The Fal session controller now waits for both authenticated Comfy wake pings before reporting both apps awake. This still does not prove worker API authentication, job polling or completed work. No SlopTogether Fal apps or role secrets are provisioned. The web API is deployed, but the private R2 bucket and upload gateway are not.
 
 There is no custom Fal upscale result in this demonstration. Normal worker and paid-Turbo conformance code already exists, but it was bypassed by the manual normalization in this smoke run; exercise it rather than adding a third geometry path. The 4090 SoL candidate requires 128 GiB system RAM and remains unmeasured on Windows/WSL2. Public Windows packaging, signing and hardware qualification are unfinished.
 
@@ -127,9 +127,9 @@ Twitch OAuth is locally unconfigured. Chat/Extension voting, role moderation, ba
 
 ### P3 — Source control, scripts and status documentation need consolidation
 
-The SlopTogether Git repository has no committed baseline/remote; all product files are untracked, along with browser artifacts. The separate Clips.gg repository contains many unrelated edits and a narrow uncommitted proxy change. Two smoke upload helpers overlap; `local-worker-upload-smoke.py` lacks the stronger loopback/demo guard already present in `upload-local-fal-smoke.py`.
+The SlopTogether repository has a committed `main` baseline and GitHub remote. This working copy still has uncommitted ComfyStream import edits and a local browser screenshot; these are separate from the live web deployment and should be reviewed before committing. The host proxy was merged in Clips.gg PR #233 and is deployed. The redundant `local-worker-upload-smoke.py` helper was removed because it could use a non-loopback worker target and read the entire MP4 into memory; `upload-local-fal-smoke.py` is the supported local-only uploader, with loopback, fixture-channel, job-stage, file-size and MP4 checks.
 
-README still describes three clips, and the original plan still prohibits the now-approved shared database. Those status statements are superseded here. Durable source should not depend on `/tmp` build contexts or local secret files. Imported license/model terms and the archived hackathon rules need final submission/release review.
+The README now describes the four-clip fixture and deployed public path. Using the existing Clips.gg database through a restricted `sloptogether` schema is a settled decision documented in `docs/open-questions.md`; older planning notes are historical. Durable source should not depend on `/tmp` build contexts or local secret files. Imported license/model terms and the archived hackathon rules need final submission/release review.
 
 ## Verification performed for this audit
 
