@@ -53,6 +53,7 @@ export function ProgramPlayer({
   fallbackItem,
   onProgress,
   onEnded,
+  onStarted,
   onNeedsUserStart,
   autoPlayIntent=false,
   autoInterruptId,
@@ -63,6 +64,7 @@ export function ProgramPlayer({
   fallbackItem: ProgramOutput["currentProgramItem"];
   onProgress?: (position: ProgressEvent) => void;
   onEnded?: () => void;
+  onStarted?: () => void;
   onNeedsUserStart?: () => void;
   autoPlayIntent?:boolean;
   autoInterruptId?:string;
@@ -222,7 +224,14 @@ export function ProgramPlayer({
         if(target!==null){try{event.currentTarget.currentTime=target;pendingSeekRef.current=null;}catch{/* retain for the next metadata event */}}
         resumePlaybackRef.current?.();
       }}
-      onPlay={() => {resumeAfterSourceRef.current=false;sourceSwitchingRef.current=false;setError(null)}}
+      onPlay={() => {resumeAfterSourceRef.current=false;sourceSwitchingRef.current=false;setError(null);onStarted?.()}}
+      onClick={(event)=>{
+        if(!clean||event.target!==event.currentTarget)return;
+        const media=event.currentTarget;
+        if(media.ended||media.currentTime>=media.duration-0.25)media.currentTime=0;
+        if(media.paused)void media.play().catch(()=>onNeedsUserStart?.());
+        else media.pause();
+      }}
       onPause={()=>{if(!sourceSwitchingRef.current)resumeAfterSourceRef.current=false}}
       onTimeUpdate={(event) => {
         if (kind !== "continuous" || !program) return;

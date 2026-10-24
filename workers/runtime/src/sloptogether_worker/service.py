@@ -84,9 +84,11 @@ class WorkerService:
         self.report("Worker ready. Compatible pinned profiles: " + ", ".join(capabilities))
         if self.config.role == "story-producer":
             producer = StoryProducer(self.api, self.config)
+            failures = 0
             while not self.stop.is_set():
                 try:
                     accepted = producer.run_once()
+                    failures = 0
                     if once:
                         return 0
                     if not accepted:
@@ -96,7 +98,13 @@ class WorkerService:
                         raise WorkerError("story_producer_scope_required", "This Twitch-linked key lacks permission to author future story scenes.") from None
                     if once:
                         raise
-                    self.stop.wait(self.config.poll_interval_seconds + random.random())
+                    failures += 1
+                    self.stop.wait(min(60, 2 ** min(failures, 6)) + random.random())
+                except WorkerError:
+                    failures += 1
+                    if once:
+                        raise
+                    self.stop.wait(min(60, 2 ** min(failures, 6)) + random.random())
             return 0
 
         failures = 0

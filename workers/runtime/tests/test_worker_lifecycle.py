@@ -15,6 +15,7 @@ from sloptogether_worker.client import PairingInstructions
 from sloptogether_worker.client import WorkerApi
 from sloptogether_worker.comfy import ComfyClient
 from sloptogether_worker.errors import ApiError, WorkerError
+from sloptogether_worker.service import WorkerService
 
 
 class WorkerLifecycleTest(unittest.TestCase):
@@ -91,6 +92,24 @@ class WorkerLifecycleTest(unittest.TestCase):
              patch("sloptogether_worker.cli.WorkerService", return_value=service), \
              patch("sloptogether_worker.cli.signal.signal", side_effect=lambda number, handler: handlers.__setitem__(number, handler)):
             self.assertEqual(cli.main(), 0)
+
+    def test_story_producer_retries_a_transient_service_failure(self) -> None:
+        config=SimpleNamespace(role="story-producer",worker_key="owner-key",poll_interval_seconds=0)
+        api=SimpleNamespace(token="owner-key")
+        service=WorkerService(config,api=api,comfy=Mock(),report=lambda _message:None)
+        producer=Mock()
+        producer.run_once.side_effect=[WorkerError("service_unreachable","temporary failure"),False]
+        wait_calls=0
+        def wait_then_stop(_delay):
+            nonlocal wait_calls
+            wait_calls+=1
+            if wait_calls>1:service.stop.set()
+        service.stop.wait=Mock(side_effect=wait_then_stop)
+
+        with patch("sloptogether_worker.service.StoryProducer",return_value=producer):
+            self.assertEqual(service.run(),0)
+
+        self.assertEqual(producer.run_once.call_count,2)
 
     def test_history_polling_honors_monotonic_expiry_and_cancellation(self) -> None:
         client = object.__new__(ComfyClient)

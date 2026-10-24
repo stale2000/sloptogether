@@ -14,7 +14,7 @@ export async function castBallot(electionId:string,choiceId:string,principal:Req
     if(principal.kind==="chat"&&principal.channelId!==election.twitch_channel_id)throw new ApiError(403,"chat_channel_mismatch");
     if(principal.kind==="extension"&&principal.extension.channelId!==election.twitch_channel_id)throw new ApiError(403,"extension_channel_mismatch");
     if(election.state!=="open"||election.closes_at.getTime()<=Date.now())throw new ApiError(409,"election_closed");
-    if(await isBanned(election.twitch_channel_id,userId))throw new ApiError(403,"channel_ban_active");
+    if(await isBanned(election.twitch_channel_id,userId,client))throw new ApiError(403,"channel_ban_active");
     const choice=await client.query(
       `SELECT 1 FROM sloptogether.proposals p JOIN sloptogether.input_screens s ON s.id=p.input_screen_id
        WHERE p.id=$1 AND p.election_id=$2 AND p.state='eligible' AND p.segment_revision_id IS NOT NULL

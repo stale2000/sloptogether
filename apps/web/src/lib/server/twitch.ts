@@ -174,7 +174,11 @@ export async function validateAccessToken(accessToken: string): Promise<{ user_i
     cache: "no-store",
     signal: AbortSignal.timeout(8_000),
   });
-  if (!response.ok) throw new HttpError(401, "twitch_session_revoked", "Reconnect your Twitch account.");
+  if (!response.ok) {
+    if(response.status===401)throw new HttpError(401,"twitch_session_revoked","Reconnect your Twitch account.");
+    if(response.status===429||response.status>=500)throw new HttpError(503,"twitch_validation_unavailable","Twitch validation is temporarily unavailable.");
+    throw new HttpError(502,"twitch_validation_failed","Twitch could not validate this session.");
+  }
   const result = await response.json() as { user_id: string; login: string; client_id: string; scopes: string[]; expires_in: number };
   if (result.client_id !== credentials.clientId) throw new HttpError(401, "twitch_client_mismatch", "Reconnect your Twitch account.");
   return result;

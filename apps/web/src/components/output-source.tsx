@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { ApiError,apiFetch, displayProblem, type SessionSummary } from "./api";
 import { useChannelProgram, useChannelTimeline } from "./channel-data";
 import { ProgramPlayer } from "./program-player";
@@ -15,10 +14,13 @@ export function shouldRetryControllerClaim(status:number|null){
 export function OutputSource({ channel }: { channel: string }) {
   const data = useChannelTimeline(channel);
   const program = useChannelProgram(channel);
+  const programReady = program.state === "ready" && !!program.value.playlistUrl;
   const [hasStarted, setHasStarted] = useState(false);
   const [controller, setController] = useState<ControllerSession | null>(null);
-  const [controllerNeedsLogin,setControllerNeedsLogin]=useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [playheadSeconds,setPlayheadSeconds]=useState(0);
+  const [scrubSeconds,setScrubSeconds]=useState(0);
+  const [scrubbing,setScrubbing]=useState(false);
   const notifyPlaybackNeedsUserStart=useCallback(()=>setHasStarted(false),[]);
   const sequence = useRef(0);
   const lastSentAt = useRef(0);
@@ -33,17 +35,15 @@ export function OutputSource({ channel }: { channel: string }) {
       const session=await apiFetch<SessionSummary>("/auth/session");
       const canControl=session.authenticated&&session.channels?.some(item=>item.login.toLowerCase()===channel.toLowerCase());
       if(!canControl){
-        setController(null);setControllerNeedsLogin(true);
+        setController(null);
         return;
       }
       const result = await apiFetch<ControllerSession>(`/channels/${encodeURIComponent(channel)}/playback/controller`, { method: "POST", body: JSON.stringify({ clientInstanceId: sessionInstanceId() }) });
       setController(result);
-      setControllerNeedsLogin(false);
     } catch (problem) {
       const message = displayProblem(problem);
       const status=problem instanceof ApiError?problem.status:null;
       setController(null);
-      setControllerNeedsLogin(!shouldRetryControllerClaim(status));
       if(shouldRetryControllerClaim(status))setError(message);
     }
   }, [channel]);
@@ -98,34 +98,55 @@ export function OutputSource({ channel }: { channel: string }) {
   },[controller?.canControl,hasStarted,tryClaimOutput]);
 
   const current = data.state === "ready" ? data.value.currentProgramItem : null;
+  const programSpans=program.state==="ready"?program.value.programSpans:[];
+  const programDuration=programSpans.reduce((maximum,span)=>Math.max(maximum,span.outputEndSeconds),0);
+  const programIdentity=program.state==="ready"?`${program.value.epoch}:${program.value.manifestRevision}`:"";
+  useEffect(()=>{
+    const video=document.querySelector(".output-player video") as HTMLVideoElement|null;
+    if(!video)return;
+    const update=()=>{if(!scrubbing)setPlayheadSeconds(video.currentTime)};
+    update();video.addEventListener("timeupdate",update);video.addEventListener("durationchange",update);
+    return()=>{video.removeEventListener("timeupdate",update);video.removeEventListener("durationchange",update)};
+  },[programIdentity,programReady,scrubbing]);
+  const seekTo=(seconds:number)=>{
+    const video=document.querySelector(".output-player video") as HTMLVideoElement|null;
+    if(!video||!Number.isFinite(seconds))return;
+    const target=Math.max(0,Math.min(programDuration,seconds));
+    video.currentTime=target;setPlayheadSeconds(target);setScrubSeconds(target);setScrubbing(false);
+    void video.play().then(()=>setHasStarted(true)).catch(()=>setError("Press Start program to play the selected clip."));
+  };
   useEffect(()=>{
     const marker=program.state==="ready"?program.value.playhead:null;
     if(!marker||!controller?.canControl||marker.controllerEpoch<=controller.controllerEpoch)return;
     queueMicrotask(()=>void tryClaimOutput());
   },[controller?.canControl,controller?.controllerEpoch,program,tryClaimOutput]);
-  const programReady = program.state === "ready" && !!program.value.playlistUrl;
   return (
     <main className="output-page">
-      <header className="output-topbar">
-        <Link href={`/channels/${encodeURIComponent(channel)}`} className="output-brand"><span className="brand-mark" aria-hidden="true"/>slop<span>together</span></Link>
-        <span className="output-channel">@{channel.toLowerCase()} · 16:9 PROGRAM</span>
-        <div className="output-status"><span className={`tiny-dot${programReady || current ? "" : " waiting-dot"}`} />{program.state==="ready"&&program.refreshError?"RECONNECTING · PLAYING BUFFERED VIDEO":controllerNeedsLogin ? "PUBLIC PREVIEW" : programReady ? "CONTINUOUS SOURCE READY" : data.state === "ready" && current ? "CLIP PREVIEW AVAILABLE" : data.state === "error" || program.state === "error" ? "SOURCE UNAVAILABLE" : "WAITING FOR APPROVED CONTENT"}</div>
-      </header>
       <section className="output-stage" aria-label="Channel program output">
-        <div className="output-player">
+        <div className={`output-player${hasStarted?" output-started":""}`}>
           <ProgramPlayer program={program.state === "ready" ? program.value : null} fallbackItem={current} clean autoPlayIntent={hasStarted}
             autoInterruptId={data.state==="ready"&&data.value.subscriberInterrupts?.current?.state==="ready"?data.value.subscriberInterrupts.current.id:undefined}
             canAutoInterrupt={controller?.canControl===true}
-            onNeedsUserStart={notifyPlaybackNeedsUserStart} onProgress={(event) => { latestPosition.current = event; void reportPosition(event); }} />
-          {!hasStarted && (programReady || current) ? <div className="output-start-gate"><div className="start-mark">✦</div><strong>Ready when you are.</strong><span>{programReady ? "Start the continuous browser program, then capture this window in OBS." : "Start a clip preview while the continuous program is being prepared."}</span><button className="button" onClick={async () => { await tryClaimOutput(); const video = document.querySelector(".output-player video") as HTMLVideoElement | null; if (video) await video.play().then(() => setHasStarted(true)).catch(() => setError("Press play in this window to start audio and video.")); }}>Start program <span aria-hidden="true">▶</span></button></div> : null}
-          {data.state === "error" || error ? <div className="output-error" role="status">{error ?? (data.state === "error" ? data.error : "")}</div> : null}
-          {program.state === "error" && !current ? <div className="output-error" role="status">{program.error}<button className="button secondary small" onClick={program.retry}>Retry source</button></div> : null}
-          {data.state === "ready" && !current && !programReady ? <div className="output-awaiting"><div className="start-mark">◌</div><strong>Waiting for the next approved scene</strong><span>Queue, review and story status stay in the separate control room.</span></div> : null}
+            onStarted={()=>setHasStarted(true)} onNeedsUserStart={notifyPlaybackNeedsUserStart} onProgress={(event) => { latestPosition.current = event; void reportPosition(event); }} />
+          {programReady&&programDuration>0?<div className="output-scrubber" aria-label="Program clip timeline">
+            <div className="output-scrubber-row"><span>{formatProgramTime(scrubbing?scrubSeconds:playheadSeconds)}</span><input type="range" min="0" max={programDuration} step="0.1" value={Math.min(programDuration,scrubbing?scrubSeconds:playheadSeconds)} aria-label="Seek through clips"
+              onPointerDown={()=>{setScrubSeconds(playheadSeconds);setScrubbing(true)}} onChange={event=>{setScrubbing(true);setScrubSeconds(Number(event.currentTarget.value))}}
+              onPointerUp={event=>seekTo(Number(event.currentTarget.value))} onKeyUp={event=>seekTo(Number(event.currentTarget.value))} onBlur={event=>{if(scrubbing)seekTo(Number(event.currentTarget.value))}} />
+              <span>{formatProgramTime(programDuration)}</span></div>
+            <div className="output-clip-jumps">{programSpans.map((span,index)=><button type="button" key={span.itemId} aria-label={`Jump to clip ${index+1}`} title={`Clip ${index+1} · ${formatProgramTime(span.outputStartSeconds)}`} onClick={()=>seekTo(span.outputStartSeconds)}>{String(index+1).padStart(2,"0")}</button>)}</div>
+          </div>:null}
+          {!hasStarted && (programReady || current) ? <div className="output-start-gate"><button type="button" className="output-center-toggle" aria-label="Start program" onClick={async () => { await tryClaimOutput(); const video = document.querySelector(".output-player video") as HTMLVideoElement | null; if (video) await video.play().then(() => setHasStarted(true)).catch(() => setError("Playback is unavailable.")); }}>▶</button></div> : null}
+          {data.state === "ready" && !current && !programReady ? <div className="output-awaiting" aria-label="Waiting for media"/> : null}
         </div>
       </section>
-      <footer className="output-footer"><span>SL<span className="output-star">✦</span> LIVE STORY SOURCE</span><span>{programReady ? "CONTINUOUS HLS · CAPTURE THIS WINDOW IN OBS" : current?.kind === "subscriber_interrupt" ? `SUBSCRIBER MOMENT · ${current.subscriberLabel ?? "COMMUNITY"}` : "CAPTURE THIS WINDOW IN OBS"}</span></footer>
+      <span className="visually-hidden" role="status">{error??(data.state==="error"?data.error:program.state==="error"?program.error:"")}</span>
     </main>
   );
+}
+
+function formatProgramTime(seconds:number){
+  const value=Math.max(0,Math.floor(Number.isFinite(seconds)?seconds:0));
+  return `${Math.floor(value/60)}:${String(value%60).padStart(2,"0")}`;
 }
 
 function sessionInstanceId() {

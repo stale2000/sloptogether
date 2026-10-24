@@ -139,6 +139,22 @@ describe("channel access boundaries",()=>{
     expect(mocks.transaction).not.toHaveBeenCalled();
   });
 
+  it("checks ballot bans on the held transaction client",async()=>{
+    const client={query:vi.fn(async(sql:string)=>{
+      if(sql.includes("FOR UPDATE OF e"))return {rows:[{id:"election",closes_at:new Date(Date.now()+60_000),state:"open",twitch_channel_id:"123"}],rowCount:1};
+      if(sql.startsWith("SELECT 1 FROM sloptogether.bans"))return {rows:[],rowCount:0};
+      if(sql.includes("FROM sloptogether.proposals"))return {rows:[{}],rowCount:1};
+      if(sql.includes("INSERT INTO sloptogether.ballots"))return {rows:[{revision:1}],rowCount:1};
+      return {rows:[],rowCount:1};
+    })};
+    mocks.transaction.mockImplementation(async(callback:(value:typeof client)=>Promise<unknown>)=>callback(client));
+    const voter={kind:"session",session:{id:"voter-session",twitchUserId:"7",twitchLogin:"viewer",displayName:"Viewer",accessToken:"token",scopes:[],expiresAt:new Date(Date.now()+60_000)}} as RequestPrincipal;
+
+    await expect(castBallot("election","proposal",voter,"website")).resolves.toEqual({electionId:"election",choiceId:"proposal",state:"recorded"});
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("FROM sloptogether.bans"))).toBe(true);
+    expect(mocks.query).not.toHaveBeenCalled();
+  });
+
   it("rejects a paired Windows GPU claim before the API can lease work",async()=>{
     mocks.requestPrincipal.mockResolvedValue({kind:"worker-key",worker:{keyId:"windows-worker",issuingTwitchUserId:"2",channelId:"123",scopes:["worker:upscale"],roles:["upscale"],recipes:[],paired:true,platform:"windows"}});
     await expect(claimWorkerLease(new Request("https://clips.gg/sloptogether/api/v1/workers/leases?role=upscale",{method:"POST"})))

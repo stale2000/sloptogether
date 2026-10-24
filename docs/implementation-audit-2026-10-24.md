@@ -55,9 +55,9 @@ Priority P1 blocks the requested operational milestone or safe production use. P
 
 ### P1 — The old runtime database credential is exposed in migration history
 
-The scoped login was created using a password-setting statement submitted through `apply_migration`. Supabase migration history still stores that old password statement, and it passed through the tool transcript. **That password has now been rotated**; the replacement is in a user-only mode-0600 local file and was not added to migration history. The local migration source creates the role as `NOLOGIN`; deployment still needs to set a login password through its secret manager. Direct PostgreSQL login could not be verified because this host could not resolve the Supabase database hostname.
+The scoped login was created using a password-setting statement submitted through `apply_migration`. Supabase migration history still stores that old password statement, and it passed through the tool transcript. **That password has now been rotated**; the replacement is in a user-only mode-0600 local file and was not added to migration history. Migration `019` now enables the scoped role's login while preserving its restricted privileges; deployment still needs to set the password through its secret manager. Direct PostgreSQL login could not be verified because this host could not resolve the Supabase database hostname.
 
-**Required result:** put the replacement only in the deployment secret manager, verify old-password rejection and new-login access from the actual runtime environment, and document the role-provisioning step. Do not print the replacement or delete unrelated migration history/tables.
+**Required result:** apply migration `019`, put the replacement only in the deployment secret manager, verify old-password rejection and new-login access from the actual runtime environment. Do not print the replacement or delete unrelated migration history/tables.
 
 ### P1 — Custom Fal worker deployment is incomplete
 

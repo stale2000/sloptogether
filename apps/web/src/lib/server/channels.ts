@@ -1,4 +1,4 @@
-import type { QueryResultRow } from "pg";
+import type { PoolClient, QueryResultRow } from "pg";
 import { contributionModeSchema } from "@sloptogether/contracts";
 import { ApiError } from "./http";
 import { query } from "./db";
@@ -64,12 +64,12 @@ export async function listPublicChannels(limit=30){
   return {channels:result.rows.map(channel=>({twitchChannelId:channel.twitch_channel_id,twitchLogin:channel.twitch_login,displayName:channel.display_name}))};
 }
 
-export async function isBanned(channelId:string,userId:string):Promise<boolean>{
-  const result=await query(
+export async function isBanned(channelId:string,userId:string,client?:PoolClient):Promise<boolean>{
+  const sql=
     `SELECT 1 FROM sloptogether.bans WHERE twitch_user_id=$1 AND revoked_at IS NULL
-      AND (expires_at IS NULL OR expires_at>now()) AND (scope='global' OR twitch_channel_id=$2) LIMIT 1`,
-    [userId,channelId],
-  );
+      AND (expires_at IS NULL OR expires_at>now()) AND (scope='global' OR twitch_channel_id=$2) LIMIT 1`;
+  const values=[userId,channelId];
+  const result=client?await client.query(sql,values):await query(sql,values);
   return (result.rowCount??0)>0;
 }
 

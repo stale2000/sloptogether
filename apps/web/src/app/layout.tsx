@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
 import "./homepage.css";
+import "./output-scrubber.css";
 
 export const metadata: Metadata = {
   title: {
