@@ -29,6 +29,12 @@ export interface TimelinePayload extends PublicTimelineResponse {
   };
 }
 
+const localDemoTimeline:TimelinePayload={
+  channel:{twitchChannelId:"localdemo",twitchLogin:"localdemo",displayName:"Local demo",visibility:"unlisted"},
+  segments:[],elections:[],currentProgramItem:null,subscriberInterrupts:{enabled:false,current:null},
+  playback:{offsetSeconds:0,sequence:0,sourceController:"offline"},
+};
+
 export type Loadable<T> =
   | { state: "loading" }
   | { state: "ready"; value: T; refreshError?: string }
@@ -60,6 +66,7 @@ export function useChannelTimeline(channel: string): Loadable<TimelinePayload> {
   }, []);
 
   useEffect(() => {
+    if(isLocalDemoFallbackEnabled(channel))return;
     let stopped = false;
     let channelMissing = false;
     let reading=false;
@@ -106,6 +113,7 @@ export function useChannelTimeline(channel: string): Loadable<TimelinePayload> {
     };
   }, [channel, revision]);
 
+  if(isLocalDemoFallbackEnabled(channel))return {state:"ready",value:localDemoTimeline};
   const currentValue=value?.channel===channel?value.payload:null;
   const currentError=error?.channel===channel?error.message:null;
   if (currentValue) return { state: "ready", value:currentValue, ...(currentError?{refreshError:currentError}:{}) };
@@ -120,6 +128,15 @@ export function useChannelProgram(channel: string): Loadable<ProgramManifest> {
   const retry = useCallback(() => { setError(null); setRevision((n) => n + 1); }, []);
 
   useEffect(() => {
+    if(isLocalDemoFallbackEnabled(channel)){
+      let stopped=false;
+      void loadLocalDemoProgram().then(manifest=>{
+        if(!stopped){setValue({channel,manifest});setError(null);}
+      }).catch(problem=>{
+        if(!stopped)setError({channel,message:displayProblem(problem)});
+      });
+      return()=>{stopped=true};
+    }
     let stopped = false;
     let channelMissing = false;
     let reading = false;
