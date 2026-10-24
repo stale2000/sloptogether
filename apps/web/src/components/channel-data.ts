@@ -34,6 +34,21 @@ export type Loadable<T> =
   | { state: "ready"; value: T; refreshError?: string }
   | { state: "error"; error: string; retry: () => void };
 
+export function isLocalDemoFallbackEnabled(channel:string,enabled=process.env.NEXT_PUBLIC_LOCAL_DEMO_ENABLED){
+  return channel==="localdemo"&&enabled==="true";
+}
+
+async function loadLocalDemoProgram():Promise<ProgramManifest>{
+  const response=await fetch("/sloptogether/demo/localdemo/program.json",{cache:"force-cache"});
+  if(!response.ok)throw new Error("The static local demo playlist is unavailable.");
+  const body=await response.json() as Partial<ProgramManifest>;
+  if(body.playlistUrl!=="/sloptogether/demo/localdemo/playlist.m3u8"||body.mimeType!=="application/vnd.apple.mpegurl"
+    ||!Number.isSafeInteger(body.epoch)||!Number.isSafeInteger(body.manifestRevision)||!Array.isArray(body.programSpans)||body.programSpans.length!==4){
+    throw new Error("The static local demo manifest is invalid.");
+  }
+  return body as ProgramManifest;
+}
+
 export function useChannelTimeline(channel: string): Loadable<TimelinePayload> {
   const [revision, setRevision] = useState(0);
   const [value, setValue] = useState<{channel:string;payload:TimelinePayload}|null>(null);
@@ -72,7 +87,9 @@ export function useChannelTimeline(channel: string): Loadable<TimelinePayload> {
         }
       } catch (problem) {
         if (!stopped && !(problem instanceof DOMException && problem.name === "AbortError")) {
-          if(problem instanceof ApiError&&problem.status===404&&problem.code==="channel_not_found")channelMissing=true;
+          if(problem instanceof ApiError&&problem.status===404&&problem.code==="channel_not_found"){
+            channelMissing=true;
+          }
           setError({channel,message:displayProblem(problem)});
         }
       }finally{reading=false}
@@ -137,7 +154,16 @@ export function useChannelProgram(channel: string): Loadable<ProgramManifest> {
         if (!stopped) { setValue({channel,manifest:body}); setError(null); }
       } catch (problem) {
         if (!stopped && !(problem instanceof DOMException && problem.name === "AbortError")) {
-          if(problem instanceof ApiError&&problem.status===404&&problem.code==="channel_not_found")channelMissing=true;
+          if(problem instanceof ApiError&&problem.status===404&&problem.code==="channel_not_found"){
+            channelMissing=true;
+            if(isLocalDemoFallbackEnabled(channel)){
+              try{
+                const manifest=await loadLocalDemoProgram();
+                if(!stopped){setValue({channel,manifest});setError(null);}
+                return;
+              }catch{/* Keep the original missing-channel state if fixture packaging is incomplete. */}
+            }
+          }
           setError({channel,message:displayProblem(problem)});
         }
       } finally { reading = false; }

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError,apiFetch, displayProblem, type SessionSummary } from "./api";
-import { useChannelProgram, useChannelTimeline } from "./channel-data";
+import { isLocalDemoFallbackEnabled,useChannelProgram,useChannelTimeline } from "./channel-data";
 import { ProgramPlayer } from "./program-player";
 
 interface ControllerSession { controllerEpoch: number; leaseId?: string; canControl: boolean }
@@ -101,6 +101,7 @@ export function OutputSource({ channel }: { channel: string }) {
   const programSpans=program.state==="ready"?program.value.programSpans:[];
   const programDuration=programSpans.reduce((maximum,span)=>Math.max(maximum,span.outputEndSeconds),0);
   const programIdentity=program.state==="ready"?`${program.value.epoch}:${program.value.manifestRevision}`:"";
+  const localDemoPlaying=program.state==="ready"&&isLocalDemoFallbackEnabled(channel)&&program.value.playlistUrl==="/sloptogether/demo/localdemo/playlist.m3u8";
   useEffect(()=>{
     const video=document.querySelector(".output-player video") as HTMLVideoElement|null;
     if(!video)return;
@@ -139,7 +140,7 @@ export function OutputSource({ channel }: { channel: string }) {
           {data.state === "ready" && !current && !programReady ? <div className="output-awaiting" aria-label="Waiting for media"/> : null}
         </div>
       </section>
-      <span className="visually-hidden" role="status">{error??(data.state==="error"?data.error:program.state==="error"?program.error:"")}</span>
+      <span className="visually-hidden" role="status">{error??(localDemoPlaying?"":data.state==="error"?data.error:program.state==="error"?program.error:"")}</span>
     </main>
   );
 }
