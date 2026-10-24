@@ -1,0 +1,9 @@
+-r comfyui-requirements.txt
+fal
+# Preserve the reviewed CUDA 13 host package tuple inherited from the base image.
+torch==2.14.0+cu130
+torchvision==0.29.0+cu130
+torchaudio==2.11.0+cu130
+comfy-kitchen @ https://files.pythonhosted.org/packages/28/0f/c30f26d33bfa2685433a7d3993d438dcff9f6d97f0b8b531f9a6793562d2/comfy_kitchen-0.2.34-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl#sha256=71ba8bc72b54f2914b5e15d210eea2e25931006cf57ca14d033ae4050f4b0d1a
+comfy-aimdo==0.5.3
+triton==3.8.0

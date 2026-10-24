@@ -1,0 +1,2409 @@
+{
+  "schema": "sloptogether-comfystream-import/1",
+  "source_repository": "/Users/stale2000/comfy/comfystream",
+  "source_git_head": "090e4557fab9cf5ca045e3318e7287b4257bd119",
+  "source_worktree_dirty": true,
+  "source_dirty_path_count": 100,
+  "artifact_profile": "vast",
+  "artifact_digest": "9a2d5d19fb22b7e55d29c8e6048c4c421c5b73b044b7cc010188efe7df9ccaef",
+  "artifact_layout": "runtime/",
+  "notes": [
+    "Only copied five-step contract test repository-root location adapted.",
+    "Workflow API reference graphs produced from upstream pure builders without GPU or network execution.",
+    "Dirty source snapshot is identified by per-file hashes; git HEAD alone does not identify these exact bytes.",
+    "Import manifest covers vendored source and derived workflow files; README is import documentation.",
+    "Imported source files retain their upstream digests; local source edits are identified by local-patches.json. The SlopTogether H3 Ada FP8 profile patch is not represented as upstream code.",
+    "The SoL upscale attempt-output scope patch is identified in local-patches.json; worker cleanup removes the exact attempt directory after download.",
+    "SoL intermediate outputs and sidecars are scoped to the server-issued job attempt and removed after download."
+  ],
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "a4d190a3704dedd13cb375ca9ab9fafe58e33390545bbd1f59701db8b69451ac",
+      "bytes": 1083,
+      "source_path": "LICENSE",
+      "source_sha256": "a4d190a3704dedd13cb375ca9ab9fafe58e33390545bbd1f59701db8b69451ac",
+      "byte_preserved": true
+    },
+    {
+      "path": "licenses/deploy/custom_nodes/comfystream_sol_refiner_h3/NOTICE.md",
+      "sha256": "889185eb8455dbe9eedf1eafbefd47a1d8f90a6c51873e79bab62ac9f55c55c0",
+      "bytes": 685,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/NOTICE.md",
+      "source_sha256": "889185eb8455dbe9eedf1eafbefd47a1d8f90a6c51873e79bab62ac9f55c55c0",
+      "byte_preserved": true
+    },
+    {
+      "path": "licenses/deploy/custom_nodes/fasth3_deploy/LICENSE",
+      "sha256": "145c62d7d3215de61ef99aeeb571ba1f189b9eb9fb3fa948420643ea547878e4",
+      "bytes": 1066,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/LICENSE",
+      "source_sha256": "145c62d7d3215de61ef99aeeb571ba1f189b9eb9fb3fa948420643ea547878e4",
+      "byte_preserved": true
+    },
+    {
+      "path": "licenses/deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/LICENSE",
+      "sha256": "5c1193672ec9d8d0099251f0f8c22add8643878c73992686d15411bcd6921434",
+      "bytes": 11357,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/LICENSE",
+      "source_sha256": "5c1193672ec9d8d0099251f0f8c22add8643878c73992686d15411bcd6921434",
+      "byte_preserved": true
+    },
+    {
+      "path": "licenses/deploy/custom_nodes/fasth3_deploy/native_attention/LICENSE",
+      "sha256": "cd1c9ea1573c9047e9b5a3676ecc1c8f755e56f249ac1ebd8b5ceda7899037da",
+      "bytes": 11364,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/LICENSE",
+      "source_sha256": "cd1c9ea1573c9047e9b5a3676ecc1c8f755e56f249ac1ebd8b5ceda7899037da",
+      "byte_preserved": true
+    },
+    {
+      "path": "licenses/deploy/custom_nodes/fasth3_deploy/native_attention/NOTICE",
+      "sha256": "3176448b40d05d14f8b09a248d125a9a3680e18ef54c631984d4d8acb68c64d5",
+      "bytes": 5767,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/NOTICE",
+      "source_sha256": "3176448b40d05d14f8b09a248d125a9a3680e18ef54c631984d4d8acb68c64d5",
+      "byte_preserved": true
+    },
+    {
+      "path": "licenses/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/LICENSE.apache-2.0",
+      "sha256": "cd1c9ea1573c9047e9b5a3676ecc1c8f755e56f249ac1ebd8b5ceda7899037da",
+      "bytes": 11364,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/LICENSE.apache-2.0",
+      "source_sha256": "cd1c9ea1573c9047e9b5a3676ecc1c8f755e56f249ac1ebd8b5ceda7899037da",
+      "byte_preserved": true
+    },
+    {
+      "path": "licenses/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/THIRD_PARTY_NOTICES.md",
+      "sha256": "d2ef9f1a1b1a438f8c73b11d5e4faa94c9ff32b5cfd0b9f68bfe8921dc5540db",
+      "bytes": 793,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/THIRD_PARTY_NOTICES.md",
+      "source_sha256": "d2ef9f1a1b1a438f8c73b11d5e4faa94c9ff32b5cfd0b9f68bfe8921dc5540db",
+      "byte_preserved": true
+    },
+    {
+      "path": "licenses/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/LICENSE.flash-attention",
+      "sha256": "8c9ccb96c065e706135b6cbad279b721da6156e51f3a5f27c6b3329af9416d73",
+      "bytes": 1558,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/LICENSE.flash-attention",
+      "source_sha256": "8c9ccb96c065e706135b6cbad279b721da6156e51f3a5f27c6b3329af9416d73",
+      "byte_preserved": true
+    },
+    {
+      "path": "licenses/deploy/custom_nodes/fasth3_deploy/vendor/fused_mlp/LICENSE",
+      "sha256": "4ca7234fc95fc011701cdf061c91424b348a195f1fe4b54dec579131495952ae",
+      "bytes": 1068,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/vendor/fused_mlp/LICENSE",
+      "source_sha256": "4ca7234fc95fc011701cdf061c91424b348a195f1fe4b54dec579131495952ae",
+      "byte_preserved": true
+    },
+    {
+      "path": "reference/deploy/GPU-ENVIRONMENTS.md",
+      "sha256": "2f9e97c811764ae5ec441182d8eb9b29dd21bba4123e4973ca1bad24ea761df9",
+      "bytes": 5443,
+      "source_path": "deploy/GPU-ENVIRONMENTS.md",
+      "source_sha256": "2f9e97c811764ae5ec441182d8eb9b29dd21bba4123e4973ca1bad24ea761df9",
+      "byte_preserved": true
+    },
+    {
+      "path": "reference/deploy/fal/fasth3-b1/Dockerfile",
+      "sha256": "1ad2ccbbaa2245665f11b1a79d18b1efa4b28717b243d228604d5cf0310fa272",
+      "bytes": 4719,
+      "source_path": "deploy/fal/fasth3-b1/Dockerfile",
+      "source_sha256": "1ad2ccbbaa2245665f11b1a79d18b1efa4b28717b243d228604d5cf0310fa272",
+      "byte_preserved": true
+    },
+    {
+      "path": "reference/deploy/fal/fasth3-b1/README.md",
+      "sha256": "7055fbec5c5bed4ea52f4564024a41e357e3dca02839c7a89a5f5f3fe14cc83d",
+      "bytes": 2642,
+      "source_path": "deploy/fal/fasth3-b1/README.md",
+      "source_sha256": "7055fbec5c5bed4ea52f4564024a41e357e3dca02839c7a89a5f5f3fe14cc83d",
+      "byte_preserved": true
+    },
+    {
+      "path": "reference/deploy/fal/h3-sol-upscaler/Dockerfile",
+      "sha256": "3df4e8a3a78461bd688b883f8e31b3b327255f102c359c4df9abe7cc3ea43d50",
+      "bytes": 4503,
+      "source_path": "deploy/fal/h3-sol-upscaler/Dockerfile",
+      "source_sha256": "3df4e8a3a78461bd688b883f8e31b3b327255f102c359c4df9abe7cc3ea43d50",
+      "byte_preserved": true
+    },
+    {
+      "path": "reference/docs/architecture/worker-artifacts.md",
+      "sha256": "3e19c2a9abcc5bd98a2052445f49b972fe821436046626531f08daa93317893b",
+      "bytes": 5581,
+      "source_path": "docs/architecture/worker-artifacts.md",
+      "source_sha256": "3e19c2a9abcc5bd98a2052445f49b972fe821436046626531f08daa93317893b",
+      "byte_preserved": true
+    },
+    {
+      "path": "reference/scripts/prepare_fasth3_fal_context.py",
+      "sha256": "116409e4f4fa949aff5e39303100f6ab2ce8418b5e3902358287934069f349f7",
+      "bytes": 13084,
+      "source_path": "scripts/prepare_fasth3_fal_context.py",
+      "source_sha256": "116409e4f4fa949aff5e39303100f6ab2ce8418b5e3902358287934069f349f7",
+      "byte_preserved": true
+    },
+    {
+      "path": "reference/scripts/prepare_worker_fal_context.py",
+      "sha256": "2c6cbba070d1933ee0ab48d79b7881bebe1d3a0c0d7cbf55b22a1dd949f22198",
+      "bytes": 1147,
+      "source_path": "scripts/prepare_worker_fal_context.py",
+      "source_sha256": "2c6cbba070d1933ee0ab48d79b7881bebe1d3a0c0d7cbf55b22a1dd949f22198",
+      "byte_preserved": true
+    },
+    {
+      "path": "reference/tests/json_test_support.py",
+      "sha256": "753048168d38608c051a371f45a99c8aa4f4bcafa5452a7008804e76c9d4d39d",
+      "bytes": 1374,
+      "source_path": "tests/json_test_support.py",
+      "source_sha256": "753048168d38608c051a371f45a99c8aa4f4bcafa5452a7008804e76c9d4d39d",
+      "byte_preserved": true
+    },
+    {
+      "path": "reference/tests/test_fasth3_trim_5step_contract.py",
+      "sha256": "8dc3284990acc0c75981db6052c566ae6ef2ca5e03f4f88a15729f146bd892fe",
+      "bytes": 703,
+      "source_path": "tests/test_fasth3_trim_5step_contract.py",
+      "source_sha256": "3f829a08a00735be42d83455c765fc04d343426e7d9f7cd33dd585780fe35096",
+      "byte_preserved": false
+    },
+    {
+      "path": "reference/tests/test_worker_artifact.py",
+      "sha256": "f8c12693cfd3dc9c25b0892b05055c179070e90a350c61ba7324cd051905e794",
+      "bytes": 12698,
+      "source_path": "tests/test_worker_artifact.py",
+      "source_sha256": "f8c12693cfd3dc9c25b0892b05055c179070e90a350c61ba7324cd051905e794",
+      "byte_preserved": true
+    },
+    {
+      "path": "reference/workflows/provenance.json",
+      "sha256": "c46197f96631ebc544ffe7343ca538e34e70babe9d23014dab1ff43cb551228b",
+      "bytes": 429,
+      "source_path": null,
+      "source_sha256": null,
+      "byte_preserved": null
+    },
+    {
+      "path": "reference/workflows/sol-upscale-standard.api.json",
+      "sha256": "e0b4949fbbc02e31b0dc697fc2bedc5a7a1efe57d5d96fe908013d89a3bf8b8c",
+      "bytes": 1086,
+      "source_path": null,
+      "source_sha256": null,
+      "byte_preserved": null
+    },
+    {
+      "path": "reference/workflows/trim-five-step-first-last-frame.api.json",
+      "sha256": "857097559f74365aab738a6eabcf5494d519eaac4744964d0c9b05894221725b",
+      "bytes": 3556,
+      "source_path": null,
+      "source_sha256": null,
+      "byte_preserved": null
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_drama3/__init__.py",
+      "sha256": "75aa51058bd0aff013477269db5d048941dfec1c7870fa559419e1f7d2bebc4e",
+      "bytes": 487,
+      "source_path": "deploy/custom_nodes/comfystream_drama3/__init__.py",
+      "source_sha256": "75aa51058bd0aff013477269db5d048941dfec1c7870fa559419e1f7d2bebc4e",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_drama3/install_runtime.py",
+      "sha256": "d7c56cb38b9a79450dface92f4f027642d5788e81bd5e3cf604cf7a451d9946a",
+      "bytes": 6626,
+      "source_path": "deploy/custom_nodes/comfystream_drama3/install_runtime.py",
+      "source_sha256": "d7c56cb38b9a79450dface92f4f027642d5788e81bd5e3cf604cf7a451d9946a",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_drama3/node.py",
+      "sha256": "5fa4b27d8f74a064e84ee618c64a9d77e8d19f3d3f1841b50311cb23a29772e5",
+      "bytes": 18443,
+      "source_path": "deploy/custom_nodes/comfystream_drama3/node.py",
+      "source_sha256": "5fa4b27d8f74a064e84ee618c64a9d77e8d19f3d3f1841b50311cb23a29772e5",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/NOTICE.md",
+      "sha256": "889185eb8455dbe9eedf1eafbefd47a1d8f90a6c51873e79bab62ac9f55c55c0",
+      "bytes": 685,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/NOTICE.md",
+      "source_sha256": "889185eb8455dbe9eedf1eafbefd47a1d8f90a6c51873e79bab62ac9f55c55c0",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/PERFORMANCE.md",
+      "sha256": "9ec40f07711371c982d4bd7af7e8322b73c4ea82084d807a3353cfb5a96843c8",
+      "bytes": 41768,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/PERFORMANCE.md",
+      "source_sha256": "9ec40f07711371c982d4bd7af7e8322b73c4ea82084d807a3353cfb5a96843c8",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/README.md",
+      "sha256": "a80e495020ab304eaf8b8421b18858614ac430637d0dedae7201a7054892990f",
+      "bytes": 19482,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/README.md",
+      "source_sha256": "56491c7fa4bc2d4e6d9877ea73792a640c9c7edfbe725eb81c6df9f2dab4a8a8",
+      "byte_preserved": false,
+      "local_patch_id": "sloptogether-h3-ada-fp8-v1"
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/__init__.py",
+      "sha256": "a8d95de5b65ec1a7ae8f6f6eca55100ec464472d4b48c2631be5fdd1fdf18176",
+      "bytes": 798,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/__init__.py",
+      "source_sha256": "a8d95de5b65ec1a7ae8f6f6eca55100ec464472d4b48c2631be5fdd1fdf18176",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/cuda_transfers.py",
+      "sha256": "4d8b50b303a68729d27a4100dc4fe07947d32b00c70d5f6e0579ec4a6e43e12e",
+      "bytes": 6992,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/cuda_transfers.py",
+      "source_sha256": "4d8b50b303a68729d27a4100dc4fe07947d32b00c70d5f6e0579ec4a6e43e12e",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/decoder_optimizations.py",
+      "sha256": "394a21690e8605ba44a79bba5008b2f5c32cb139093378f4e919bba4757105f6",
+      "bytes": 10332,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/decoder_optimizations.py",
+      "source_sha256": "394a21690e8605ba44a79bba5008b2f5c32cb139093378f4e919bba4757105f6",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/distributed.py",
+      "sha256": "c797499a972c10a2d82cc522d1cfb77ea50566d4286bc43361660a8e913a8b3e",
+      "bytes": 11074,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/distributed.py",
+      "source_sha256": "c797499a972c10a2d82cc522d1cfb77ea50566d4286bc43361660a8e913a8b3e",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/fast_decoder.py",
+      "sha256": "2536bf22fddf910ef56ccc80d7314231b6d7a4d441851c4204166b14325e4d24",
+      "bytes": 9668,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/fast_decoder.py",
+      "source_sha256": "2536bf22fddf910ef56ccc80d7314231b6d7a4d441851c4204166b14325e4d24",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/fixed_conditioning.py",
+      "sha256": "09f384722cf56885cabc9347f516be8ac8fde6008a247e7a4e0e63ccd1ac1fe3",
+      "bytes": 8256,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/fixed_conditioning.py",
+      "source_sha256": "09f384722cf56885cabc9347f516be8ac8fde6008a247e7a4e0e63ccd1ac1fe3",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/fp8_optimizations.py",
+      "sha256": "b46f3ffe6f91ac480d0654082aad20190754dbc85939c9e30fabe5f39e9a97c4",
+      "bytes": 5740,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/fp8_optimizations.py",
+      "source_sha256": "bcc40d1963a6339dd663927d200fe7db6ee4130affe4a04d9651098cfdb9a01e",
+      "byte_preserved": false,
+      "local_patch_id": "sloptogether-h3-ada-fp8-v1"
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/hardware_profiles.py",
+      "sha256": "591d1ed8818276f1e503604a2362e0fbea61aa56da79e30fb3110947cd47d754",
+      "bytes": 1089,
+      "source_path": "local-patch/hardware_profiles.py",
+      "source_sha256": null,
+      "byte_preserved": false,
+      "local_patch_id": "sloptogether-h3-ada-fp8-v1"
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/install.py",
+      "sha256": "211ca04ffd7fac766e12f23d91fad5d9f8f0836417e169098e6109a0d4e204ea",
+      "bytes": 2915,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/install.py",
+      "source_sha256": "211ca04ffd7fac766e12f23d91fad5d9f8f0836417e169098e6109a0d4e204ea",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/install_runtime.sh",
+      "sha256": "08f8148a3a55b49c9c9f4a4ee2baf0bb767b135ba0a5a074af82cb9afbdcd31f",
+      "bytes": 4898,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/install_runtime.sh",
+      "source_sha256": "08f8148a3a55b49c9c9f4a4ee2baf0bb767b135ba0a5a074af82cb9afbdcd31f",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/licenses/Apache-2.0.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "bytes": 11358,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/licenses/Apache-2.0.txt",
+      "source_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/media_export.py",
+      "sha256": "889d8f6f1f809082fed2886bb3e37a2ffbdec4c573f6532ec570c392c91f647f",
+      "bytes": 18482,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/media_export.py",
+      "source_sha256": "889d8f6f1f809082fed2886bb3e37a2ffbdec4c573f6532ec570c392c91f647f",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/media_metadata.py",
+      "sha256": "5104c821c367bf8ea1ce230908527a43d6d3b64ebcadeccd325bba27499bc6c6",
+      "bytes": 7129,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/media_metadata.py",
+      "source_sha256": "5104c821c367bf8ea1ce230908527a43d6d3b64ebcadeccd325bba27499bc6c6",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/model_runtime.py",
+      "sha256": "cec9f0e06b9d9db20ea81c81a3a239e5e07a36968d44335bf9473b00241987d3",
+      "bytes": 27365,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/model_runtime.py",
+      "source_sha256": "0559ca1090e3ec20e567224aba9cc3e0cb9615d958455ffaf7b3b9c41e1357fa",
+      "byte_preserved": false,
+      "local_patch_id": "sloptogether-h3-ada-fp8-v1"
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/node.py",
+      "sha256": "4400dfb1aa7c9defbe653f733996e87c700fa38d27e5e89d98af7e0e35990bf9",
+      "bytes": 38553,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/node.py",
+      "source_sha256": "348a60027a885a968fabe4b4be1a8195a88af1adb4765c457f5118487bc44f91",
+      "byte_preserved": false,
+      "local_patch_ids": [
+        "sloptogether-h3-ada-fp8-v1",
+        "sloptogether-sol-attempt-output-scope-v1"
+      ]
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/sloptogether_scope.py",
+      "sha256": "3a8cc732739a7cc362f89a306f38259c3661a7474f7060cb0de5161e5b70e59d",
+      "bytes": 871,
+      "source_path": null,
+      "source_sha256": null,
+      "byte_preserved": false,
+      "local_patch_id": "sloptogether-sol-attempt-output-scope-v1"
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/nvfp4_checkpoint.py",
+      "sha256": "af43ee715c137bf04b4e0efc65eac083a07e8896da647ded2e90729560649cf2",
+      "bytes": 7884,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/nvfp4_checkpoint.py",
+      "source_sha256": "af43ee715c137bf04b4e0efc65eac083a07e8896da647ded2e90729560649cf2",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/prompt_cache.py",
+      "sha256": "4939bbee977107f24cd72c5e24582619a8701b2d86e62a21f3eab3d79bf5f1ff",
+      "bytes": 2036,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/prompt_cache.py",
+      "source_sha256": "4939bbee977107f24cd72c5e24582619a8701b2d86e62a21f3eab3d79bf5f1ff",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/protocol.py",
+      "sha256": "d8a0cc5853cb61c013b0c628df5a879617ce02553831d8b9a167908046981cf1",
+      "bytes": 22640,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/protocol.py",
+      "source_sha256": "8337a0a2516fa64c22b3f497f221bd7b6097d2a7c4141e816e81e90ec02db4bd",
+      "byte_preserved": false,
+      "local_patch_id": "sloptogether-h3-ada-fp8-v1"
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/requirements-host.in",
+      "sha256": "5293b018bc5183bdad5efb81a4ebcc3276d8be25663cb98aaa6f67f8ab739e8b",
+      "bytes": 234,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/requirements-host.in",
+      "source_sha256": "5293b018bc5183bdad5efb81a4ebcc3276d8be25663cb98aaa6f67f8ab739e8b",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/requirements-host.lock",
+      "sha256": "d01e6129bafc88ff551d8a4bd6d916802b2108b807c8a7d5a5052d5636747ff9",
+      "bytes": 36378,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/requirements-host.lock",
+      "source_sha256": "d01e6129bafc88ff551d8a4bd6d916802b2108b807c8a7d5a5052d5636747ff9",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/requirements-worker.in",
+      "sha256": "395483cee69cb07f61b4774d1153c943db68f906a8100b586c0caaa8190eb19e",
+      "bytes": 244,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/requirements-worker.in",
+      "source_sha256": "395483cee69cb07f61b4774d1153c943db68f906a8100b586c0caaa8190eb19e",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/requirements-worker.lock",
+      "sha256": "ce781d95543918a638c104f68d50dc03cd1b03eaecb552aebe2f1fd7a562c045",
+      "bytes": 58840,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/requirements-worker.lock",
+      "source_sha256": "ce781d95543918a638c104f68d50dc03cd1b03eaecb552aebe2f1fd7a562c045",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/requirements-worker.txt",
+      "sha256": "80193138f80f94b21800672ea6486e21988d7fe74d4d3d6eb6ff0cfbdff815f9",
+      "bytes": 235,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/requirements-worker.txt",
+      "source_sha256": "80193138f80f94b21800672ea6486e21988d7fe74d4d3d6eb6ff0cfbdff815f9",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/requirements.txt",
+      "sha256": "a5ebf2416c6cc2f58bdfec5c2ba04b646c4c2eb56abf37737750180aad80fad3",
+      "bytes": 168,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/requirements.txt",
+      "source_sha256": "a5ebf2416c6cc2f58bdfec5c2ba04b646c4c2eb56abf37737750180aad80fad3",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/runtime.json",
+      "sha256": "9813756666c20ef8b3c0a1dc12b165653ab7baeccb77277dd4862a1b333cf183",
+      "bytes": 657,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/runtime.json",
+      "source_sha256": "21b4d9f196a368dc81e18e6869993f06a19cbdfb453f5ca3a42b2b257283bc83",
+      "byte_preserved": false,
+      "local_patch_id": "sloptogether-h3-ada-fp8-v1"
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/shared_vae.py",
+      "sha256": "3a3bd05eda1e2c7a0dbf025db06dd0e119cedcea0e6b0821daf241bd26dfed6a",
+      "bytes": 31188,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/shared_vae.py",
+      "source_sha256": "3a3bd05eda1e2c7a0dbf025db06dd0e119cedcea0e6b0821daf241bd26dfed6a",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/shared_vae_plan.py",
+      "sha256": "581d1e95180ce151edb472064318ab975177b7865705a1e668cb624e870c7311",
+      "bytes": 6016,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/shared_vae_plan.py",
+      "source_sha256": "581d1e95180ce151edb472064318ab975177b7865705a1e668cb624e870c7311",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/shared_vae_worker.py",
+      "sha256": "1c18e309c4f57e27eec90aa3cfed20e7c6a58cbfc9ff8d0f31eb81446b6f5b0c",
+      "bytes": 1021,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/shared_vae_worker.py",
+      "source_sha256": "1c18e309c4f57e27eec90aa3cfed20e7c6a58cbfc9ff8d0f31eb81446b6f5b0c",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/sol_refiner_h3/__init__.py",
+      "sha256": "8d3c698f424be3846f3b6d3a5a73a59777a872aa5947cfbffcc1983c8486daa3",
+      "bytes": 266,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/sol_refiner_h3/__init__.py",
+      "source_sha256": "8d3c698f424be3846f3b6d3a5a73a59777a872aa5947cfbffcc1983c8486daa3",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/sol_refiner_h3/attention.py",
+      "sha256": "89baefa20a377dc070bef3dc8211c30ca9ed430294e9e653595171305d1e116f",
+      "bytes": 956,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/sol_refiner_h3/attention.py",
+      "source_sha256": "89baefa20a377dc070bef3dc8211c30ca9ed430294e9e653595171305d1e116f",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/sol_refiner_h3/encoder.py",
+      "sha256": "ab5cc48d58f692742ce3c6b7bf535fd1ad3a5907f9e7c74e1c7e9c4350206006",
+      "bytes": 979,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/sol_refiner_h3/encoder.py",
+      "source_sha256": "ab5cc48d58f692742ce3c6b7bf535fd1ad3a5907f9e7c74e1c7e9c4350206006",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/sol_refiner_h3/pipeline.py",
+      "sha256": "68b272b68b53a4e3e712eac361c950053d0676432af81c0a1dc4598dfd301eaa",
+      "bytes": 18826,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/sol_refiner_h3/pipeline.py",
+      "source_sha256": "68b272b68b53a4e3e712eac361c950053d0676432af81c0a1dc4598dfd301eaa",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/sol_refiner_h3/video_only.py",
+      "sha256": "785ad85a0b200499cb20002be033b25b8fdcb20dfd4ea5f38ab38ef68ff8aa0a",
+      "bytes": 9765,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/sol_refiner_h3/video_only.py",
+      "source_sha256": "785ad85a0b200499cb20002be033b25b8fdcb20dfd4ea5f38ab38ef68ff8aa0a",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/worker.py",
+      "sha256": "5ad6d538617c3b036fcac544d731e2426e5986b8075967f5138deafaefefda9d",
+      "bytes": 13845,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/worker.py",
+      "source_sha256": "35b7ec1834653f64405f65525b4cd8f6e3ca6f30d98103f7e1e3d0654090d2c3",
+      "byte_preserved": false,
+      "local_patch_id": "sloptogether-h3-ada-fp8-v1"
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/worker_client.py",
+      "sha256": "619520631a3fc6b7052bbaf3c8e403f9d8e0a7ed82b6f8b9c2a83d983bb8d79f",
+      "bytes": 11261,
+      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/worker_client.py",
+      "source_sha256": "619520631a3fc6b7052bbaf3c8e403f9d8e0a7ed82b6f8b9c2a83d983bb8d79f",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_worker_identity/__init__.py",
+      "sha256": "60c96153b64b32c57add9c7b9ee072f398d79476944d39655ac7e2a55e2afc9c",
+      "bytes": 2262,
+      "source_path": "deploy/custom_nodes/comfystream_worker_identity/__init__.py",
+      "source_sha256": "60c96153b64b32c57add9c7b9ee072f398d79476944d39655ac7e2a55e2afc9c",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/comfystream_worker_identity/artifact.json",
+      "sha256": "a7ab253b401cfea71d41287ce734d00360491f67d33da18e52b9a69bb979b87b",
+      "bytes": 4075,
+      "source_path": "deploy/custom_nodes/comfystream_worker_identity/artifact.json",
+      "source_sha256": null,
+      "byte_preserved": null
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/ADAPTIVE_ATTENTION_PLAN.md",
+      "sha256": "a7130969454a4a7b37937ac626d19b09dcd879acb0237573bff7bad3b2a6570f",
+      "bytes": 5374,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/ADAPTIVE_ATTENTION_PLAN.md",
+      "source_sha256": "a7130969454a4a7b37937ac626d19b09dcd879acb0237573bff7bad3b2a6570f",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/ADAPTIVE_ATTENTION_RESEARCH.md",
+      "sha256": "93abcfa802a5b24dc6e6b70b70d3ef0581db8db9e6f80a527b236da07dbaedf9",
+      "bytes": 3867,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/ADAPTIVE_ATTENTION_RESEARCH.md",
+      "source_sha256": "93abcfa802a5b24dc6e6b70b70d3ef0581db8db9e6f80a527b236da07dbaedf9",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/DMAD_BENCHMARK.md",
+      "sha256": "bf36187ea9c36a903bb7848a8d19262e5f6869ad8c58572a4df609cb4b2e4b44",
+      "bytes": 4311,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/DMAD_BENCHMARK.md",
+      "source_sha256": "bf36187ea9c36a903bb7848a8d19262e5f6869ad8c58572a4df609cb4b2e4b44",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/LICENSE",
+      "sha256": "145c62d7d3215de61ef99aeeb571ba1f189b9eb9fb3fa948420643ea547878e4",
+      "bytes": 1066,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/LICENSE",
+      "source_sha256": "145c62d7d3215de61ef99aeeb571ba1f189b9eb9fb3fa948420643ea547878e4",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/QUICKSTART.md",
+      "sha256": "3421ebddba01c9c9a2b86e6121049255f32af5ce58429fee66f722f764936bbf",
+      "bytes": 868,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/QUICKSTART.md",
+      "source_sha256": "3421ebddba01c9c9a2b86e6121049255f32af5ce58429fee66f722f764936bbf",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/README.md",
+      "sha256": "926a623b6add49c45ce008c70d187dca118a145a199a2755d02c91c37a9ffaa4",
+      "bytes": 4206,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/README.md",
+      "source_sha256": "926a623b6add49c45ce008c70d187dca118a145a199a2755d02c91c37a9ffaa4",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/__init__.py",
+      "sha256": "16f9fc40bfe29bd06db1bb942adf7e96e4c8cfbbd7a8f95bded2c0f5dc762c7c",
+      "bytes": 3366,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/__init__.py",
+      "source_sha256": "16f9fc40bfe29bd06db1bb942adf7e96e4c8cfbbd7a8f95bded2c0f5dc762c7c",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/README.md",
+      "sha256": "3f1c25248b1694b35f31fdb00798b69d0eb62b49fd7ae0b275f2a690cce196da",
+      "bytes": 14710,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/README.md",
+      "source_sha256": "3f1c25248b1694b35f31fdb00798b69d0eb62b49fd7ae0b275f2a690cce196da",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/__init__.py",
+      "sha256": "90c7cd84fec73cc081ac47eb57afd6802919b5bf77414333b90d9b3df1c242bb",
+      "bytes": 884,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/__init__.py",
+      "source_sha256": "90c7cd84fec73cc081ac47eb57afd6802919b5bf77414333b90d9b3df1c242bb",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/adapter.py",
+      "sha256": "a67fdc25934aeac97162d9c31867200b13a41eee70cb03b466c7cd8b49c987c5",
+      "bytes": 30638,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/adapter.py",
+      "source_sha256": "a67fdc25934aeac97162d9c31867200b13a41eee70cb03b466c7cd8b49c987c5",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/artifact.py",
+      "sha256": "a06dd7c5abbb79a20679dbb67edb9c9d36959c1f675bf8fbc73d97defec64131",
+      "bytes": 2338,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/artifact.py",
+      "source_sha256": "a06dd7c5abbb79a20679dbb67edb9c9d36959c1f675bf8fbc73d97defec64131",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/build.py",
+      "sha256": "1011e9a40b38d8827a0332d55787cbe2f251f6d9f08e86fcfc3525e209c0145c",
+      "bytes": 6091,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/build.py",
+      "source_sha256": "1011e9a40b38d8827a0332d55787cbe2f251f6d9f08e86fcfc3525e209c0145c",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/calibration.py",
+      "sha256": "f8f00eaab92e0b002dcb5acd7c7f83aa0c5006de91a5ca5975f7d062066df208",
+      "bytes": 9370,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/calibration.py",
+      "source_sha256": "f8f00eaab92e0b002dcb5acd7c7f83aa0c5006de91a5ca5975f7d062066df208",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/bindings.cpp",
+      "sha256": "5f4d5dcc6358957aa7103d5651623e86fdae3a75cd0e5a7e6e3243db7a22bfc3",
+      "bytes": 7689,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/bindings.cpp",
+      "source_sha256": "5f4d5dcc6358957aa7103d5651623e86fdae3a75cd0e5a7e6e3243db7a22bfc3",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/check.h",
+      "sha256": "1cd9425a5182b7c54758f6bc94b6cf01cad5ccf9bdd4dc499618f38c253c5cbe",
+      "bytes": 1858,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/check.h",
+      "source_sha256": "1cd9425a5182b7c54758f6bc94b6cf01cad5ccf9bdd4dc499618f38c253c5cbe",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/combined.cu",
+      "sha256": "a894b0e38e909231a1f88382b6a6cc5dc050dfa19d033680df19f19f757a81a8",
+      "bytes": 368,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/combined.cu",
+      "source_sha256": "a894b0e38e909231a1f88382b6a6cc5dc050dfa19d033680df19f19f757a81a8",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/combined_g4.cu",
+      "sha256": "85088fcb1193046de59ee799807678544c46abaa3cbb2fb3b80bb685458af3bd",
+      "bytes": 393,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/combined_g4.cu",
+      "source_sha256": "85088fcb1193046de59ee799807678544c46abaa3cbb2fb3b80bb685458af3bd",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/combined_mixed.cu",
+      "sha256": "13f99a51d7d8aedb0af159a60415f6a73f56fb5765998c22c24e89366cc46d93",
+      "bytes": 442,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/combined_mixed.cu",
+      "source_sha256": "13f99a51d7d8aedb0af159a60415f6a73f56fb5765998c22c24e89366cc46d93",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/combined_mixed_g4.cu",
+      "sha256": "9aa009390e06fea97fa4507286809d4b8c6e0cb52b7c077c17f1d87b20073190",
+      "bytes": 487,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/combined_mixed_g4.cu",
+      "source_sha256": "9aa009390e06fea97fa4507286809d4b8c6e0cb52b7c077c17f1d87b20073190",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/fp16.cu",
+      "sha256": "87329d7424ecb6e48255a0872ea0229f56df389b74ffc196557b11961e1643b0",
+      "bytes": 2283,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/fp16.cu",
+      "source_sha256": "87329d7424ecb6e48255a0872ea0229f56df389b74ffc196557b11961e1643b0",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/int8.cu",
+      "sha256": "008214c54bafe410261586af5bdd560b262dfd8979edddcd6ff09eb882d0615e",
+      "bytes": 320,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/int8.cu",
+      "source_sha256": "008214c54bafe410261586af5bdd560b262dfd8979edddcd6ff09eb882d0615e",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/int8_entry.cuh",
+      "sha256": "f312a116b54ce4710cc55d158df8951287d006b7339d042690902492ff12d3ee",
+      "bytes": 4919,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/int8_entry.cuh",
+      "source_sha256": "f312a116b54ce4710cc55d158df8951287d006b7339d042690902492ff12d3ee",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/mixed.cu",
+      "sha256": "7580b49f99ad66bfddf6f4072721a14cb402762e11ed30cc2e95cb127d05fe74",
+      "bytes": 351,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/mixed.cu",
+      "source_sha256": "7580b49f99ad66bfddf6f4072721a14cb402762e11ed30cc2e95cb127d05fe74",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/mixed_entry.cuh",
+      "sha256": "a951f73421411d208e8b4d3cb524819b1645438aaa4081aec9302e9fedbe0c0b",
+      "bytes": 8514,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/mixed_entry.cuh",
+      "source_sha256": "a951f73421411d208e8b4d3cb524819b1645438aaa4081aec9302e9fedbe0c0b",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/nvfp4.cu",
+      "sha256": "f113e9a951117956bac62bbae18344019ec0e4c08ff298a7c1f6d759917b4712",
+      "bytes": 5313,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/nvfp4.cu",
+      "source_sha256": "f113e9a951117956bac62bbae18344019ec0e4c08ff298a7c1f6d759917b4712",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/nvfp4_prepare.cu",
+      "sha256": "f4324de4215ed128628c361a3e806b128ee5b27ca0bb4bc1017445dea46157af",
+      "bytes": 22954,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/nvfp4_prepare.cu",
+      "source_sha256": "f4324de4215ed128628c361a3e806b128ee5b27ca0bb4bc1017445dea46157af",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/output_epilogue.cu",
+      "sha256": "01dbc141195e21747a5a30d51a49c8d8af7834c8fef5dbc6190bc93c770a3c06",
+      "bytes": 6983,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/output_epilogue.cu",
+      "source_sha256": "01dbc141195e21747a5a30d51a49c8d8af7834c8fef5dbc6190bc93c770a3c06",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/phase_assign.cu",
+      "sha256": "e73230cdb54ecc1cef59a0dcf93a6d2cf094cc6e8c56244cecc6c4035a8c4696",
+      "bytes": 23221,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/phase_assign.cu",
+      "source_sha256": "e73230cdb54ecc1cef59a0dcf93a6d2cf094cc6e8c56244cecc6c4035a8c4696",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/prepare.cu",
+      "sha256": "8838ef20c367601548cdd366f62571890494abfcd96949220fac6f3895481333",
+      "bytes": 23889,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/prepare.cu",
+      "source_sha256": "8838ef20c367601548cdd366f62571890494abfcd96949220fac6f3895481333",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/integration.py",
+      "sha256": "6bd465e778f9ed86cdc77d14c61f378b8696efe5040d90b850eaa601ab9d2aa5",
+      "bytes": 26995,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/integration.py",
+      "source_sha256": "6bd465e778f9ed86cdc77d14c61f378b8696efe5040d90b850eaa601ab9d2aa5",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/mixed.py",
+      "sha256": "0d8d2cf8fc498819dd8f35e30684df34ae647a6f44efaac037891273d5b6219a",
+      "bytes": 15736,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/mixed.py",
+      "source_sha256": "0d8d2cf8fc498819dd8f35e30684df34ae647a6f44efaac037891273d5b6219a",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/quota.py",
+      "sha256": "72cc3ce527195344a5f07ec45bc52139ed7e2c2b65e62cef2a9c66437a246678",
+      "bytes": 8465,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/quota.py",
+      "source_sha256": "72cc3ce527195344a5f07ec45bc52139ed7e2c2b65e62cef2a9c66437a246678",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/LICENSE",
+      "sha256": "5c1193672ec9d8d0099251f0f8c22add8643878c73992686d15411bcd6921434",
+      "bytes": 11357,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/LICENSE",
+      "source_sha256": "5c1193672ec9d8d0099251f0f8c22add8643878c73992686d15411bcd6921434",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/primitives/cp_async.cuh",
+      "sha256": "a8123e4889cd09ab615566cff11cb8d213e3c9b3e8577bff95c74ef329782390",
+      "bytes": 5100,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/primitives/cp_async.cuh",
+      "source_sha256": "a8123e4889cd09ab615566cff11cb8d213e3c9b3e8577bff95c74ef329782390",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/primitives/math.cuh",
+      "sha256": "69adc872c9848f69dec14975678ebd29ab48b23768a5a2c0208e5bf08d8f9219",
+      "bytes": 4623,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/primitives/math.cuh",
+      "source_sha256": "69adc872c9848f69dec14975678ebd29ab48b23768a5a2c0208e5bf08d8f9219",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/primitives/mma.cuh",
+      "sha256": "33fd410ef674b0c57e2b28e7dbb2ba3052dcc6187ab1fdc99610e192e8c8c169",
+      "bytes": 28096,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/primitives/mma.cuh",
+      "source_sha256": "33fd410ef674b0c57e2b28e7dbb2ba3052dcc6187ab1fdc99610e192e8c8c169",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/primitives/numeric_conversion.cuh",
+      "sha256": "d120bbfcedabc1b458652dbbda86bfde2077e5295cf5fb54340de62af08b7875",
+      "bytes": 4813,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/primitives/numeric_conversion.cuh",
+      "source_sha256": "d120bbfcedabc1b458652dbbda86bfde2077e5295cf5fb54340de62af08b7875",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/primitives/permuted_smem.cuh",
+      "sha256": "1caa86810ff0d99964b30b9b6ceba94b96af7edf9d988e05ba643cb27f8b6a3a",
+      "bytes": 7905,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/primitives/permuted_smem.cuh",
+      "source_sha256": "1caa86810ff0d99964b30b9b6ceba94b96af7edf9d988e05ba643cb27f8b6a3a",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/primitives/qattn/attn_utils.cuh",
+      "sha256": "4a1efba1db96ce5bef69e7c0a78a25f286a21df40e064fd61161f56f05586f6b",
+      "bytes": 37413,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/primitives/qattn/attn_utils.cuh",
+      "source_sha256": "4a1efba1db96ce5bef69e7c0a78a25f286a21df40e064fd61161f56f05586f6b",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/q64_attention.cuh",
+      "sha256": "798a9d6c1c71e4eb862ebbfc3270ffc6e9f3bd2b42e4756c1652124625e072e6",
+      "bytes": 62368,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/q64_attention.cuh",
+      "source_sha256": "798a9d6c1c71e4eb862ebbfc3270ffc6e9f3bd2b42e4756c1652124625e072e6",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/q64_attention_decl.cuh",
+      "sha256": "ef77b6cc7f3614fea5e5bf47697d5cd9c29acb54f1ab229186e0250774eed804",
+      "bytes": 6292,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/q64_attention_decl.cuh",
+      "source_sha256": "ef77b6cc7f3614fea5e5bf47697d5cd9c29acb54f1ab229186e0250774eed804",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/q64_attention_phase_composer.inl",
+      "sha256": "3717dcbab4e3242dfec819d6009b4c3b11931928953f756904459d3025295eac",
+      "bytes": 60437,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/q64_attention_phase_composer.inl",
+      "source_sha256": "3717dcbab4e3242dfec819d6009b4c3b11931928953f756904459d3025295eac",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/attention_execution.py",
+      "sha256": "28256045e8dc1341ae30f18c6d81ca7055ef8aa0d301e24547bf943dd0603497",
+      "bytes": 11975,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/attention_execution.py",
+      "source_sha256": "28256045e8dc1341ae30f18c6d81ca7055ef8aa0d301e24547bf943dd0603497",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/attention_options.py",
+      "sha256": "e9412b1f09e50131c2f74c26a9672f471369b74b20627dcbee77bb36da160e8f",
+      "bytes": 3265,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/attention_options.py",
+      "source_sha256": "e9412b1f09e50131c2f74c26a9672f471369b74b20627dcbee77bb36da160e8f",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/attention_policy.py",
+      "sha256": "89cdd3b88b43bfcf325e51962da188f5a8c61aeb1947e6da3f6bef0d4f3d1614",
+      "bytes": 1609,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/attention_policy.py",
+      "source_sha256": "89cdd3b88b43bfcf325e51962da188f5a8c61aeb1947e6da3f6bef0d4f3d1614",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/benchmark.py",
+      "sha256": "3f6760e7313f5fed0c473a3c5faa973895031ceefc311e90949d8e8b4e59f86a",
+      "bytes": 1852,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/benchmark.py",
+      "source_sha256": "3f6760e7313f5fed0c473a3c5faa973895031ceefc311e90949d8e8b4e59f86a",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/benchmark_audio.py",
+      "sha256": "02bfd24237748d6b606ca2d8d4dcc2635f54f1b6c577f18f26fff2f912206a8a",
+      "bytes": 4713,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/benchmark_audio.py",
+      "source_sha256": "02bfd24237748d6b606ca2d8d4dcc2635f54f1b6c577f18f26fff2f912206a8a",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/benchmark_clock.py",
+      "sha256": "a7815d84741801a310110e5a2282de1e77ce79985d70ba9580623139e9352a45",
+      "bytes": 5273,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/benchmark_clock.py",
+      "source_sha256": "a7815d84741801a310110e5a2282de1e77ce79985d70ba9580623139e9352a45",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/benchmark_output.py",
+      "sha256": "6b153f7f118156e772bdb3a16b4212c5f28049e874e9b1269c4616e0d2476002",
+      "bytes": 15849,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/benchmark_output.py",
+      "source_sha256": "6b153f7f118156e772bdb3a16b4212c5f28049e874e9b1269c4616e0d2476002",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/benchmark_report.py",
+      "sha256": "2bddaecd691f5729ccd6965e2be2c10d6c20c1983a4a1dc0ff2b8b9c36e39d8f",
+      "bytes": 17395,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/benchmark_report.py",
+      "source_sha256": "2bddaecd691f5729ccd6965e2be2c10d6c20c1983a4a1dc0ff2b8b9c36e39d8f",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/benchmark_sampler.py",
+      "sha256": "59c4c18b0d4f3cfe238c71196173835d0815b53dbb5c7eb5d14f5b6f36c21bd9",
+      "bytes": 32484,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/benchmark_sampler.py",
+      "source_sha256": "59c4c18b0d4f3cfe238c71196173835d0815b53dbb5c7eb5d14f5b6f36c21bd9",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/benchmark_video.py",
+      "sha256": "4b0337cbbe761d71fc01d72734754cef277190ea22897675bbdd214789d78038",
+      "bytes": 28607,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/benchmark_video.py",
+      "source_sha256": "4b0337cbbe761d71fc01d72734754cef277190ea22897675bbdd214789d78038",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/build_identity.py",
+      "sha256": "18d26df78c444b0500b1d4e702a22618f4652e259c6dd35c40f9a5df26659425",
+      "bytes": 2131,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/build_identity.py",
+      "source_sha256": "18d26df78c444b0500b1d4e702a22618f4652e259c6dd35c40f9a5df26659425",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/comfy-build.yaml",
+      "sha256": "7df14d27522f3d9153606777bb8bc974187ebe061bafecb6b651175f83cca0a7",
+      "bytes": 2938,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/comfy-build.yaml",
+      "source_sha256": "7df14d27522f3d9153606777bb8bc974187ebe061bafecb6b651175f83cca0a7",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/compact_output.py",
+      "sha256": "c66755682ee06151578a2b119d663286661813be4c42ef6b8ab231fc32eda65f",
+      "bytes": 38709,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/compact_output.py",
+      "source_sha256": "c66755682ee06151578a2b119d663286661813be4c42ef6b8ab231fc32eda65f",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/compile_vsa.py",
+      "sha256": "80d87dab057707fa0cb8e0aa7fb165253cbce602aabd21781913a71c437e6a77",
+      "bytes": 14065,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/compile_vsa.py",
+      "source_sha256": "80d87dab057707fa0cb8e0aa7fb165253cbce602aabd21781913a71c437e6a77",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/compiler.py",
+      "sha256": "d067c1e481d6d458ae8ac523c1c46b6a4de4ec5c7070be1189f84b203cb53a88",
+      "bytes": 1240,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/compiler.py",
+      "source_sha256": "d067c1e481d6d458ae8ac523c1c46b6a4de4ec5c7070be1189f84b203cb53a88",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/conditioning.py",
+      "sha256": "36aabf64a82dcffd6dbfa13929d5202d0ebd27dadc52b03ca48d4caefc605d9e",
+      "bytes": 7601,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/conditioning.py",
+      "source_sha256": "36aabf64a82dcffd6dbfa13929d5202d0ebd27dadc52b03ca48d4caefc605d9e",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/contract.py",
+      "sha256": "4323b3914c05513f689b0853f249d649e8c2736d7ad5825dec84335c7c09a2c4",
+      "bytes": 2188,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/contract.py",
+      "source_sha256": "4323b3914c05513f689b0853f249d649e8c2736d7ad5825dec84335c7c09a2c4",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/cute_sol.py",
+      "sha256": "12220e72133cba8d36a5e71e97deb41352d2f03b2f3accc4305eab3a022343f7",
+      "bytes": 13300,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/cute_sol.py",
+      "source_sha256": "12220e72133cba8d36a5e71e97deb41352d2f03b2f3accc4305eab3a022343f7",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/decoder_cache.py",
+      "sha256": "3b319a36445565ab0057246e6c6edbba7c6e3ea924f319524b248fe4b95a2a59",
+      "bytes": 9559,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/decoder_cache.py",
+      "source_sha256": "3b319a36445565ab0057246e6c6edbba7c6e3ea924f319524b248fe4b95a2a59",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/decoder_diagnostics.py",
+      "sha256": "586b69761e510c95f131cb7f5d3efb0fa263145e5a4d8265d69c4888d5f72fc3",
+      "bytes": 6950,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/decoder_diagnostics.py",
+      "source_sha256": "586b69761e510c95f131cb7f5d3efb0fa263145e5a4d8265d69c4888d5f72fc3",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/decoder_graph.py",
+      "sha256": "761cbb656525a7966e4e27b64ed63ba8ea25a94ec9b5931915425c604033f156",
+      "bytes": 7598,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/decoder_graph.py",
+      "source_sha256": "761cbb656525a7966e4e27b64ed63ba8ea25a94ec9b5931915425c604033f156",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/decoder_layout.py",
+      "sha256": "987724e9d947148113f431d2b4e8ffcdc94712d5beed4320aed2ef8e38023011",
+      "bytes": 969,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/decoder_layout.py",
+      "source_sha256": "987724e9d947148113f431d2b4e8ffcdc94712d5beed4320aed2ef8e38023011",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/decoder_optimizations.py",
+      "sha256": "bac21fb3444167318295594b1369c75a93892f20f4fad14fd52141c988f26e3a",
+      "bytes": 44960,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/decoder_optimizations.py",
+      "source_sha256": "bac21fb3444167318295594b1369c75a93892f20f4fad14fd52141c988f26e3a",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/decoder_replay.py",
+      "sha256": "e75f847e6eeea6b03e83d55a561db7ece6232f02294dbb3a4e8662b2ce9d6cbc",
+      "bytes": 35505,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/decoder_replay.py",
+      "source_sha256": "e75f847e6eeea6b03e83d55a561db7ece6232f02294dbb3a4e8662b2ce9d6cbc",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/decoder_stream.py",
+      "sha256": "a1abd9dd3133b8f2ce05efe595b0bee068bad219e49ed042a911235713f8b074",
+      "bytes": 19549,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/decoder_stream.py",
+      "source_sha256": "a1abd9dd3133b8f2ce05efe595b0bee068bad219e49ed042a911235713f8b074",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/decoder_tiles.py",
+      "sha256": "5e7e909af3ba64ba3ad834d1511dfc8d25ec55db4fb2cc4e0f8bb97a0b935b53",
+      "bytes": 16797,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/decoder_tiles.py",
+      "source_sha256": "5e7e909af3ba64ba3ad834d1511dfc8d25ec55db4fb2cc4e0f8bb97a0b935b53",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/dmad_artifacts.py",
+      "sha256": "4dcb14e7a97ed3527c032f89fa64ea64357d35736ce0fa40520e88953f22de49",
+      "bytes": 2553,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/dmad_artifacts.py",
+      "source_sha256": "4dcb14e7a97ed3527c032f89fa64ea64357d35736ce0fa40520e88953f22de49",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/dmad_nodes.py",
+      "sha256": "760f643aa8b45a28b4f67d07daa77c18346ae9aff3813d534ade0120855c7809",
+      "bytes": 29119,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/dmad_nodes.py",
+      "source_sha256": "760f643aa8b45a28b4f67d07daa77c18346ae9aff3813d534ade0120855c7809",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/dmad_sampling.py",
+      "sha256": "cac9b80099793ce5473c8c296ab0208078b7ee319e40e5b47c362ebe5644ed8d",
+      "bytes": 14498,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/dmad_sampling.py",
+      "source_sha256": "cac9b80099793ce5473c8c296ab0208078b7ee319e40e5b47c362ebe5644ed8d",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/forcingbooster_router.py",
+      "sha256": "530f00b94cbdfe89b46ed3fc71958f819a70e643f8ce2bc8346e89efe92ad41d",
+      "bytes": 15068,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/forcingbooster_router.py",
+      "source_sha256": "530f00b94cbdfe89b46ed3fc71958f819a70e643f8ce2bc8346e89efe92ad41d",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/forcingbooster_training.py",
+      "sha256": "7ee00b87c8141a3e369ea97f32b433b9e2ec55195f5c1921aa217201cb7adfc2",
+      "bytes": 76664,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/forcingbooster_training.py",
+      "source_sha256": "7ee00b87c8141a3e369ea97f32b433b9e2ec55195f5c1921aa217201cb7adfc2",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/fp4_kernel_config.py",
+      "sha256": "f00b2ac9d1a72403ada29275cd31601e99664941ad5ceecd99bdb2e9f6c34861",
+      "bytes": 1029,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/fp4_kernel_config.py",
+      "source_sha256": "f00b2ac9d1a72403ada29275cd31601e99664941ad5ceecd99bdb2e9f6c34861",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/freeze_rows.py",
+      "sha256": "dbf274fec6b6b1378fa63825068bd18433d748e03e4a3a8b24b06584a9abc335",
+      "bytes": 13687,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/freeze_rows.py",
+      "source_sha256": "dbf274fec6b6b1378fa63825068bd18433d748e03e4a3a8b24b06584a9abc335",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/fused_mlp.py",
+      "sha256": "3a6fbf82f36efc1d6134e35287c59b038c570d22b60adf0fa4eced9f5345fc77",
+      "bytes": 9410,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/fused_mlp.py",
+      "source_sha256": "3a6fbf82f36efc1d6134e35287c59b038c570d22b60adf0fa4eced9f5345fc77",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/inference_features.py",
+      "sha256": "5ef2f509d2a20f1e9e76e60a7e54a8e8706d5734c39bceb4f029174372628015",
+      "bytes": 21996,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/inference_features.py",
+      "source_sha256": "5ef2f509d2a20f1e9e76e60a7e54a8e8706d5734c39bceb4f029174372628015",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/inference_metrics.py",
+      "sha256": "366612ab8aee8677414dd6c60265835bb18d14122dc2cab224fd4b28f42f395a",
+      "bytes": 8756,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/inference_metrics.py",
+      "source_sha256": "366612ab8aee8677414dd6c60265835bb18d14122dc2cab224fd4b28f42f395a",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/install.py",
+      "sha256": "47561157abe2b5e6378c8ff57755e530f05d7ec7ebdcdfa31b1ba7cac9717355",
+      "bytes": 2705,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/install.py",
+      "source_sha256": "47561157abe2b5e6378c8ff57755e530f05d7ec7ebdcdfa31b1ba7cac9717355",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/intermediate_capture.py",
+      "sha256": "0305ee5bd26db1d41f3ffa62bf5dbb6d49507349d01d5a54bf1abe7fa0df7a6d",
+      "bytes": 9181,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/intermediate_capture.py",
+      "source_sha256": "0305ee5bd26db1d41f3ffa62bf5dbb6d49507349d01d5a54bf1abe7fa0df7a6d",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/kernel_types.py",
+      "sha256": "3c7af878ccc3bf05a2db0b73369ac00d0880f6512885310e0dc6556ea4732b6f",
+      "bytes": 665,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/kernel_types.py",
+      "source_sha256": "3c7af878ccc3bf05a2db0b73369ac00d0880f6512885310e0dc6556ea4732b6f",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/kitchen_baseline.py",
+      "sha256": "35f08078b57c2f8fba83c4a3ad34f313cdd90c6189cad4ec86ad65cbe3e50f27",
+      "bytes": 2683,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/kitchen_baseline.py",
+      "source_sha256": "35f08078b57c2f8fba83c4a3ad34f313cdd90c6189cad4ec86ad65cbe3e50f27",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/kitchen_vae.py",
+      "sha256": "c4c8be898bf74563a9a1a3e1e75e294dbe2725eba61c83dfa240701eff047b63",
+      "bytes": 25334,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/kitchen_vae.py",
+      "source_sha256": "c4c8be898bf74563a9a1a3e1e75e294dbe2725eba61c83dfa240701eff047b63",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/loader.py",
+      "sha256": "433a2a969af2885aa1c2d8b603e7108f9cbd878c7699ade68bb108edeac10407",
+      "bytes": 4593,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/loader.py",
+      "source_sha256": "433a2a969af2885aa1c2d8b603e7108f9cbd878c7699ade68bb108edeac10407",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/memory_evidence.py",
+      "sha256": "5f6a0efaf6d549fb631ea9c3f8f3d8c339ef10d781bd03200de67091e12fcf08",
+      "bytes": 2683,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/memory_evidence.py",
+      "source_sha256": "5f6a0efaf6d549fb631ea9c3f8f3d8c339ef10d781bd03200de67091e12fcf08",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/memory_features.py",
+      "sha256": "a6597f8143605f822f523d20e769c94a388344d70268778cfbcf1c02b264cf56",
+      "bytes": 7122,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/memory_features.py",
+      "source_sha256": "a6597f8143605f822f523d20e769c94a388344d70268778cfbcf1c02b264cf56",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/migration_capture.py",
+      "sha256": "fc6db8ad713543b8754392a021dabccf528d3ede5e0d6a81f06e4cc07ff366ab",
+      "bytes": 8386,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/migration_capture.py",
+      "source_sha256": "fc6db8ad713543b8754392a021dabccf528d3ede5e0d6a81f06e4cc07ff366ab",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/model_cache.py",
+      "sha256": "da79935baa55e0f6c3993f7ebbbcdbc6b38390a83795772fde36a9bddb7e0053",
+      "bytes": 7750,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/model_cache.py",
+      "source_sha256": "da79935baa55e0f6c3993f7ebbbcdbc6b38390a83795772fde36a9bddb7e0053",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/model_provenance.py",
+      "sha256": "3b486b0933aa797dabc392edc4b0f7e2688f09e980f7e9ddca8adfdeaef11240",
+      "bytes": 8309,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/model_provenance.py",
+      "source_sha256": "3b486b0933aa797dabc392edc4b0f7e2688f09e980f7e9ddca8adfdeaef11240",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/modulation_fusion.py",
+      "sha256": "8f08c30de079680b110cbcc5919f53b0a7884fa2d7340f629ab978bbea4fe00f",
+      "bytes": 9408,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/modulation_fusion.py",
+      "source_sha256": "8f08c30de079680b110cbcc5919f53b0a7884fa2d7340f629ab978bbea4fe00f",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/G4.md",
+      "sha256": "97362b0bb30d391ee1db32a51573b17650c39e8cb3f9ed9f7c25525b01dff4e7",
+      "bytes": 10774,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/G4.md",
+      "source_sha256": "97362b0bb30d391ee1db32a51573b17650c39e8cb3f9ed9f7c25525b01dff4e7",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/LICENSE",
+      "sha256": "cd1c9ea1573c9047e9b5a3676ecc1c8f755e56f249ac1ebd8b5ceda7899037da",
+      "bytes": 11364,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/LICENSE",
+      "source_sha256": "cd1c9ea1573c9047e9b5a3676ecc1c8f755e56f249ac1ebd8b5ceda7899037da",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/NOTICE",
+      "sha256": "3176448b40d05d14f8b09a248d125a9a3680e18ef54c631984d4d8acb68c64d5",
+      "bytes": 5767,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/NOTICE",
+      "source_sha256": "3176448b40d05d14f8b09a248d125a9a3680e18ef54c631984d4d8acb68c64d5",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/README.md",
+      "sha256": "4163728ad2998ffc4661b02d59f1fbfa3c03c5ed1d82c510e55a3371767427ee",
+      "bytes": 10101,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/README.md",
+      "source_sha256": "4163728ad2998ffc4661b02d59f1fbfa3c03c5ed1d82c510e55a3371767427ee",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/VENDORED.json",
+      "sha256": "445e8cecff55c3753d75f0ed680f1e153f2cb4ed443f47e412480d41a297d8bc",
+      "bytes": 1726,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/VENDORED.json",
+      "source_sha256": "445e8cecff55c3753d75f0ed680f1e153f2cb4ed443f47e412480d41a297d8bc",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/__init__.py",
+      "sha256": "b154b793d809ca72c80fd86a0581001587d702e4fa39bfd454d4159f37099cf7",
+      "bytes": 7260,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/__init__.py",
+      "source_sha256": "b154b793d809ca72c80fd86a0581001587d702e4fa39bfd454d4159f37099cf7",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/_abi.py",
+      "sha256": "8473497a1840ec00fb028821a9ca8d14385dc75bb8ac155fcd8caf55b92f725b",
+      "bytes": 8406,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/_abi.py",
+      "source_sha256": "8473497a1840ec00fb028821a9ca8d14385dc75bb8ac155fcd8caf55b92f725b",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/adaptive_budget.py",
+      "sha256": "9236de6f993ec8aa156258e81a6a3817ea37e49ab7ab5a96e829cfe11122c55a",
+      "bytes": 28249,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/adaptive_budget.py",
+      "source_sha256": "9236de6f993ec8aa156258e81a6a3817ea37e49ab7ab5a96e829cfe11122c55a",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/build.py",
+      "sha256": "523f88ce27bd71faba0b2988125125c7807a173863ed7ad86ea8fe8a4a6c90d1",
+      "bytes": 6068,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/build.py",
+      "source_sha256": "523f88ce27bd71faba0b2988125125c7807a173863ed7ad86ea8fe8a4a6c90d1",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/csrc/launchers.h",
+      "sha256": "d5d9ec9016469c374060b647376a8d1300a18f9339f249d051c002808d13b734",
+      "bytes": 2482,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/launchers.h",
+      "source_sha256": "d5d9ec9016469c374060b647376a8d1300a18f9339f249d051c002808d13b734",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/csrc/mma.cuh",
+      "sha256": "2debd200f5b5e88e6fca8da199c8793e19266d216fcb954a7f82953744176d68",
+      "bytes": 36443,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/mma.cuh",
+      "source_sha256": "2debd200f5b5e88e6fca8da199c8793e19266d216fcb954a7f82953744176d68",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/csrc/native.cu",
+      "sha256": "8de27fbad7e1156757277c4f408b79b1acbcc2f92d141eb9160ceb4af5f3b591",
+      "bytes": 18067,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/native.cu",
+      "source_sha256": "8de27fbad7e1156757277c4f408b79b1acbcc2f92d141eb9160ceb4af5f3b591",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/csrc/output_epilogue.cu",
+      "sha256": "267c3592894a5b878fceb8df40d67810072507ec9efda9e2b15bfe7587c5f177",
+      "bytes": 2505,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/output_epilogue.cu",
+      "source_sha256": "267c3592894a5b878fceb8df40d67810072507ec9efda9e2b15bfe7587c5f177",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/csrc/sol_attn_exact.cu",
+      "sha256": "9dbfb85670fa5d8832bcf9a1203e1572df46a189683ee462154c1c3c7ad29793",
+      "bytes": 12185,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/sol_attn_exact.cu",
+      "source_sha256": "9dbfb85670fa5d8832bcf9a1203e1572df46a189683ee462154c1c3c7ad29793",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/csrc/sol_attn_preprocess.cu",
+      "sha256": "3e77f5b780d3248eff2b2cafa388e108ba35292ebcfbe412478354b3f33baac8",
+      "bytes": 13744,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/sol_attn_preprocess.cu",
+      "source_sha256": "3e77f5b780d3248eff2b2cafa388e108ba35292ebcfbe412478354b3f33baac8",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/csrc/sol_attn_producer.cu",
+      "sha256": "281316be4aaf49098dee6a2e3ee0a2d5d3eaad3834dfbd6c5912b3f7dd0a8956",
+      "bytes": 13729,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/sol_attn_producer.cu",
+      "source_sha256": "281316be4aaf49098dee6a2e3ee0a2d5d3eaad3834dfbd6c5912b3f7dd0a8956",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/csrc/sol_attn_route.cu",
+      "sha256": "0882f60dcd49691a1b2f543261eea5138187e538b7898b972dfcef557ff09f90",
+      "bytes": 19000,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/sol_attn_route.cu",
+      "source_sha256": "0882f60dcd49691a1b2f543261eea5138187e538b7898b972dfcef557ff09f90",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/csrc/sol_layout.cuh",
+      "sha256": "18b4ec55982c4cb6bddfe954efb57fa124056ad2471719e8e79a1819c14c7c80",
+      "bytes": 21698,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/sol_layout.cuh",
+      "source_sha256": "18b4ec55982c4cb6bddfe954efb57fa124056ad2471719e8e79a1819c14c7c80",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/csrc/vc_group_fine.cu",
+      "sha256": "ff226493aa5a364ec913d3fb028991ad85dcd3e4bc5c9d2196ab5ebbddbfee77",
+      "bytes": 10817,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/vc_group_fine.cu",
+      "source_sha256": "ff226493aa5a364ec913d3fb028991ad85dcd3e4bc5c9d2196ab5ebbddbfee77",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/csrc/vc_group_prepare.cu",
+      "sha256": "72b54b08468b870547377938e4105b2d2045852fae05102d04eb2eba63ec297d",
+      "bytes": 8091,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/vc_group_prepare.cu",
+      "source_sha256": "72b54b08468b870547377938e4105b2d2045852fae05102d04eb2eba63ec297d",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/csrc/vc_group_pv.cuh",
+      "sha256": "de4337b79bcc294eee931b2c67ba97ac143122c90686bf9f4b49c73a3c997e61",
+      "bytes": 7753,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/vc_group_pv.cuh",
+      "source_sha256": "de4337b79bcc294eee931b2c67ba97ac143122c90686bf9f4b49c73a3c997e61",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/csrc/vc_grouped.h",
+      "sha256": "a8eb0b9152276dd60f3ffe952c39097f33e91aadd8145e7f15a44524090d059f",
+      "bytes": 926,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/vc_grouped.h",
+      "source_sha256": "a8eb0b9152276dd60f3ffe952c39097f33e91aadd8145e7f15a44524090d059f",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/diagnostics.py",
+      "sha256": "902558bf920cb46e3989b99b0dd2d07f0f09eef25ba4f90107df8edda33c0e09",
+      "bytes": 10225,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/diagnostics.py",
+      "source_sha256": "902558bf920cb46e3989b99b0dd2d07f0f09eef25ba4f90107df8edda33c0e09",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/grouped.py",
+      "sha256": "05a59ae9950521c9ce8ccc9b991027ea22c7c011c1e2acd33f7b81f1e77ab35d",
+      "bytes": 8050,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/grouped.py",
+      "source_sha256": "05a59ae9950521c9ce8ccc9b991027ea22c7c011c1e2acd33f7b81f1e77ab35d",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/grouped_oracle.py",
+      "sha256": "65f5c1c1dcbced521ccc965711af171301f8e7d0394e916bb0d78bdc0d0680ac",
+      "bytes": 6706,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/grouped_oracle.py",
+      "source_sha256": "65f5c1c1dcbced521ccc965711af171301f8e7d0394e916bb0d78bdc0d0680ac",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/instrumentation.py",
+      "sha256": "6acc64d245801ed07dc13877290c5bc63d030279855b9628e568ec76c01993a2",
+      "bytes": 6386,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/instrumentation.py",
+      "source_sha256": "6acc64d245801ed07dc13877290c5bc63d030279855b9628e568ec76c01993a2",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/oracle.py",
+      "sha256": "9ef8ea92f3832e00e32d6818e05c0a4e0b895963cb2c2c5e5d71f9d68b2c343a",
+      "bytes": 3911,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/oracle.py",
+      "source_sha256": "9ef8ea92f3832e00e32d6818e05c0a4e0b895963cb2c2c5e5d71f9d68b2c343a",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/route_compaction.py",
+      "sha256": "cd94e0bc26371f3ba5af66ea64fba16fdb198135e0cfa3cae6c5aca0fce54086",
+      "bytes": 3274,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/route_compaction.py",
+      "source_sha256": "cd94e0bc26371f3ba5af66ea64fba16fdb198135e0cfa3cae6c5aca0fce54086",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/runtime.py",
+      "sha256": "9f48b6f5fb1bd5d39f75cdb420d2ee97a1aefc0dd3a42f9c21f8f6c667307fea",
+      "bytes": 51682,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/runtime.py",
+      "source_sha256": "9f48b6f5fb1bd5d39f75cdb420d2ee97a1aefc0dd3a42f9c21f8f6c667307fea",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/scratch.py",
+      "sha256": "d6b63f81e30dbf9a7774b12423f84fc960436ccfcd3b3eb1ce5491f0c42f98df",
+      "bytes": 8139,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/scratch.py",
+      "source_sha256": "d6b63f81e30dbf9a7774b12423f84fc960436ccfcd3b3eb1ce5491f0c42f98df",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_diagnostic.py",
+      "sha256": "a579eb1aac2a2deee8c3ba9f59bda383d32267fa9944a05c14f4780f9c31b0cc",
+      "bytes": 10008,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/native_diagnostic.py",
+      "source_sha256": "a579eb1aac2a2deee8c3ba9f59bda383d32267fa9944a05c14f4780f9c31b0cc",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/nodes.py",
+      "sha256": "209a2defdf1443113109721909247ba9318e24f61ee8fd306ee5a5c0c9e5db66",
+      "bytes": 31304,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/nodes.py",
+      "source_sha256": "209a2defdf1443113109721909247ba9318e24f61ee8fd306ee5a5c0c9e5db66",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/nvtx.py",
+      "sha256": "4128b8e417d93ee61982a32afef7b883e73cec3b6721dccb35b0e12da194aaab",
+      "bytes": 15183,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/nvtx.py",
+      "source_sha256": "4128b8e417d93ee61982a32afef7b883e73cec3b6721dccb35b0e12da194aaab",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/omega_config.py",
+      "sha256": "13d1752d1a7441f2c42513f6c08bb289b67457e81e45e6059cf8eb6324072c0b",
+      "bytes": 14557,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/omega_config.py",
+      "source_sha256": "13d1752d1a7441f2c42513f6c08bb289b67457e81e45e6059cf8eb6324072c0b",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/output_packing.py",
+      "sha256": "d3b04c1f5475a210663d724ec53471b213cfce275e849241eabf8f0b4da331ee",
+      "bytes": 5398,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/output_packing.py",
+      "source_sha256": "d3b04c1f5475a210663d724ec53471b213cfce275e849241eabf8f0b4da331ee",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/pdmd_lora.py",
+      "sha256": "9557dd5b92ca550061cd7b7bc6b7452c45b0a8b436e301bd9e07c76a07060d54",
+      "bytes": 2043,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/pdmd_lora.py",
+      "source_sha256": "9557dd5b92ca550061cd7b7bc6b7452c45b0a8b436e301bd9e07c76a07060d54",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/precision.py",
+      "sha256": "7747ad1d6c322dff53f4af46b79a35f14f196e9e4dc5a56acf968900de903670",
+      "bytes": 25103,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/precision.py",
+      "source_sha256": "7747ad1d6c322dff53f4af46b79a35f14f196e9e4dc5a56acf968900de903670",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/requirements-cute.txt",
+      "sha256": "7909f262f3b81060b5bf692c9bca362e5d00bf921c1f15b913d829e71821ba93",
+      "bytes": 457,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/requirements-cute.txt",
+      "source_sha256": "7909f262f3b81060b5bf692c9bca362e5d00bf921c1f15b913d829e71821ba93",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/requirements.txt",
+      "sha256": "06828da5070143793fbfda98246f78676514e2686302b36064e73f99ddd0f0b4",
+      "bytes": 437,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/requirements.txt",
+      "source_sha256": "06828da5070143793fbfda98246f78676514e2686302b36064e73f99ddd0f0b4",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/runtime.py",
+      "sha256": "bacf98310bbcb38172c670f0dfd18d8a05d6fe925b807a76646010c5cf50fc61",
+      "bytes": 13405,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/runtime.py",
+      "source_sha256": "bacf98310bbcb38172c670f0dfd18d8a05d6fe925b807a76646010c5cf50fc61",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/sequence_parallel.py",
+      "sha256": "672fddb7c4b48f32aaddd599707a6d8f6ce555c085c950e5150b36d9730a6523",
+      "bytes": 8212,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/sequence_parallel.py",
+      "source_sha256": "672fddb7c4b48f32aaddd599707a6d8f6ce555c085c950e5150b36d9730a6523",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/sol_attn_minimax_v5.py",
+      "sha256": "ee612b195c83b44791d27b3415971462fed02fc5f33592bf48996094cf0f7ac4",
+      "bytes": 62648,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/sol_attn_minimax_v5.py",
+      "source_sha256": "ee612b195c83b44791d27b3415971462fed02fc5f33592bf48996094cf0f7ac4",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/speculative_forcing_freeze.py",
+      "sha256": "2fa067d2af70e10ec2fc8b1c976673f94dc840789745fb9bad0a099f1262619a",
+      "bytes": 112610,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/speculative_forcing_freeze.py",
+      "source_sha256": "2fa067d2af70e10ec2fc8b1c976673f94dc840789745fb9bad0a099f1262619a",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/speculative_forcing_probe.py",
+      "sha256": "b6d9181e65cee00675f838d28d6fe0437d80b50fd77b5625bf9a53fea664770c",
+      "bytes": 14796,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/speculative_forcing_probe.py",
+      "source_sha256": "b6d9181e65cee00675f838d28d6fe0437d80b50fd77b5625bf9a53fea664770c",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/temporal_cat.py",
+      "sha256": "81fabd32724329ca454f4f9408942ed8912471a2de17d2681e1e136d98191f2b",
+      "bytes": 1847,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/temporal_cat.py",
+      "source_sha256": "81fabd32724329ca454f4f9408942ed8912471a2de17d2681e1e136d98191f2b",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/THIRD_PARTY_NOTICES.md",
+      "sha256": "d2ef9f1a1b1a438f8c73b11d5e4faa94c9ff32b5cfd0b9f68bfe8921dc5540db",
+      "bytes": 793,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/THIRD_PARTY_NOTICES.md",
+      "source_sha256": "d2ef9f1a1b1a438f8c73b11d5e4faa94c9ff32b5cfd0b9f68bfe8921dc5540db",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/__init__.py",
+      "sha256": "f8dd33b38c74a834b76fad7dbd8582d7f58a116fb33b98a01aabc241d20b4a15",
+      "bytes": 119,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/__init__.py",
+      "source_sha256": "f8dd33b38c74a834b76fad7dbd8582d7f58a116fb33b98a01aabc241d20b4a15",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/__init__.py",
+      "sha256": "eb3ec1ff32f5d2344a839acc90ee48329906532f560596f3ff733d4923553078",
+      "bytes": 57,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/__init__.py",
+      "source_sha256": "eb3ec1ff32f5d2344a839acc90ee48329906532f560596f3ff733d4923553078",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/__init__.py",
+      "sha256": "42edd3f7a999b03f052836071389179a2edbc0a239221b67a5c8da8d09d127d6",
+      "bytes": 68,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/__init__.py",
+      "source_sha256": "42edd3f7a999b03f052836071389179a2edbc0a239221b67a5c8da8d09d127d6",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/__init__.py",
+      "sha256": "63631d004ed460922766940b7eeac674cbcd8a43eeb0e5595962845c862ca026",
+      "bytes": 73,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/__init__.py",
+      "source_sha256": "63631d004ed460922766940b7eeac674cbcd8a43eeb0e5595962845c862ca026",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/ampere_helpers.py",
+      "sha256": "cadac170a7da379e27c36d044360480d710cfa88d082dad2b9decd58e4847111",
+      "bytes": 3706,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/ampere_helpers.py",
+      "source_sha256": "cadac170a7da379e27c36d044360480d710cfa88d082dad2b9decd58e4847111",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/block_info.py",
+      "sha256": "d518a31b430b6a4aa6e925eb5171036b9984f77c9dca9840f4b32c1e2d60ccdb",
+      "bytes": 6193,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/block_info.py",
+      "source_sha256": "d518a31b430b6a4aa6e925eb5171036b9984f77c9dca9840f4b32c1e2d60ccdb",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/block_sparsity.py",
+      "sha256": "bb836711cbee9baed9db96987b301709f149fb72b8fb0842c69cabe327f989d0",
+      "bytes": 17401,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/block_sparsity.py",
+      "source_sha256": "bb836711cbee9baed9db96987b301709f149fb72b8fb0842c69cabe327f989d0",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/cute_dsl_utils.py",
+      "sha256": "162ba9671cb16d20fccf3547e43d606aa83e775329d5287bc9320569afe60137",
+      "bytes": 4309,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/cute_dsl_utils.py",
+      "source_sha256": "162ba9671cb16d20fccf3547e43d606aa83e775329d5287bc9320569afe60137",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/fast_math.py",
+      "sha256": "7e5f822bf4d0ba36967558f3ae9a1408b410cb726c31222cd61703569d1be738",
+      "bytes": 492,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/fast_math.py",
+      "source_sha256": "7e5f822bf4d0ba36967558f3ae9a1408b410cb726c31222cd61703569d1be738",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/flash_fwd.py",
+      "sha256": "840e90f8e5d1fca2f73fbdb44df938027aa4750210af814fa28551f7a723ec27",
+      "bytes": 52431,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/flash_fwd.py",
+      "source_sha256": "840e90f8e5d1fca2f73fbdb44df938027aa4750210af814fa28551f7a723ec27",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/mask.py",
+      "sha256": "f920b98640efc91d737b631bb7ea223f71cd2b086ae3dae2d3db37a28fd390d2",
+      "bytes": 35702,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/mask.py",
+      "source_sha256": "f920b98640efc91d737b631bb7ea223f71cd2b086ae3dae2d3db37a28fd390d2",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/named_barrier.py",
+      "sha256": "98d1cf1f2254203769da8d566f5ddadc755fb1cb3f4e514012da3addb9233c09",
+      "bytes": 1368,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/named_barrier.py",
+      "source_sha256": "98d1cf1f2254203769da8d566f5ddadc755fb1cb3f4e514012da3addb9233c09",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/pack_gqa.py",
+      "sha256": "e55c56628c37334e4ec672f877018dc1fce89c4c30ede05c7515b08fb5596450",
+      "bytes": 11598,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/pack_gqa.py",
+      "source_sha256": "e55c56628c37334e4ec672f877018dc1fce89c4c30ede05c7515b08fb5596450",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/pipeline.py",
+      "sha256": "849bce91c72be0a5c7458979e10c8290f45e05253a83600e30fb9540c61ed56a",
+      "bytes": 14543,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/pipeline.py",
+      "source_sha256": "849bce91c72be0a5c7458979e10c8290f45e05253a83600e30fb9540c61ed56a",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/seqlen_info.py",
+      "sha256": "8a922e1217b54b5185d9c8d8f928f8836058a2f4b3bddded4c38460a2e39d60f",
+      "bytes": 11235,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/seqlen_info.py",
+      "source_sha256": "8a922e1217b54b5185d9c8d8f928f8836058a2f4b3bddded4c38460a2e39d60f",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/softmax.py",
+      "sha256": "56ee749e3a388e0bb3f853fea0c236cf89f291d167f269f8b04d3bb2f31cc37a",
+      "bytes": 27386,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/softmax.py",
+      "source_sha256": "56ee749e3a388e0bb3f853fea0c236cf89f291d167f269f8b04d3bb2f31cc37a",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/tile_scheduler.py",
+      "sha256": "ac0d1211e34d73c2bbb44b7f62b3a77d1f9aac177653a5a028cb4f5fa1b1ce0e",
+      "bytes": 45372,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/tile_scheduler.py",
+      "source_sha256": "ac0d1211e34d73c2bbb44b7f62b3a77d1f9aac177653a5a028cb4f5fa1b1ce0e",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/utils.py",
+      "sha256": "f268b5af4c4d6fad6dd44bd6c6da0c475a6ec36ed90aeb1334b45aa4e1d86d57",
+      "bytes": 30104,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/utils.py",
+      "source_sha256": "f268b5af4c4d6fad6dd44bd6c6da0c475a6ec36ed90aeb1334b45aa4e1d86d57",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/common/__init__.py",
+      "sha256": "2d18d24871bacaaeb6417ee37f4e1b57530c6bf3f51e20ca803bad6a6e53c25b",
+      "bytes": 127,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/common/__init__.py",
+      "source_sha256": "2d18d24871bacaaeb6417ee37f4e1b57530c6bf3f51e20ca803bad6a6e53c25b",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/common/layout_utils.py",
+      "sha256": "d8ed2213f8162bf820eb9934ea3ec0b4b3038c7a73fe64d65bcf025639e63c0e",
+      "bytes": 3509,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/common/layout_utils.py",
+      "source_sha256": "d8ed2213f8162bf820eb9934ea3ec0b4b3038c7a73fe64d65bcf025639e63c0e",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/common/runtime.py",
+      "sha256": "b6d19ddc6b0f6f1e4ddd48094133ee56d6c1ab383c57e7d02887318d53c264b4",
+      "bytes": 319,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/common/runtime.py",
+      "source_sha256": "b6d19ddc6b0f6f1e4ddd48094133ee56d6c1ab383c57e7d02887318d53c264b4",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/common/selector.py",
+      "sha256": "b75eab435ec873af383a61ca2f32eb3eb75fd3fec94c30302fbfe8149f9bb0a1",
+      "bytes": 3822,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/common/selector.py",
+      "source_sha256": "b75eab435ec873af383a61ca2f32eb3eb75fd3fec94c30302fbfe8149f9bb0a1",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/interface.py",
+      "sha256": "3ee49896644691da37d01607e40bfceec22d9ef99c547b98007937adab353f1e",
+      "bytes": 13363,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/interface.py",
+      "source_sha256": "3ee49896644691da37d01607e40bfceec22d9ef99c547b98007937adab353f1e",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/mps/__init__.py",
+      "sha256": "21fa2ede7df2b1f41440283861fa8d681e74edb8c8c498ac9a14d086fe6ac6f6",
+      "bytes": 1292,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/mps/__init__.py",
+      "source_sha256": "21fa2ede7df2b1f41440283861fa8d681e74edb8c8c498ac9a14d086fe6ac6f6",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/mps/metal.py",
+      "sha256": "c401d5a2c8b1d827cc71f4e870153e83f9722eeac3da03847e4cea5219094e89",
+      "bytes": 27103,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/mps/metal.py",
+      "source_sha256": "c401d5a2c8b1d827cc71f4e870153e83f9722eeac3da03847e4cea5219094e89",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/mps/preprocess.py",
+      "sha256": "e276140cd4451856669052f68b859231813a705447d690ac86e9f8a0592a1350",
+      "bytes": 1237,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/mps/preprocess.py",
+      "source_sha256": "e276140cd4451856669052f68b859231813a705447d690ac86e9f8a0592a1350",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/preprocess.py",
+      "sha256": "ad0374ad96bdaf7585aa51867ed0536976945b596281b4c2b1a50aafee19b994",
+      "bytes": 11761,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/preprocess.py",
+      "source_sha256": "ad0374ad96bdaf7585aa51867ed0536976945b596281b4c2b1a50aafee19b994",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/LICENSE.flash-attention",
+      "sha256": "8c9ccb96c065e706135b6cbad279b721da6156e51f3a5f27c6b3329af9416d73",
+      "bytes": 1558,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/LICENSE.flash-attention",
+      "source_sha256": "8c9ccb96c065e706135b6cbad279b721da6156e51f3a5f27c6b3329af9416d73",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/__init__.py",
+      "sha256": "77a77ead8e28f2a388a77497297f6e9e9385cfe0e99a1f67e2036d41ef4c1c78",
+      "bytes": 77,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/__init__.py",
+      "source_sha256": "77a77ead8e28f2a388a77497297f6e9e9385cfe0e99a1f67e2036d41ef4c1c78",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/kernel.py",
+      "sha256": "a614f29e002fdde2e9258da516b452d2ea07ecdeec8410722a344c72a40f61a0",
+      "bytes": 84,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/kernel.py",
+      "source_sha256": "a614f29e002fdde2e9258da516b452d2ea07ecdeec8410722a344c72a40f61a0",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/mainloop.py",
+      "sha256": "707d565bccc7fb8c60e130c91d6d65549d8762c562a227ef2c0a231697a1cf2d",
+      "bytes": 68263,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/mainloop.py",
+      "source_sha256": "707d565bccc7fb8c60e130c91d6d65549d8762c562a227ef2c0a231697a1cf2d",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/math.py",
+      "sha256": "00974a22a4c5b5e47628f67a560dc966a50ef7225eb3f773a296d71b5ac5be7f",
+      "bytes": 695,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/math.py",
+      "source_sha256": "00974a22a4c5b5e47628f67a560dc966a50ef7225eb3f773a296d71b5ac5be7f",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/softmax.py",
+      "sha256": "c6b88f8e5eec040f194fc2f24f7e69338548b6e33a5ba5e3720ad6d2ea6c0311",
+      "bytes": 4997,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/softmax.py",
+      "source_sha256": "c6b88f8e5eec040f194fc2f24f7e69338548b6e33a5ba5e3720ad6d2ea6c0311",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/tmem.py",
+      "sha256": "e761576ab085c7f9c135421ed8e6f202fca5b3f96252a14ae99051e8685c00c8",
+      "bytes": 3133,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/tmem.py",
+      "source_sha256": "e761576ab085c7f9c135421ed8e6f202fca5b3f96252a14ae99051e8685c00c8",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm120/__init__.py",
+      "sha256": "193997e4e5925c7a8cabe0247068698bdab1bb7fab283d0857fc01bf9a2763c1",
+      "bytes": 101,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm120/__init__.py",
+      "source_sha256": "193997e4e5925c7a8cabe0247068698bdab1bb7fab283d0857fc01bf9a2763c1",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm120/kernel.py",
+      "sha256": "cba5a94506cb15025faf7065340d36eba8747cff5a0852816486213fbd7fb715",
+      "bytes": 436,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm120/kernel.py",
+      "source_sha256": "cba5a94506cb15025faf7065340d36eba8747cff5a0852816486213fbd7fb715",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm120/mainloop.py",
+      "sha256": "8b6b87be7fe21cb0ebfbab34cd0ae819faa96b829c57c7b27c1c14c29e771570",
+      "bytes": 43035,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm120/mainloop.py",
+      "source_sha256": "8b6b87be7fe21cb0ebfbab34cd0ae819faa96b829c57c7b27c1c14c29e771570",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm89/__init__.py",
+      "sha256": "9127efe4b871d477a66372ed8c92219ee55ff03fe8ba8e4a63a5c9200e6af4f9",
+      "bytes": 255,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm89/__init__.py",
+      "source_sha256": "9127efe4b871d477a66372ed8c92219ee55ff03fe8ba8e4a63a5c9200e6af4f9",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm89/kernel.py",
+      "sha256": "1e054a192a7287fbccde177f7b18460e60ab3557088ea3df73a6ceccca87e91f",
+      "bytes": 674,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm89/kernel.py",
+      "source_sha256": "1e054a192a7287fbccde177f7b18460e60ab3557088ea3df73a6ceccca87e91f",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm89/mainloop.py",
+      "sha256": "5ff3c08b6f59d20676fbedc99b76ed6029448ebd8f05d965940d3a535ee50dd2",
+      "bytes": 23562,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm89/mainloop.py",
+      "source_sha256": "5ff3c08b6f59d20676fbedc99b76ed6029448ebd8f05d965940d3a535ee50dd2",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/__init__.py",
+      "sha256": "3c76761acc65784e80872fa953e0057822f21896bcc45bd69992ec165eaaa96c",
+      "bytes": 252,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/__init__.py",
+      "source_sha256": "3c76761acc65784e80872fa953e0057822f21896bcc45bd69992ec165eaaa96c",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/_compat/__init__.py",
+      "sha256": "dc9300ddffe0a8acd263d301c56b6c3094f0ddb3279be7917ace8e9cfbaf2586",
+      "bytes": 77,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/_compat/__init__.py",
+      "source_sha256": "dc9300ddffe0a8acd263d301c56b6c3094f0ddb3279be7917ace8e9cfbaf2586",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/_compat/activation.py",
+      "sha256": "77b1c16a9970b2fe79de4a945db9930850dcf4f4869ed4639805337c6a40a07d",
+      "bytes": 115,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/_compat/activation.py",
+      "source_sha256": "77b1c16a9970b2fe79de4a945db9930850dcf4f4869ed4639805337c6a40a07d",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/_compat/copy_utils.py",
+      "sha256": "8e5e6fa9a79382995636ff1df391fdc37ed134cb5fa3d8f4db66213f476f5bd2",
+      "bytes": 4088,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/_compat/copy_utils.py",
+      "source_sha256": "8e5e6fa9a79382995636ff1df391fdc37ed134cb5fa3d8f4db66213f476f5bd2",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/_compat/cute_dsl_utils.py",
+      "sha256": "afffcb709248851cc14dc91da466e104271de4438dbca73c2ac7c1c6c061bae8",
+      "bytes": 6815,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/_compat/cute_dsl_utils.py",
+      "source_sha256": "afffcb709248851cc14dc91da466e104271de4438dbca73c2ac7c1c6c061bae8",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/_compat/layout_utils.py",
+      "sha256": "4ad6a7a87adf0bf8dc76c5aa04689d717ca63aeeaba5c754e9a96fb72787fa5a",
+      "bytes": 117,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/_compat/layout_utils.py",
+      "source_sha256": "4ad6a7a87adf0bf8dc76c5aa04689d717ca63aeeaba5c754e9a96fb72787fa5a",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/_compat/sm90_utils.py",
+      "sha256": "3c4bfd2cc468b372671e7654f6ae06cdf5f3b64b4f7f03cf6d4467c51b4829f2",
+      "bytes": 6136,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/_compat/sm90_utils.py",
+      "source_sha256": "3c4bfd2cc468b372671e7654f6ae06cdf5f3b64b4f7f03cf6d4467c51b4829f2",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/atoms.py",
+      "sha256": "bdabb2257d5384f901c8a8a4d0b3e9b8697fbe89b2f8d4f0fd3db28d21ba135a",
+      "bytes": 488,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/atoms.py",
+      "source_sha256": "bdabb2257d5384f901c8a8a4d0b3e9b8697fbe89b2f8d4f0fd3db28d21ba135a",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/exact.py",
+      "sha256": "e44e3e72883f50f93d2112721d7d697e6041ba1f9f2079a27da73fd0030eff6e",
+      "bytes": 7473,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/exact.py",
+      "source_sha256": "e44e3e72883f50f93d2112721d7d697e6041ba1f9f2079a27da73fd0030eff6e",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/fwd.py",
+      "sha256": "87a961541fcf95a8b2bb5ef6d4df7fdf9f2345ca3e1089f99611050ca84e1ad9",
+      "bytes": 2957,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/fwd.py",
+      "source_sha256": "87a961541fcf95a8b2bb5ef6d4df7fdf9f2345ca3e1089f99611050ca84e1ad9",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/kernel.py",
+      "sha256": "fcc3980955a60cdbb93cc4d52187d58359fa99d7a9ec9f594fde2e50b5e497f5",
+      "bytes": 1430,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/kernel.py",
+      "source_sha256": "fcc3980955a60cdbb93cc4d52187d58359fa99d7a9ec9f594fde2e50b5e497f5",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/mainloop.py",
+      "sha256": "4cec571d97201d76d5f9fccd4a4919d83d82dfdcc77d7c68ad6514567fbe0da7",
+      "bytes": 99636,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/mainloop.py",
+      "source_sha256": "4cec571d97201d76d5f9fccd4a4919d83d82dfdcc77d7c68ad6514567fbe0da7",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/split_combine.py",
+      "sha256": "be1f14997ed4bacb8bff1fb0f7979bda6424af1394661e07d692a2f2460101c3",
+      "bytes": 29826,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/split_combine.py",
+      "source_sha256": "be1f14997ed4bacb8bff1fb0f7979bda6424af1394661e07d692a2f2460101c3",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/triton_ref/__init__.py",
+      "sha256": "7053365a47158cf36d0a244451b017cd2ff0402bbd19005b23a53cc12d866840",
+      "bytes": 90,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/triton_ref/__init__.py",
+      "source_sha256": "7053365a47158cf36d0a244451b017cd2ff0402bbd19005b23a53cc12d866840",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/triton_ref/fwd.py",
+      "sha256": "0eac9c5c6c0642545a4d5ac9a034f7ec302eb3b9de2051d122ecab26e3456de3",
+      "bytes": 14149,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/triton_ref/fwd.py",
+      "source_sha256": "0eac9c5c6c0642545a4d5ac9a034f7ec302eb3b9de2051d122ecab26e3456de3",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/triton_ref/preprocess.py",
+      "sha256": "c1aaa53b26ac9293f504f1d107814ed6c1924a9b671ebebfffc54ec83f743264",
+      "bytes": 10027,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/triton_ref/preprocess.py",
+      "source_sha256": "c1aaa53b26ac9293f504f1d107814ed6c1924a9b671ebebfffc54ec83f743264",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/transformer_compile.py",
+      "sha256": "9404a07beb408b5d02d74ad0b82128f4764c757add9ef00a5d2750149b9daaea",
+      "bytes": 17401,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/transformer_compile.py",
+      "source_sha256": "9404a07beb408b5d02d74ad0b82128f4764c757add9ef00a5d2750149b9daaea",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/vendor/__init__.py",
+      "sha256": "24c32cdaaf7e17443f2c8df47a73fa4133ef63d280c17f0fd1ffc4699a5ac20b",
+      "bytes": 79,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/vendor/__init__.py",
+      "source_sha256": "24c32cdaaf7e17443f2c8df47a73fa4133ef63d280c17f0fd1ffc4699a5ac20b",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/vendor/fused_mlp/LICENSE",
+      "sha256": "4ca7234fc95fc011701cdf061c91424b348a195f1fe4b54dec579131495952ae",
+      "bytes": 1068,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/vendor/fused_mlp/LICENSE",
+      "source_sha256": "4ca7234fc95fc011701cdf061c91424b348a195f1fe4b54dec579131495952ae",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/vendor/fused_mlp/README.md",
+      "sha256": "61b2e3591255a5441e97d6c579f1b5610e1b7a669dd32d2274d04f72f5abbea8",
+      "bytes": 1147,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/vendor/fused_mlp/README.md",
+      "source_sha256": "61b2e3591255a5441e97d6c579f1b5610e1b7a669dd32d2274d04f72f5abbea8",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/vendor/fused_mlp/__init__.py",
+      "sha256": "5495cd107b4f2e84d953553da3eba6c5e23f28711ce7b7a5940987ee62263434",
+      "bytes": 68,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/vendor/fused_mlp/__init__.py",
+      "source_sha256": "5495cd107b4f2e84d953553da3eba6c5e23f28711ce7b7a5940987ee62263434",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/vendor/fused_mlp/kernel.py",
+      "sha256": "7930577ea49239f6043f83f803e395ec020d015daa4cbad1d34ace551f2b6f5b",
+      "bytes": 21981,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/vendor/fused_mlp/kernel.py",
+      "source_sha256": "7930577ea49239f6043f83f803e395ec020d015daa4cbad1d34ace551f2b6f5b",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/vsa_sm120/__init__.py",
+      "sha256": "930a67756570525a73f9168a0e2e6d02255bc1b08ee5984bcf69dec5a464abd3",
+      "bytes": 488,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/vsa_sm120/__init__.py",
+      "source_sha256": "930a67756570525a73f9168a0e2e6d02255bc1b08ee5984bcf69dec5a464abd3",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/vsa_sm120/attention_candidates.py",
+      "sha256": "855174750a6e80d04e72daf6e05d8c8933cd08769d7daeab5235675b0f22efb5",
+      "bytes": 27936,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/vsa_sm120/attention_candidates.py",
+      "source_sha256": "855174750a6e80d04e72daf6e05d8c8933cd08769d7daeab5235675b0f22efb5",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/vsa_sm120/attention_triton.py",
+      "sha256": "81c8b4fe5be15519a834d5c6773fb4b3d1071b8a9d8206dee783c3819f19985b",
+      "bytes": 15926,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/vsa_sm120/attention_triton.py",
+      "source_sha256": "81c8b4fe5be15519a834d5c6773fb4b3d1071b8a9d8206dee783c3819f19985b",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/vsa_sm120/config.py",
+      "sha256": "3e4192efc22a7a5324ef9d7d478ea9175044873767730acbff39fcc228399aa8",
+      "bytes": 4806,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/vsa_sm120/config.py",
+      "source_sha256": "3e4192efc22a7a5324ef9d7d478ea9175044873767730acbff39fcc228399aa8",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/vsa_sm120/dispatch.py",
+      "sha256": "9bf02fbdf1ae3638b5aabe74ed04d38b76ccb5dfacf057a3053903685bb96dce",
+      "bytes": 22007,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/vsa_sm120/dispatch.py",
+      "source_sha256": "9bf02fbdf1ae3638b5aabe74ed04d38b76ccb5dfacf057a3053903685bb96dce",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/vsa_sm120/layout.py",
+      "sha256": "7d4cc399e71b8bb5dd63a44639c4f1a085b49f320c6a8c4cc195bd07de8c477f",
+      "bytes": 4235,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/vsa_sm120/layout.py",
+      "source_sha256": "7d4cc399e71b8bb5dd63a44639c4f1a085b49f320c6a8c4cc195bd07de8c477f",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/vsa_sm120/microbench.py",
+      "sha256": "40e830e3019a72702d6431ebf26e5d5a180b69658991d5bef43499c30a88cc4e",
+      "bytes": 7161,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/vsa_sm120/microbench.py",
+      "source_sha256": "40e830e3019a72702d6431ebf26e5d5a180b69658991d5bef43499c30a88cc4e",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/vsa_sm120/producer.py",
+      "sha256": "63afcb88408c49ca3ae7154ee09c8930678a043f6e331e3fbc45d8d6212ac576",
+      "bytes": 11315,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/vsa_sm120/producer.py",
+      "source_sha256": "63afcb88408c49ca3ae7154ee09c8930678a043f6e331e3fbc45d8d6212ac576",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/vsa_sm120/reference.py",
+      "sha256": "f9c34af078679be82cddbf1f0ae5c455ab40fbc4d9675b2dc89597ba18d221af",
+      "bytes": 11056,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/vsa_sm120/reference.py",
+      "source_sha256": "f9c34af078679be82cddbf1f0ae5c455ab40fbc4d9675b2dc89597ba18d221af",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/custom_nodes/fasth3_deploy/vsa_sm120/unsafe.py",
+      "sha256": "9e63ee34d9d4a50f9c7077f4d2e58ea315441d6560d0275d62f4eb8840e2d952",
+      "bytes": 3088,
+      "source_path": "deploy/custom_nodes/fasth3_deploy/vsa_sm120/unsafe.py",
+      "source_sha256": "9e63ee34d9d4a50f9c7077f4d2e58ea315441d6560d0275d62f4eb8840e2d952",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/fal/fasth3-b1/comfyui-requirements.txt",
+      "sha256": "245cca752fd50c0d8af244d987a3fa3c363c0c48174f225293942923c755c79d",
+      "bytes": 531,
+      "source_path": "deploy/fal/fasth3-b1/comfyui-requirements.txt",
+      "source_sha256": "245cca752fd50c0d8af244d987a3fa3c363c0c48174f225293942923c755c79d",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/fal/fasth3-b1/entrypoint.sh",
+      "sha256": "f406e76b424b8b03771df859abd3727708706ea307a554175aa4e4ea45bdebcf",
+      "bytes": 4370,
+      "source_path": "deploy/fal/fasth3-b1/entrypoint.sh",
+      "source_sha256": "f406e76b424b8b03771df859abd3727708706ea307a554175aa4e4ea45bdebcf",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/fal/fasth3-b1/pyproject.toml",
+      "sha256": "3c8152e4e04a2ec2efe6cbe29e7f0413fa9644e15cfe837caf78dd0e40c755cd",
+      "bytes": 837,
+      "source_path": "deploy/fal/fasth3-b1/pyproject.toml",
+      "source_sha256": "3c8152e4e04a2ec2efe6cbe29e7f0413fa9644e15cfe837caf78dd0e40c755cd",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/fal/fasth3-b1/requirements.in",
+      "sha256": "7c91c5274fc7adfd1f589d3af69dafdfeef30563bed77f23ee4f91a841436220",
+      "bytes": 564,
+      "source_path": "deploy/fal/fasth3-b1/requirements.in",
+      "source_sha256": "7c91c5274fc7adfd1f589d3af69dafdfeef30563bed77f23ee4f91a841436220",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/fal/fasth3-b1/requirements.lock",
+      "sha256": "2e073b6ec8b51f06a9654d51e4075880bb70c648bc4a43d5210562f854d7856a",
+      "bytes": 228756,
+      "source_path": "deploy/fal/fasth3-b1/requirements.lock",
+      "source_sha256": "2e073b6ec8b51f06a9654d51e4075880bb70c648bc4a43d5210562f854d7856a",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/fal/fasth3-b1/shared-model-stat-receipt.json",
+      "sha256": "5d2ebab8cfad0c6b5009e8b5c71656ab5c6fa32c38f64ee33d8af8fcc448cea7",
+      "bytes": 1684,
+      "source_path": "deploy/fal/fasth3-b1/shared-model-stat-receipt.json",
+      "source_sha256": "5d2ebab8cfad0c6b5009e8b5c71656ab5c6fa32c38f64ee33d8af8fcc448cea7",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/fal/fasth3-b1/uv.lock",
+      "sha256": "cce3ab08c9da4fd198d3d0f1581662e65735950362f0ea29537d4483cf58d724",
+      "bytes": 147,
+      "source_path": "deploy/fal/fasth3-b1/uv.lock",
+      "source_sha256": "cce3ab08c9da4fd198d3d0f1581662e65735950362f0ea29537d4483cf58d724",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/fal/h3-sol-upscaler/README.md",
+      "sha256": "ffa6498ee9ee162eff9a4cae50d4601c07b15f50b009654d3622017f2807b37e",
+      "bytes": 11647,
+      "source_path": "deploy/fal/h3-sol-upscaler/README.md",
+      "source_sha256": "ffa6498ee9ee162eff9a4cae50d4601c07b15f50b009654d3622017f2807b37e",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/fal/h3-sol-upscaler/comfyui-requirements.txt",
+      "sha256": "245cca752fd50c0d8af244d987a3fa3c363c0c48174f225293942923c755c79d",
+      "bytes": 531,
+      "source_path": "deploy/fal/h3-sol-upscaler/comfyui-requirements.txt",
+      "source_sha256": "245cca752fd50c0d8af244d987a3fa3c363c0c48174f225293942923c755c79d",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/fal/h3-sol-upscaler/pyproject.toml",
+      "sha256": "8cec1e2c95dcd9c45a88256912891e49898132829deb8deed5e808f9d5067424",
+      "bytes": 98,
+      "source_path": "deploy/fal/h3-sol-upscaler/pyproject.toml",
+      "source_sha256": "8cec1e2c95dcd9c45a88256912891e49898132829deb8deed5e808f9d5067424",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/fal/h3-sol-upscaler/requirements.in",
+      "sha256": "124a7a1ef8a9615c3f52634f9f1aec8605815d8cdbffb6fff07b6e743e9e93ea",
+      "bytes": 493,
+      "source_path": "deploy/fal/h3-sol-upscaler/requirements.in",
+      "source_sha256": "124a7a1ef8a9615c3f52634f9f1aec8605815d8cdbffb6fff07b6e743e9e93ea",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/fal/h3-sol-upscaler/requirements.lock",
+      "sha256": "090d971809723080ab5102205ed19441111c2435a5d1c84dbed7b663c0d2778d",
+      "bytes": 229613,
+      "source_path": "deploy/fal/h3-sol-upscaler/requirements.lock",
+      "source_sha256": "090d971809723080ab5102205ed19441111c2435a5d1c84dbed7b663c0d2778d",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/fal/h3-sol-upscaler/uv.lock",
+      "sha256": "ec1c81f941ce4e7bdbd19aad98fae9e443ae3b1d5acd5bc30b2d28232bb87589",
+      "bytes": 149,
+      "source_path": "deploy/fal/h3-sol-upscaler/uv.lock",
+      "source_sha256": "ec1c81f941ce4e7bdbd19aad98fae9e443ae3b1d5acd5bc30b2d28232bb87589",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/vast/README.md",
+      "sha256": "d8be916a282834a8a72f574b5cc809ca0aa0c9428869355c9324f31fd67834df",
+      "bytes": 14374,
+      "source_path": "deploy/vast/README.md",
+      "source_sha256": "d8be916a282834a8a72f574b5cc809ca0aa0c9428869355c9324f31fd67834df",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/vast/comfyui-requirements.txt",
+      "sha256": "245cca752fd50c0d8af244d987a3fa3c363c0c48174f225293942923c755c79d",
+      "bytes": 531,
+      "source_path": "deploy/vast/comfyui-requirements.txt",
+      "source_sha256": "245cca752fd50c0d8af244d987a3fa3c363c0c48174f225293942923c755c79d",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/vast/fasth3-environment.json",
+      "sha256": "370843488705a08d16d2500cf1a9670432bec0a0e8c9aa4acd8d979c2a3d31a0",
+      "bytes": 2450,
+      "source_path": "deploy/vast/fasth3-environment.json",
+      "source_sha256": "370843488705a08d16d2500cf1a9670432bec0a0e8c9aa4acd8d979c2a3d31a0",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/vast/requirements.in",
+      "sha256": "f5df6fcebc06401f4fd155ad8e74209941064fd123b20001981d3ee0b5d977a5",
+      "bytes": 482,
+      "source_path": "deploy/vast/requirements.in",
+      "source_sha256": "f5df6fcebc06401f4fd155ad8e74209941064fd123b20001981d3ee0b5d977a5",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/deploy/vast/requirements.lock",
+      "sha256": "637361bcf547c71e14d8870560604cf21abc5279b87ddd56f16d2453a7eea500",
+      "bytes": 171327,
+      "source_path": "deploy/vast/requirements.lock",
+      "source_sha256": "637361bcf547c71e14d8870560604cf21abc5279b87ddd56f16d2453a7eea500",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/scripts/assemble_worker_artifact.py",
+      "sha256": "8fd4ec8c2838ee0878557ab22832c9d0863af6ab58b8b99777b1b037feb03d21",
+      "bytes": 13382,
+      "source_path": "scripts/assemble_worker_artifact.py",
+      "source_sha256": "8fd4ec8c2838ee0878557ab22832c9d0863af6ab58b8b99777b1b037feb03d21",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/scripts/download_fasth3_models.sh",
+      "sha256": "198cbad6d8665be40eef55000e60798d22a325a7d03e6abf8d1835e350481c90",
+      "bytes": 9449,
+      "source_path": "scripts/download_fasth3_models.sh",
+      "source_sha256": "198cbad6d8665be40eef55000e60798d22a325a7d03e6abf8d1835e350481c90",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/scripts/prepare_h3_upscale_conditioning.py",
+      "sha256": "e90f4c420fc713f10f782d3f855d85c43ba711806c2eb5ce40150bd09a1a13d5",
+      "bytes": 7780,
+      "source_path": "scripts/prepare_h3_upscale_conditioning.py",
+      "source_sha256": "e90f4c420fc713f10f782d3f855d85c43ba711806c2eb5ce40150bd09a1a13d5",
+      "byte_preserved": true
+    },
+    {
+      "path": "runtime/worker-manifest.json",
+      "sha256": "fc4df65c29faada746a110b00f8c671be1444a28b0afd2e993a3f01b7dc220be",
+      "bytes": 55263,
+      "source_path": "worker-manifest.json",
+      "source_sha256": null,
+      "byte_preserved": null
+    }
+  ]
+}

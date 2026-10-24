@@ -1,0 +1,147 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { API_BASE, type LiveElection, type ProgramOutput, type PublicTimelineResponse, apiFetch, displayProblem } from "./api";
+import type { PublicTimelineSegment } from "@sloptogether/contracts";
+import type { ProgramManifest } from "./program-player";
+
+export interface ChannelDetail {
+  twitchChannelId: string;
+  twitchLogin: string;
+  displayName: string;
+  visibility: "public" | "unlisted" | "private";
+  createdAt?: string;
+  contributionMode?: string;
+  workerStatus?: { generation: string; upscale: string };
+}
+
+export interface TimelinePayload extends PublicTimelineResponse {
+  channel: ChannelDetail;
+  segments: Array<PublicTimelineSegment & { programItemId?:string|null; upscaleUrl?:string }>;
+  elections: LiveElection[];
+  currentProgramItem: ProgramOutput["currentProgramItem"];
+  subscriberInterrupts?: {enabled:boolean;current:{id:string;label:string;state:string}|null};
+  playback: {
+    offsetSeconds: number;
+    sequence: number;
+    sourceController: "this_browser" | "another_browser" | "offline";
+    updatedAt?: string;
+  };
+}
+
+export type Loadable<T> =
+  | { state: "loading" }
+  | { state: "ready"; value: T; refreshError?: string }
+  | { state: "error"; error: string; retry: () => void };
+
+export function useChannelTimeline(channel: string): Loadable<TimelinePayload> {
+  const [revision, setRevision] = useState(0);
+  const [value, setValue] = useState<TimelinePayload | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const retry = useCallback(() => {
+    setError(null);
+    setRevision((current) => current + 1);
+  }, []);
+
+  useEffect(() => {
+    let stopped = false;
+    let reading=false;
+    const abort = new AbortController();
+
+    const read = async () => {
+      if(reading||document.hidden)return;
+      reading=true;
+      try {
+        const response = await fetch(`${API_BASE}/channels/${encodeURIComponent(channel)}/timeline`, {
+          credentials: "same-origin",
+          cache: "no-store",
+          signal: abort.signal,
+        });
+        const body = await response.json().catch(() => null) as TimelinePayload | { error?: string; message?: string } | null;
+        if (!response.ok) {
+          const record = body as { error?: unknown; message?: unknown } | null;
+          throw new Error(typeof record?.message === "string" ? record.message : typeof record?.error === "string" ? record.error : `Timeline unavailable (${response.status}).`);
+        }
+        if (!body || !("channel" in body) || !Array.isArray(body.segments)) throw new Error("The timeline response wasn't valid.");
+        if (!stopped) {
+          setValue(body as TimelinePayload);
+          setError(null);
+        }
+      } catch (problem) {
+        if (!stopped && !(problem instanceof DOMException && problem.name === "AbortError")) {
+          setError(displayProblem(problem));
+        }
+      }finally{reading=false}
+    };
+
+    void read();
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void read();
+    }, 6000);
+    return () => {
+      stopped = true;
+      abort.abort();
+      window.clearInterval(timer);
+    };
+  }, [channel, revision]);
+
+  if (value) return { state: "ready", value, ...(error?{refreshError:error}:{}) };
+  if (error) return { state: "error", error, retry };
+  return { state: "loading" };
+}
+
+export function useChannelProgram(channel: string): Loadable<ProgramManifest> {
+  const [revision, setRevision] = useState(0);
+  const [value, setValue] = useState<ProgramManifest | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const retry = useCallback(() => { setError(null); setRevision((n) => n + 1); }, []);
+
+  useEffect(() => {
+    let stopped = false;
+    let reading = false;
+    const controller = new AbortController();
+    const read = async () => {
+      if (reading || document.hidden) return;
+      reading = true;
+      try {
+        const response = await fetch(`${API_BASE}/channels/${encodeURIComponent(channel)}/program`, {
+          cache: "no-store", credentials: "same-origin", signal: controller.signal,
+        });
+        const body = await response.json().catch(() => null) as ProgramManifest | null;
+        if (!response.ok) throw new Error(`Continuous program unavailable (${response.status}).`);
+        if (!body || !Number.isSafeInteger(body.epoch) || !Number.isSafeInteger(body.manifestRevision) || !Array.isArray(body.programSpans)) {
+          throw new Error("The continuous program manifest was invalid.");
+        }
+        if (body.playlistUrl) {
+          const url = new URL(body.playlistUrl, window.location.origin);
+          const configuredOrigins = (process.env.NEXT_PUBLIC_MEDIA_ORIGINS ?? "")
+            .split(",").map((origin) => origin.trim()).filter(Boolean);
+          const developmentOrigin = process.env.NODE_ENV !== "production"
+            && ["localhost", "127.0.0.1"].includes(url.hostname);
+          if (url.origin !== window.location.origin && !configuredOrigins.includes(url.origin) && !developmentOrigin) {
+            throw new Error("The media source is not in the configured media-origin allowlist.");
+          }
+          if (url.protocol !== "https:" && !developmentOrigin) throw new Error("Production media sources must use HTTPS.");
+        }
+        if (!stopped) { setValue(body); setError(null); }
+      } catch (problem) {
+        if (!stopped && !(problem instanceof DOMException && problem.name === "AbortError")) setError(displayProblem(problem));
+      } finally { reading = false; }
+    };
+    void read();
+    const timer = window.setInterval(() => { void read(); }, 5000);
+    return () => { stopped = true; controller.abort(); window.clearInterval(timer); };
+  }, [channel, revision]);
+
+  if (value) return { state: "ready", value, ...(error?{refreshError:error}:{}) };
+  if (error) return { state: "error", error, retry };
+  return { state: "loading" };
+}
+
+export async function submitBallot(electionId: string, choiceId: string): Promise<void> {
+  await apiFetch(`/elections/${encodeURIComponent(electionId)}/ballots`, {
+    method: "POST",
+    body: JSON.stringify({ choiceId }),
+  });
+}

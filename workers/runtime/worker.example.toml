@@ -1,0 +1,15 @@
+[worker]
+# Credential is stored separately, in OS-protected user storage or an env var.
+api_base_url = "https://clips.gg/sloptogether/api/v1"
+role = "generation"
+channel_id = ""
+comfy_url = "http://127.0.0.1:8188"
+comfy_input_dir = "~/ComfyUI/input"
+comfy_output_dir = "~/ComfyUI/output"
+state_dir = "~/.sloptogether"
+poll_interval_seconds = 5
+heartbeat_interval_seconds = 30
+request_timeout_seconds = 30
+max_output_bytes = 134217728
+# Set the deployed gateway host and the exact account's R2 host for trusted direct uploads.
+upload_hosts = ["uploads.clips.gg", "YOUR_ACCOUNT.r2.cloudflarestorage.com"]

@@ -1,0 +1,83 @@
+{
+  "schema": "sloptogether-comfystream-local-patches/1",
+  "patches": [
+    {
+      "id": "sloptogether-h3-ada-fp8-v1",
+      "purpose": "Add an Ada-compatible FP8/sequential-offload upscale candidate while preserving the upstream Blackwell NVFP4 path.",
+      "files": [
+        {
+          "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/fp8_optimizations.py",
+          "upstream_sha256": "bcc40d1963a6339dd663927d200fe7db6ee4130affe4a04d9651098cfdb9a01e",
+          "patched_sha256": "b46f3ffe6f91ac480d0654082aad20190754dbc85939c9e30fabe5f39e9a97c4"
+        },
+        {
+          "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/model_runtime.py",
+          "upstream_sha256": "0559ca1090e3ec20e567224aba9cc3e0cb9615d958455ffaf7b3b9c41e1357fa",
+          "patched_sha256": "cec9f0e06b9d9db20ea81c81a3a239e5e07a36968d44335bf9473b00241987d3"
+        },
+        {
+          "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/node.py",
+          "upstream_sha256": "348a60027a885a968fabe4b4be1a8195a88af1adb4765c457f5118487bc44f91",
+          "patched_sha256": "d9523af03f8c4ff2a3d4587e7a6bc7466468a961285ded81f1dffda2dfb2473d"
+        },
+        {
+          "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/protocol.py",
+          "upstream_sha256": "8337a0a2516fa64c22b3f497f221bd7b6097d2a7c4141e816e81e90ec02db4bd",
+          "patched_sha256": "d8a0cc5853cb61c013b0c628df5a879617ce02553831d8b9a167908046981cf1"
+        },
+        {
+          "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/worker.py",
+          "upstream_sha256": "35b7ec1834653f64405f65525b4cd8f6e3ca6f30d98103f7e1e3d0654090d2c3",
+          "patched_sha256": "5ad6d538617c3b036fcac544d731e2426e5986b8075967f5138deafaefefda9d"
+        },
+        {
+          "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/runtime.json",
+          "upstream_sha256": "21b4d9f196a368dc81e18e6869993f06a19cbdfb453f5ca3a42b2b257283bc83",
+          "patched_sha256": "9813756666c20ef8b3c0a1dc12b165653ab7baeccb77277dd4862a1b333cf183"
+        },
+        {
+          "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/README.md",
+          "upstream_sha256": "56491c7fa4bc2d4e6d9877ea73792a640c9c7edfbe725eb81c6df9f2dab4a8a8",
+          "patched_sha256": "a80e495020ab304eaf8b8421b18858614ac430637d0dedae7201a7054892990f"
+        },
+        {
+          "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/hardware_profiles.py",
+          "upstream_sha256": null,
+          "patched_sha256": "591d1ed8818276f1e503604a2362e0fbea61aa56da79e30fb3110947cd47d754"
+        }
+      ],
+      "qualification": {
+        "rtx4090_windows": "not-run",
+        "gpu_memory": "not-measured",
+        "output_quality": "not-measured",
+        "latency": "not-measured"
+      },
+      "minimum_candidate_requirements": {
+        "gpu": "NVIDIA SM 8.9+, at least 24 GB VRAM and 22 GiB free",
+        "system_ram": "128 GiB"
+      }
+    },
+    {
+      "id": "sloptogether-sol-attempt-output-scope-v1",
+      "purpose": "Keep SoL source-derived MP4s, sidecars, requests and chunks inside the current job-attempt output directory for post-download cleanup.",
+      "files": [
+        {
+          "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/node.py",
+          "upstream_sha256": "d9523af03f8c4ff2a3d4587e7a6bc7466468a961285ded81f1dffda2dfb2473d",
+          "patched_sha256": "4400dfb1aa7c9defbe653f733996e87c700fa38d27e5e89d98af7e0e35990bf9"
+        },
+        {
+          "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/sloptogether_scope.py",
+          "upstream_sha256": null,
+          "patched_sha256": "3a8cc732739a7cc362f89a306f38259c3661a7474f7060cb0de5161e5b70e59d"
+        }
+      ],
+      "qualification": {
+        "rtx4090_windows": "not-run",
+        "gpu_memory": "not-measured",
+        "output_quality": "not-measured",
+        "latency": "not-measured"
+      }
+    }
+  ]
+}

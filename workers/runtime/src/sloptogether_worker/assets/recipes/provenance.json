@@ -1,0 +1,14 @@
+[
+  {
+    "source": "vendor/comfystream/reference/workflows/trim-five-step-first-last-frame.api.json",
+    "destination": "src/sloptogether_worker/assets/recipes/trim-five-step-first-last-frame.json",
+    "sha256": "857097559f74365aab738a6eabcf5494d519eaac4744964d0c9b05894221725b",
+    "bytes": 3556
+  },
+  {
+    "source": "vendor/comfystream/reference/workflows/sol-upscale-standard.api.json",
+    "destination": "src/sloptogether_worker/assets/recipes/sol-upscale-standard.json",
+    "sha256": "e0b4949fbbc02e31b0dc697fc2bedc5a7a1efe57d5d96fe908013d89a3bf8b8c",
+    "bytes": 1086
+  }
+]

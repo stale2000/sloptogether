@@ -1,0 +1,4 @@
+# ComfyUI-Manager consumes this file directly. Keep its host requirements
+# hash-locked to the approved H3 host environment.
+--require-hashes
+-r requirements-host.lock

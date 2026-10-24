@@ -1,0 +1,9 @@
+{
+  "source_path": "/Users/stale2000/comfy/comfystream/src/comfystream/flow_planner.py",
+  "source_sha256": "982dd448b537cf6866c29882bce7322aa7873ef16a714e79a4bd4afcbf68561d",
+  "symbol": "attach_dialogue",
+  "start_line": 263,
+  "end_line": 329,
+  "dialogue_max_words": 30,
+  "status": "inspected source contract; not an extracted runtime module"
+}

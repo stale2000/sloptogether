@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=75,<80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sloptogether-worker"
+version = "0.1.0"
+description = "Shared Windows and Linux GPU worker for SlopTogether"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6.16,<7"]
+test = ["pytest>=9,<10"]
+
+[project.scripts]
+sloptogether-worker = "sloptogether_worker.cli:main"
+sloptogether-fal-worker = "sloptogether_worker.fal_runner:main"
+sloptogether-fal-session = "sloptogether_worker.fal_session:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+sloptogether_worker = ["assets/*.json", "assets/recipes/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

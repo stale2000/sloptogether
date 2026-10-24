@@ -1,0 +1,8 @@
+-r requirements-worker.txt
+# Keep the isolated worker's approved Torch 2.13 CUDA 13 stack separate from the host.
+torch==2.13.0+cu130
+torchvision==0.28.0+cu130
+triton==3.7.1
+natten==0.21.7+torch2130cu130
+torchao==0.17.0+cu130
+mslk==1.3.0+cu130

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="description" content="Vote on the next approved SlopTogether scene." />
+    <title>SlopTogether scene vote</title>
+    <link rel="stylesheet" href="./extension.css" />
+    <!-- Twitch requires its Extension Helper before every other script. -->
+    <script src="https://extension-files.twitch.tv/helper/v1/twitch-ext.min.js"></script>
+    <script defer src="./extension.js"></script>
+  </head>
+  <body>
+    <main class="card" aria-labelledby="heading">
+      <header class="brand-row">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <div><p class="eyebrow">THE SCENE COLLECTIVE</p><h1 id="heading">Shape the next scene</h1></div>
+      </header>
+      <p id="status" class="status" role="status" aria-live="polite">Connecting to this channel…</p>
+      <section id="turbo" class="turbo" aria-label="Optional Turbo render" hidden>
+        <h2>Optional Turbo render</h2>
+        <p id="turbo-prompt" class="helper"></p>
+        <div id="turbo-products" class="turbo-products"></div>
+        <p id="turbo-status" class="note" role="status" aria-live="polite" hidden></p>
+        <button id="turbo-link" class="secondary" type="button" hidden>Link Twitch account to use Bits</button>
+        <button id="turbo-reconcile" class="secondary" type="button" hidden>Retry transaction check</button>
+      </section>
+      <section id="ballot" class="ballot" aria-label="Current scene vote" hidden>
+        <div class="section-row"><h2 id="question">What happens next?</h2><span id="countdown" class="countdown"></span></div>
+        <p id="helper" class="helper">Vote for one cleared scene. You can change your vote before this round closes.</p>
+        <div id="choices" class="choices"></div>
+        <button id="submit-vote" class="primary" type="button" disabled>Cast vote</button>
+        <p id="vote-note" class="note">Votes are free. Chat and this Extension share one vote per linked Twitch account.</p>
+      </section>
+      <section id="subscriber-card" class="subscriber-card" aria-label="Subscriber scene update" hidden></section>
+      <section id="empty" class="empty" hidden><span aria-hidden="true">✦</span><p>Nothing to vote on yet.</p><small>Check back when this channel opens a new scene round.</small></section>
+      <button id="link-account" class="secondary" type="button" hidden>Link Twitch account to vote</button>
+      <p id="error" class="error" role="alert" hidden></p>
+      <footer><span class="live-dot" aria-hidden="true"></span> Your vote updates the same channel poll as chat.</footer>
+    </main>
+  </body>
+</html>

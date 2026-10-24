@@ -1,0 +1,6 @@
+# Host packages already present in the approved H3 deployment environment.
+# Diffusers and inference-only dependencies belong to the isolated worker.
+huggingface-hub>=2.2.0,<3.0
+transformers>=5.12.1,<6.0
+safetensors>=0.8.0
+av>=17.0.0

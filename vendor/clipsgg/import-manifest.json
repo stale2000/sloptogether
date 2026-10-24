@@ -1,0 +1,88 @@
+{
+  "schema": "sloptogether.clipsgg-reference-import.v1",
+  "source_repository": "/Users/stale2000/workspace/clips.gg",
+  "source_git_head": "1533aebc3472e31a20223ff3f60a1a5ce3455cc4",
+  "source_worktree_dirty": true,
+  "retrieved_at": "2026-10-24T02:53:09.312541+00:00",
+  "purpose": "Routing/auth boundary and R2 integration reference; not a standalone host application",
+  "license_note": "Upstream LICENSE is present but empty; no license grant is inferred. Review rights before public redistribution.",
+  "files": [
+    {
+      "path": "reference/frontend/next.config.ts",
+      "source_path": "frontend/next.config.ts",
+      "sha256": "a0cd91a492f6c8ccc95901bc8b91bd0856d0490add6c25f9bab13f51b82ed16c",
+      "bytes": 684,
+      "matches_source_head": true
+    },
+    {
+      "path": "reference/frontend/middleware.ts",
+      "source_path": "frontend/middleware.ts",
+      "sha256": "7cbe3d8c031b38017e6006c22d2303c5e5a7dd89b2dca6410847b4254504bb15",
+      "bytes": 2488,
+      "matches_source_head": true
+    },
+    {
+      "path": "reference/frontend/package.json",
+      "source_path": "frontend/package.json",
+      "sha256": "3fb586f311dbe66051384743426356d66f734a612e18ff01162e1b01944cd557",
+      "bytes": 2825,
+      "matches_source_head": true
+    },
+    {
+      "path": "reference/frontend/src/lib/devvit-api.ts",
+      "source_path": "frontend/src/lib/devvit-api.ts",
+      "sha256": "713143a7e59efb33c5e91a3b17e3ccc20266860bac774701900094d2e3cf9137",
+      "bytes": 1686,
+      "matches_source_head": true
+    },
+    {
+      "path": "reference/frontend/src/lib/supabase-cookie-options.ts",
+      "source_path": "frontend/src/lib/supabase-cookie-options.ts",
+      "sha256": "e52cc9882b792e25e08eef4763605fac75934ebe22f2b403a49d2fdbc872b38e",
+      "bytes": 202,
+      "matches_source_head": true
+    },
+    {
+      "path": "reference/frontend/src/lib/supabase-middleware.ts",
+      "source_path": "frontend/src/lib/supabase-middleware.ts",
+      "sha256": "4a562d4e24f3f705b80aed0da25f64427fc84179f476a17f2da16569e3f63530",
+      "bytes": 1004,
+      "matches_source_head": true
+    },
+    {
+      "path": "reference/frontend/src/platform/config/index.ts",
+      "source_path": "frontend/src/platform/config/index.ts",
+      "sha256": "c858df51c1dedecc100cabe1c4d0f661f26979c6eace5c19a7918d7acba88165",
+      "bytes": 1739,
+      "matches_source_head": true
+    },
+    {
+      "path": "reference/frontend/src/platform/providers/r2.ts",
+      "source_path": "frontend/src/platform/providers/r2.ts",
+      "sha256": "d163539c34ce75a5df8f18d93edc13332b9dbb02bed55cf9372a50cc49d7a41a",
+      "bytes": 375,
+      "matches_source_head": true
+    },
+    {
+      "path": "reference/frontend/src/lib/clip-variant-storage.ts",
+      "source_path": "frontend/src/lib/clip-variant-storage.ts",
+      "sha256": "5174d82a98daa6fe3ce32eb77041860ad1fc490adfb5f31aaeceda5751253db1",
+      "bytes": 1067,
+      "matches_source_head": true
+    },
+    {
+      "path": "reference/vercel.json",
+      "source_path": "vercel.json",
+      "sha256": "a6f5d0a6bd3348648ed2500e550fa92175682c2880ea0a3aeb38800bd6011a12",
+      "bytes": 251,
+      "matches_source_head": true
+    },
+    {
+      "path": "reference/LICENSE",
+      "source_path": "LICENSE",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "matches_source_head": true
+    }
+  ]
+}

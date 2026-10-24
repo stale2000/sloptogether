@@ -1,0 +1,14 @@
+[worker]
+# Copy to worker.toml, then replace the WSL distro name and Linux username.
+platform = "wsl"
+role = "generation"
+api_base_url = "https://clips.gg/sloptogether/api/v1"
+comfy_url = "http://127.0.0.1:8188"
+comfy_input_dir = '\\wsl.localhost\Ubuntu\home\YOUR_USER\ComfyUI\input'
+comfy_output_dir = '\\wsl.localhost\Ubuntu\home\YOUR_USER\ComfyUI\output'
+state_dir = "~/.sloptogether"
+poll_interval_seconds = 5
+heartbeat_interval_seconds = 30
+request_timeout_seconds = 30
+max_output_bytes = 134217728
+upload_hosts = ["uploads.clips.gg"]

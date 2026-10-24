@@ -1,0 +1,173 @@
+[
+  {
+    "id": "twitch-extension-policies",
+    "url": "https://dev.twitch.tv/docs/extensions/guidelines-and-policies/",
+    "retrieved_at": "2026-10-24T02:13:39.853519+00:00",
+    "file": "twitch-extension-policies.html",
+    "status": 200,
+    "bytes": 39369,
+    "sha256": "421897c31f32eed9dba02e3f0da2723d32b497e037bea786b15466152419ad73"
+  },
+  {
+    "id": "twitch-extension-reference",
+    "url": "https://dev.twitch.tv/docs/extensions/reference/",
+    "retrieved_at": "2026-10-24T02:13:40.202972+00:00",
+    "file": "twitch-extension-reference.html",
+    "status": 200,
+    "bytes": 73044,
+    "sha256": "6ffa9db1642fb11d23eead4aed8e797497692ec0b6f0a7b41a01b001e9140b50"
+  },
+  {
+    "id": "twitch-extension-monetization",
+    "url": "https://dev.twitch.tv/docs/extensions/monetization/",
+    "retrieved_at": "2026-10-24T02:13:40.521605+00:00",
+    "file": "twitch-extension-monetization.html",
+    "status": 200,
+    "bytes": 45373,
+    "sha256": "3e37029a1cd22d3af9e1619314ae01a724a107c0c8e23d6f0a6b1945e389668a"
+  },
+  {
+    "id": "twitch-oauth",
+    "url": "https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/",
+    "retrieved_at": "2026-10-24T02:13:40.843496+00:00",
+    "file": "twitch-oauth.html",
+    "status": 200,
+    "bytes": 66672,
+    "sha256": "b481c68228e6b36ad66938fed8a12ee1105219661e4cb262d4381d6ad1533f9e"
+  },
+  {
+    "id": "twitch-token-validation",
+    "url": "https://dev.twitch.tv/docs/authentication/validate-tokens/",
+    "retrieved_at": "2026-10-24T02:13:41.354726+00:00",
+    "file": "twitch-token-validation.html",
+    "status": 200,
+    "bytes": 31319,
+    "sha256": "f11442126674cabe899ce15e4063ad9001fdfa7d30315900e888310c9ac11a7d"
+  },
+  {
+    "id": "twitch-eventsub-webhooks",
+    "url": "https://dev.twitch.tv/docs/eventsub/handling-webhook-events/",
+    "retrieved_at": "2026-10-24T02:13:42.340405+00:00",
+    "file": "twitch-eventsub-webhooks.html",
+    "status": 200,
+    "bytes": 79062,
+    "sha256": "2c3a38d3eb7c28545b0ed1e36594750329541e5a7c5c82356ee7252c6c6a73ae"
+  },
+  {
+    "id": "twitch-chat-auth",
+    "url": "https://dev.twitch.tv/docs/chat/authenticating/",
+    "retrieved_at": "2026-10-24T02:13:42.639738+00:00",
+    "file": "twitch-chat-auth.html",
+    "status": 200,
+    "bytes": 55490,
+    "sha256": "086f4ac8360075965333cbbc079c3dd74c9c4831dee74cde71a5603525e429e5"
+  },
+  {
+    "id": "twitch-polls",
+    "url": "https://dev.twitch.tv/docs/api/polls/",
+    "retrieved_at": "2026-10-24T02:13:42.925776+00:00",
+    "file": "twitch-polls.html",
+    "status": 200,
+    "bytes": 49601,
+    "sha256": "649ea6e7a5653f876b07f5ec5c1239fb1f2069598e760a63fe2c9dd6382dd097"
+  },
+  {
+    "id": "twitch-broadcasting",
+    "url": "https://dev.twitch.tv/docs/video-broadcast/",
+    "retrieved_at": "2026-10-24T02:13:43.273868+00:00",
+    "file": "twitch-broadcasting.html",
+    "status": 200,
+    "bytes": 27085,
+    "sha256": "09394377fcf3654094e5a85f2e7df5db7ee90dd3134f0f5a7b677eff85da86ad"
+  },
+  {
+    "id": "comfy-api-v2",
+    "url": "https://docs.comfy.org/api-reference/v2/overview",
+    "retrieved_at": "2026-10-24T02:13:43.542434+00:00",
+    "file": "comfy-api-v2.html",
+    "status": 200,
+    "bytes": 453190,
+    "sha256": "71fe0d852ac20f0ef261f4d7e66ec798905fb49305ee548afb295b586a691602"
+  },
+  {
+    "id": "fal-machine-types",
+    "url": "https://fal.ai/docs/documentation/deployment/machine-types",
+    "retrieved_at": "2026-10-24T02:13:43.645105+00:00",
+    "file": "fal-machine-types.html",
+    "status": 200,
+    "bytes": 473026,
+    "sha256": "c34437ef59ddece5562402941c3df0ecfb6a31e67e07d29feb8cac3e69985d2f"
+  },
+  {
+    "id": "fal-deployment",
+    "url": "https://fal.ai/docs/documentation/deployment/deploy-to-production",
+    "retrieved_at": "2026-10-24T02:13:43.791716+00:00",
+    "file": "fal-deployment.html",
+    "status": 200,
+    "bytes": 547538,
+    "sha256": "fbd3e3b8266aac467be91b5b924c04a05b1c7286f8059676cf4fe9980e151ce4"
+  },
+  {
+    "id": "fal-h3-max-turbo-model",
+    "url": "https://fal.ai/models/minimax/h3-max-turbo/image-to-video",
+    "retrieved_at": "2026-10-24T02:25:50.108192+00:00",
+    "file": "fal-h3-max-turbo-model.html",
+    "status": 200,
+    "bytes": 347495,
+    "sha256": "b9b9526d2620903d4d8a60b4b9c49c4168456b9f21329af3380dbf1a27953e35"
+  },
+  {
+    "id": "fal-h3-max-turbo-api",
+    "url": "https://fal.ai/models/minimax/h3-max-turbo/image-to-video/api",
+    "retrieved_at": "2026-10-24T02:25:53.941661+00:00",
+    "file": "fal-h3-max-turbo-api.html",
+    "status": 200,
+    "bytes": 313929,
+    "sha256": "174f50e9b38a47d4f25b47a7d1c3fd862ec3b26898f5fe71c14f6aa955ce3d77"
+  },
+  {
+    "id": "cloudflare-r2-presigned-urls",
+    "url": "https://developers.cloudflare.com/r2/api/s3/presigned-urls/",
+    "retrieved_at": "2026-10-24T02:25:54.443221+00:00",
+    "file": "cloudflare-r2-presigned-urls.html",
+    "status": 200,
+    "bytes": 147639,
+    "sha256": "9fe2f02ee0de4942782ac96d81673ade64e60523325ae1258145736b053a4bd1"
+  },
+  {
+    "id": "cloudflare-stream-direct-uploads",
+    "url": "https://developers.cloudflare.com/stream/uploading-videos/direct-creator-uploads/",
+    "retrieved_at": "2026-10-24T02:25:54.872865+00:00",
+    "file": "cloudflare-stream-direct-uploads.html",
+    "status": 200,
+    "bytes": 150337,
+    "sha256": "099b222e62405bd39510e6a14b522dbd13ed5bd3355f1defdacbd06c52f02c80"
+  },
+  {
+    "id": "openai-moderation-guide",
+    "url": "https://developers.openai.com/api/docs/guides/moderation",
+    "retrieved_at": "2026-10-24T03:35:19.285287+00:00",
+    "file": "openai-moderation-guide.html",
+    "status": 200,
+    "bytes": 594031,
+    "sha256": "474c9ac2ae70964010fe821412202e5b07c4bead60bd41f5cedf304dd2c75672"
+  },
+  {
+    "id": "twitch-subscription-events",
+    "url": "https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types/",
+    "retrieved_at": "2026-10-24T04:03:28.646019+00:00",
+    "file": "twitch-subscription-events.html",
+    "bytes": 957694,
+    "sha256": "b137407a5ba93ff4e5b1bfaa3ace8a7027ec8805068efa005482bb117d19f77d",
+    "status": 200
+  },
+  {
+    "id": "openai-cheap-story-model",
+    "url": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+    "retrieved_at": "2026-10-24T04:03:29.016570+00:00",
+    "file": "openai-cheap-story-model.html",
+    "bytes": 459629,
+    "sha256": "8eff419a5b3670720155865d0b0092445432e78c5a58682b84cbffd92a9b80b2",
+    "status": 200
+  }
+]

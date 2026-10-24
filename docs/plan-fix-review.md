@@ -1,0 +1,18 @@
+# Review of the four plan fixes
+
+Date: October 23, 2026. **Verdict: all four follow-up findings resolved in the plan and acceptance specification.** This closes the documented review requests, not application implementation or runtime qualification.
+
+The two independent reviewers who reported the timeline/capacity and lease findings re-read the corresponding revisions. Both reported their findings resolved with no additional blocking correction in the revised scope. Their recheck was read-only; no tests, inference, installers or deployments were run.
+
+| Follow-up finding | Correction in the plan | Planned verification |
+|---|---|---|
+| Continuation output could mutate its own generation inputs | Immutable nullable requested end is separate from append-only endpoint resolution tied to an accepted source artifact and original input digest. Successors bind that resolution; replacing it fences affected descendants. Upscale preserves the canonical endpoint. | T05/T16 and end-to-end continuity cover acceptance without self-invalidation, competing resolution acceptance, successor dispatch and source replacement. |
+| A fork alone did not repair mismatching joins | Entry starts at an unchanged future boundary outside the protected buffer. Regenerate incoming transition; reuse a suffix only at its exact start boundary or generate an outgoing bridge. Intentional cuts require explicit playback/manifest discontinuity. | T02/T17 and ten-minute edit case verify both joins, stale results, immutable original branch and explicit-cut behavior. |
+| Buffered playback could pass as sustained fresh generation | At least 60 minutes at 1x; >=1.10x newly approved contiguous selected-branch output, >=1.00x each consecutive 15-minute interval, >=120s buffer floor and final buffer>=initial. Exclude primed video, replay, filler, rejected/speculative outputs and duplicate variants. Failure qualifies only buffered/fallback mode. | End-to-end capacity case tests real pipeline/review throughput and false passes from prebuffer, gaps and duplicate completion counts. |
+| Donor heartbeats could hold a job indefinitely | Profile-qualified server absolute deadlines cap heartbeat/upload extensions; independent expiry fences stale donors and frees account quotas. Two active attempts/account, one/worker slot, bounded upload grace and cooldown for repeated nonproductive attempts. Managed-provider uncertainty retains its separate hold/reconcile rule. | T09/T18/I18 cover infinite heartbeats, deadline clock authority, cross-device quota bypass, late uploads, replacement and legitimate bounded transfers. |
+
+The timeline reviewer also checked that the capacity gate is feasible within the proposed lookahead. Qualification must permit at least 540s final buffer plus batching tolerance (`180 + 3960 - 3600`); the plan/test specification now use an initial 600s high-water target for one/two-clip batches and require a larger declared horizon if needed. This prevents healthy workers from being throttled at the initial 180s buffer and falsely failing the headroom target.
+
+Updated documents: main implementation plan, test specification, worker upload protocol and relevant open-question recommendations. Review-history pointers now identify this report as the current verdict; earlier findings remain preserved as history.
+
+Documentation checks verify local links, fenced JSON examples and consistency of the stated rate/buffer arithmetic. They do not prove the future application passes the planned acceptance cases. GPU compatibility, paid-feature approval, real generation/approval throughput and production deployment remain explicit qualification gates.

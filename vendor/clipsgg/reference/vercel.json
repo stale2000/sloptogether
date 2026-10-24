@@ -1,0 +1,13 @@
+{
+  "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/internal/streamer-lists/fill-daily-queues",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/internal/tasks/sweep-remixes",
+      "schedule": "*/2 * * * *"
+    }
+  ]
+}

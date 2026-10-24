@@ -1,0 +1,19 @@
+{
+  "name": "sloptogether",
+  "private": true,
+  "workspaces": ["apps/web", "packages/contracts"],
+  "scripts": {
+    "dev": "npm --workspace apps/web run dev",
+    "build": "npm --workspace apps/web run build",
+    "lint": "npm --workspace apps/web run lint",
+    "typecheck": "npm --workspace apps/web run typecheck",
+    "test": "npm --workspace apps/web run test && node --test scripts/local-demo-guard.test.mjs scripts/extension-package.test.mjs",
+    "media-test": "node --test workers/media-publisher/tests/*.test.mjs",
+    "worker-test": "PYTHONPATH=workers/runtime/src python3.12 -B -m unittest discover -s workers/runtime/tests",
+    "media-worker": "node workers/media-publisher/src/index.mjs",
+    "media-worker:local": "node --env-file=workers/media-publisher/.env.local workers/media-publisher/src/index.mjs",
+    "extension:package": "python3.12 scripts/package-twitch-extension.py",
+    "local-story-worker-key": "node --env-file=apps/web/.env.local scripts/seed-local-story-worker.mjs"
+  },
+  "engines": {"node": ">=20.9"}
+}

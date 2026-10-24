@@ -1,0 +1,73 @@
+{
+  "artifact_digest": "fc072f7f3abea1cc10f293fc27b36c179ee9da0567d18edf1193c0b70d584e37",
+  "asset_digest": "4d2c60ce31de4199beb132ca0e050602bf80ab6b9a0e2044439fe0b7a52646c7",
+  "assets": {
+    "decoder": {
+      "ARTIFACT_SHA256": {
+        "patch_diffusers.py": "dfac5ca02891f3d7061f54b1410db65d1dfb91e558bee93ca571ee1ed066dbf3",
+        "vae/config.json": "b636e95d41d93027529fa726ff75fe6eed55751a8cbe602e614ef7a600d287e7",
+        "vae/diffusion_pytorch_model.safetensors": "4cbf0cbe6c185514d62c6c58c35dc42d7ea15924f34391e08be12f44bfccdf1d"
+      },
+      "PRUNA_REPO": "PrunaAI/PrunaVAED",
+      "PRUNA_REVISION": "4baacd7ef66a6131439542c1f05872afe042e128"
+    },
+    "model_paths": {
+      "fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors": "diffusion_models/fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors",
+      "fastvideo_fasth3_trim_8step_int8_convrot.safetensors": "diffusion_models/fastvideo_fasth3_trim_8step_int8_convrot.safetensors",
+      "minimax_h3_audio_vae_fp32.safetensors": "vae/minimax_h3_audio_vae_fp32.safetensors",
+      "minimax_h3_video_vae_int8_convrot.safetensors": "vae/minimax_h3_video_vae_int8_convrot.safetensors",
+      "mmh3-4b-ClipProj-v3.1-mlp.safetensors": "clip_projections/mmh3-4b-ClipProj-v3.1-mlp.safetensors",
+      "qwen3vl_4b_fp8_scaled.safetensors": "text_encoders/qwen3vl_4b_fp8_scaled.safetensors"
+    },
+    "model_revisions": {
+      "fastvideo_fasth3_trim_8step_int8_convrot.safetensors": "f66c13dc17391dd4da99242a407918b92bf7d5fc",
+      "minimax_h3_audio_vae_fp32.safetensors": "1c41cfca8ebba91d0af792a05c5761fb2c3a7975",
+      "minimax_h3_video_vae_int8_convrot.safetensors": "f4cac997f880e93cf6940af61ee8d58ef31ff7f3",
+      "mmh3-4b-ClipProj-v3.1-mlp.safetensors": "2ebdbcdc27a29a9607efdb221a9afcb9a0cdd808",
+      "qwen3vl_4b_fp8_scaled.safetensors": "02f0d3eefb59528799653d16735818801177ef1f"
+    },
+    "models": {
+      "fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors": "0922785978dc9bfe1adf27d8b291b0ca763f9f165f882e6cb297c72fbb6deda8",
+      "fastvideo_fasth3_trim_8step_int8_convrot.safetensors": "ff6e40bc592f7362ea0d7bfcf4e0402bb2c26376d9d1bd4fffb047a5203c2153",
+      "minimax_h3_audio_vae_fp32.safetensors": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+      "minimax_h3_video_vae_int8_convrot.safetensors": "9bb2d96f218c76babd85e0611b85ca8fb330a90546c01a0005e8a58a59593410",
+      "mmh3-4b-ClipProj-v3.1-mlp.safetensors": "902a9b96ed041aedf7463251c59d917fba94963b944dd3196c00b23ff0f2b6b0",
+      "qwen3vl_4b_fp8_scaled.safetensors": "54bd5144df0bbc25dd6ccadfcb826b521445a1b06ae5a42570bdd2974ca87094"
+    },
+    "stat_receipt_sha256": "5d2ebab8cfad0c6b5009e8b5c71656ab5c6fa32c38f64ee33d8af8fcc448cea7",
+    "trim": {
+      "trim_revision": "f66c13dc17391dd4da99242a407918b92bf7d5fc",
+      "trim_sha256": "ff6e40bc592f7362ea0d7bfcf4e0402bb2c26376d9d1bd4fffb047a5203c2153"
+    },
+    "upscaler": {
+      "MODEL_ID": "Efficient-Large-Model/SoL-Refiner-LTX-2.5-for-MiniMax-H3",
+      "MODEL_REVISION": "4655337474c1c77fb52e9ac55111552e625e779c"
+    }
+  },
+  "code_digest": "ffef247d6cdea6dd17537760483953dad73adb5936bbea5c2d9bbc5ff8213112",
+  "compatibility": {
+    "comfyui_api": "prompt-history-object_info/1",
+    "drama3_package": "comfystream_drama3",
+    "generator_node": "FastH3BenchmarkSampler",
+    "output_node": "FastH3BenchmarkOutput",
+    "upscaler_node": "ComfyStreamMiniMaxH3SoLUpscaler"
+  },
+  "profile": "vast",
+  "runtime": {
+    "base_image": "cuda130-py312",
+    "clipproj_node_ref": "c01ba8fb8f41b4f2094dbd0b185cdc238fb6134c",
+    "comfy-aimdo": "0.5.3",
+    "comfy-kitchen": "0.2.34",
+    "comfyui": "0.36.0",
+    "comfyui_ref": "ee71d5c4993f29086b27fde1629a945ae48425bf",
+    "kitchen_wheel_sha256": "71ba8bc72b54f2914b5e15d210eea2e25931006cf57ca14d033ae4050f4b0d1a",
+    "python": "3.12",
+    "schema": "fasth3-vast-environment/1",
+    "torch": "2.14.0+cu130",
+    "torch_cuda": "13.0",
+    "torchaudio": "2.11.0+cu130",
+    "torchvision": "0.29.0+cu130",
+    "triton": "3.8.0"
+  },
+  "schema": "comfystream-worker-artifact/1"
+}

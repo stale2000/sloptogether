@@ -1,0 +1,38 @@
+[project]
+name = "comfystream-fasth3-b1-fal"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+
+[tool.fal.apps.fasth3-b1]
+auth = "private"
+machine_type = "GPU-RTXPRO6000"
+num_gpus = 1
+exposed_port = 8188
+app_scale_settings = true
+min_concurrency = 0
+max_concurrency = 1
+max_multiplexing = 1
+keep_alive = 60
+request_timeout = 1800
+startup_timeout = 3600
+private_logs = true
+
+[tool.fal.apps.fasth3-b1.image]
+dockerfile = "Dockerfile"
+
+[tool.fal.apps.comfystream-trim-speculative-probe-20261016]
+auth = "private"
+machine_type = "GPU-RTXPRO6000"
+num_gpus = 1
+exposed_port = 8188
+app_scale_settings = true
+min_concurrency = 0
+max_concurrency = 1
+max_multiplexing = 1
+keep_alive = 0
+request_timeout = 1800
+startup_timeout = 3600
+private_logs = true
+
+[tool.fal.apps.comfystream-trim-speculative-probe-20261016.image]
+dockerfile = "Dockerfile"

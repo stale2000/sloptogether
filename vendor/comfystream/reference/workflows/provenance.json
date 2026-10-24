@@ -1,0 +1,10 @@
+{
+  "source_path": "src/comfystream/providers/fasth3_workflows.py",
+  "source_sha256": "10190e33062a239e48a263534b87dc80adb400f47e4ad13c018d03f652266f0c",
+  "builder_functions": [
+    "build_workflow",
+    "build_h3_upscale_workflow"
+  ],
+  "generated_without_submission": true,
+  "notice": "Static reference API graphs. Input filenames are placeholders. The NVFP4 graph targets Blackwell; it is not an RTX4090 qualification."
+}

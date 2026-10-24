@@ -1,0 +1,1163 @@
+{
+  "artifact_digest": "fc072f7f3abea1cc10f293fc27b36c179ee9da0567d18edf1193c0b70d584e37",
+  "asset_digest": "4d2c60ce31de4199beb132ca0e050602bf80ab6b9a0e2044439fe0b7a52646c7",
+  "assets": {
+    "decoder": {
+      "ARTIFACT_SHA256": {
+        "patch_diffusers.py": "dfac5ca02891f3d7061f54b1410db65d1dfb91e558bee93ca571ee1ed066dbf3",
+        "vae/config.json": "b636e95d41d93027529fa726ff75fe6eed55751a8cbe602e614ef7a600d287e7",
+        "vae/diffusion_pytorch_model.safetensors": "4cbf0cbe6c185514d62c6c58c35dc42d7ea15924f34391e08be12f44bfccdf1d"
+      },
+      "PRUNA_REPO": "PrunaAI/PrunaVAED",
+      "PRUNA_REVISION": "4baacd7ef66a6131439542c1f05872afe042e128"
+    },
+    "model_paths": {
+      "fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors": "diffusion_models/fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors",
+      "fastvideo_fasth3_trim_8step_int8_convrot.safetensors": "diffusion_models/fastvideo_fasth3_trim_8step_int8_convrot.safetensors",
+      "minimax_h3_audio_vae_fp32.safetensors": "vae/minimax_h3_audio_vae_fp32.safetensors",
+      "minimax_h3_video_vae_int8_convrot.safetensors": "vae/minimax_h3_video_vae_int8_convrot.safetensors",
+      "mmh3-4b-ClipProj-v3.1-mlp.safetensors": "clip_projections/mmh3-4b-ClipProj-v3.1-mlp.safetensors",
+      "qwen3vl_4b_fp8_scaled.safetensors": "text_encoders/qwen3vl_4b_fp8_scaled.safetensors"
+    },
+    "model_revisions": {
+      "fastvideo_fasth3_trim_8step_int8_convrot.safetensors": "f66c13dc17391dd4da99242a407918b92bf7d5fc",
+      "minimax_h3_audio_vae_fp32.safetensors": "1c41cfca8ebba91d0af792a05c5761fb2c3a7975",
+      "minimax_h3_video_vae_int8_convrot.safetensors": "f4cac997f880e93cf6940af61ee8d58ef31ff7f3",
+      "mmh3-4b-ClipProj-v3.1-mlp.safetensors": "2ebdbcdc27a29a9607efdb221a9afcb9a0cdd808",
+      "qwen3vl_4b_fp8_scaled.safetensors": "02f0d3eefb59528799653d16735818801177ef1f"
+    },
+    "models": {
+      "fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors": "0922785978dc9bfe1adf27d8b291b0ca763f9f165f882e6cb297c72fbb6deda8",
+      "fastvideo_fasth3_trim_8step_int8_convrot.safetensors": "ff6e40bc592f7362ea0d7bfcf4e0402bb2c26376d9d1bd4fffb047a5203c2153",
+      "minimax_h3_audio_vae_fp32.safetensors": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+      "minimax_h3_video_vae_int8_convrot.safetensors": "9bb2d96f218c76babd85e0611b85ca8fb330a90546c01a0005e8a58a59593410",
+      "mmh3-4b-ClipProj-v3.1-mlp.safetensors": "902a9b96ed041aedf7463251c59d917fba94963b944dd3196c00b23ff0f2b6b0",
+      "qwen3vl_4b_fp8_scaled.safetensors": "54bd5144df0bbc25dd6ccadfcb826b521445a1b06ae5a42570bdd2974ca87094"
+    },
+    "stat_receipt_sha256": "5d2ebab8cfad0c6b5009e8b5c71656ab5c6fa32c38f64ee33d8af8fcc448cea7",
+    "trim": {
+      "trim_revision": "f66c13dc17391dd4da99242a407918b92bf7d5fc",
+      "trim_sha256": "ff6e40bc592f7362ea0d7bfcf4e0402bb2c26376d9d1bd4fffb047a5203c2153"
+    },
+    "upscaler": {
+      "MODEL_ID": "Efficient-Large-Model/SoL-Refiner-LTX-2.5-for-MiniMax-H3",
+      "MODEL_REVISION": "4655337474c1c77fb52e9ac55111552e625e779c"
+    }
+  },
+  "code_digest": "ffef247d6cdea6dd17537760483953dad73adb5936bbea5c2d9bbc5ff8213112",
+  "compatibility": {
+    "comfyui_api": "prompt-history-object_info/1",
+    "drama3_package": "comfystream_drama3",
+    "generator_node": "FastH3BenchmarkSampler",
+    "output_node": "FastH3BenchmarkOutput",
+    "upscaler_node": "ComfyStreamMiniMaxH3SoLUpscaler"
+  },
+  "files": {
+    "deploy/custom_nodes/comfystream_drama3/__init__.py": {
+      "executable": false,
+      "sha256": "75aa51058bd0aff013477269db5d048941dfec1c7870fa559419e1f7d2bebc4e"
+    },
+    "deploy/custom_nodes/comfystream_drama3/install_runtime.py": {
+      "executable": false,
+      "sha256": "d7c56cb38b9a79450dface92f4f027642d5788e81bd5e3cf604cf7a451d9946a"
+    },
+    "deploy/custom_nodes/comfystream_drama3/node.py": {
+      "executable": false,
+      "sha256": "5fa4b27d8f74a064e84ee618c64a9d77e8d19f3d3f1841b50311cb23a29772e5"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/NOTICE.md": {
+      "executable": false,
+      "sha256": "889185eb8455dbe9eedf1eafbefd47a1d8f90a6c51873e79bab62ac9f55c55c0"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/PERFORMANCE.md": {
+      "executable": false,
+      "sha256": "9ec40f07711371c982d4bd7af7e8322b73c4ea82084d807a3353cfb5a96843c8"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/README.md": {
+      "executable": false,
+      "sha256": "a80e495020ab304eaf8b8421b18858614ac430637d0dedae7201a7054892990f"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/__init__.py": {
+      "executable": false,
+      "sha256": "a8d95de5b65ec1a7ae8f6f6eca55100ec464472d4b48c2631be5fdd1fdf18176"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/cuda_transfers.py": {
+      "executable": false,
+      "sha256": "4d8b50b303a68729d27a4100dc4fe07947d32b00c70d5f6e0579ec4a6e43e12e"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/decoder_optimizations.py": {
+      "executable": false,
+      "sha256": "394a21690e8605ba44a79bba5008b2f5c32cb139093378f4e919bba4757105f6"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/distributed.py": {
+      "executable": false,
+      "sha256": "c797499a972c10a2d82cc522d1cfb77ea50566d4286bc43361660a8e913a8b3e"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/fast_decoder.py": {
+      "executable": false,
+      "sha256": "2536bf22fddf910ef56ccc80d7314231b6d7a4d441851c4204166b14325e4d24"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/fixed_conditioning.py": {
+      "executable": false,
+      "sha256": "09f384722cf56885cabc9347f516be8ac8fde6008a247e7a4e0e63ccd1ac1fe3"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/fp8_optimizations.py": {
+      "executable": false,
+      "sha256": "b46f3ffe6f91ac480d0654082aad20190754dbc85939c9e30fabe5f39e9a97c4"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/hardware_profiles.py": {
+      "executable": false,
+      "sha256": "591d1ed8818276f1e503604a2362e0fbea61aa56da79e30fb3110947cd47d754"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/install.py": {
+      "executable": false,
+      "sha256": "211ca04ffd7fac766e12f23d91fad5d9f8f0836417e169098e6109a0d4e204ea"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/install_runtime.sh": {
+      "executable": true,
+      "sha256": "08f8148a3a55b49c9c9f4a4ee2baf0bb767b135ba0a5a074af82cb9afbdcd31f"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/licenses/Apache-2.0.txt": {
+      "executable": false,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/media_export.py": {
+      "executable": false,
+      "sha256": "889d8f6f1f809082fed2886bb3e37a2ffbdec4c573f6532ec570c392c91f647f"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/media_metadata.py": {
+      "executable": false,
+      "sha256": "5104c821c367bf8ea1ce230908527a43d6d3b64ebcadeccd325bba27499bc6c6"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/model_runtime.py": {
+      "executable": false,
+      "sha256": "cec9f0e06b9d9db20ea81c81a3a239e5e07a36968d44335bf9473b00241987d3"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/node.py": {
+      "executable": false,
+      "sha256": "4400dfb1aa7c9defbe653f733996e87c700fa38d27e5e89d98af7e0e35990bf9"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/nvfp4_checkpoint.py": {
+      "executable": false,
+      "sha256": "af43ee715c137bf04b4e0efc65eac083a07e8896da647ded2e90729560649cf2"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/prompt_cache.py": {
+      "executable": false,
+      "sha256": "4939bbee977107f24cd72c5e24582619a8701b2d86e62a21f3eab3d79bf5f1ff"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/protocol.py": {
+      "executable": false,
+      "sha256": "d8a0cc5853cb61c013b0c628df5a879617ce02553831d8b9a167908046981cf1"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/requirements-host.in": {
+      "executable": false,
+      "sha256": "5293b018bc5183bdad5efb81a4ebcc3276d8be25663cb98aaa6f67f8ab739e8b"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/requirements-host.lock": {
+      "executable": false,
+      "sha256": "d01e6129bafc88ff551d8a4bd6d916802b2108b807c8a7d5a5052d5636747ff9"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/requirements-worker.in": {
+      "executable": false,
+      "sha256": "395483cee69cb07f61b4774d1153c943db68f906a8100b586c0caaa8190eb19e"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/requirements-worker.lock": {
+      "executable": false,
+      "sha256": "ce781d95543918a638c104f68d50dc03cd1b03eaecb552aebe2f1fd7a562c045"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/requirements-worker.txt": {
+      "executable": false,
+      "sha256": "80193138f80f94b21800672ea6486e21988d7fe74d4d3d6eb6ff0cfbdff815f9"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/requirements.txt": {
+      "executable": false,
+      "sha256": "a5ebf2416c6cc2f58bdfec5c2ba04b646c4c2eb56abf37737750180aad80fad3"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/runtime.json": {
+      "executable": false,
+      "sha256": "9813756666c20ef8b3c0a1dc12b165653ab7baeccb77277dd4862a1b333cf183"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/shared_vae.py": {
+      "executable": false,
+      "sha256": "3a3bd05eda1e2c7a0dbf025db06dd0e119cedcea0e6b0821daf241bd26dfed6a"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/shared_vae_plan.py": {
+      "executable": false,
+      "sha256": "581d1e95180ce151edb472064318ab975177b7865705a1e668cb624e870c7311"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/shared_vae_worker.py": {
+      "executable": false,
+      "sha256": "1c18e309c4f57e27eec90aa3cfed20e7c6a58cbfc9ff8d0f31eb81446b6f5b0c"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/sloptogether_scope.py": {
+      "executable": false,
+      "sha256": "3a8cc732739a7cc362f89a306f38259c3661a7474f7060cb0de5161e5b70e59d"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/sol_refiner_h3/__init__.py": {
+      "executable": false,
+      "sha256": "8d3c698f424be3846f3b6d3a5a73a59777a872aa5947cfbffcc1983c8486daa3"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/sol_refiner_h3/attention.py": {
+      "executable": false,
+      "sha256": "89baefa20a377dc070bef3dc8211c30ca9ed430294e9e653595171305d1e116f"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/sol_refiner_h3/encoder.py": {
+      "executable": false,
+      "sha256": "ab5cc48d58f692742ce3c6b7bf535fd1ad3a5907f9e7c74e1c7e9c4350206006"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/sol_refiner_h3/pipeline.py": {
+      "executable": false,
+      "sha256": "68b272b68b53a4e3e712eac361c950053d0676432af81c0a1dc4598dfd301eaa"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/sol_refiner_h3/video_only.py": {
+      "executable": false,
+      "sha256": "785ad85a0b200499cb20002be033b25b8fdcb20dfd4ea5f38ab38ef68ff8aa0a"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/worker.py": {
+      "executable": false,
+      "sha256": "5ad6d538617c3b036fcac544d731e2426e5986b8075967f5138deafaefefda9d"
+    },
+    "deploy/custom_nodes/comfystream_sol_refiner_h3/worker_client.py": {
+      "executable": false,
+      "sha256": "619520631a3fc6b7052bbaf3c8e403f9d8e0a7ed82b6f8b9c2a83d983bb8d79f"
+    },
+    "deploy/custom_nodes/comfystream_worker_identity/__init__.py": {
+      "executable": false,
+      "sha256": "60c96153b64b32c57add9c7b9ee072f398d79476944d39655ac7e2a55e2afc9c"
+    },
+    "deploy/custom_nodes/fasth3_deploy/ADAPTIVE_ATTENTION_PLAN.md": {
+      "executable": false,
+      "sha256": "a7130969454a4a7b37937ac626d19b09dcd879acb0237573bff7bad3b2a6570f"
+    },
+    "deploy/custom_nodes/fasth3_deploy/ADAPTIVE_ATTENTION_RESEARCH.md": {
+      "executable": false,
+      "sha256": "93abcfa802a5b24dc6e6b70b70d3ef0581db8db9e6f80a527b236da07dbaedf9"
+    },
+    "deploy/custom_nodes/fasth3_deploy/DMAD_BENCHMARK.md": {
+      "executable": false,
+      "sha256": "bf36187ea9c36a903bb7848a8d19262e5f6869ad8c58572a4df609cb4b2e4b44"
+    },
+    "deploy/custom_nodes/fasth3_deploy/LICENSE": {
+      "executable": false,
+      "sha256": "145c62d7d3215de61ef99aeeb571ba1f189b9eb9fb3fa948420643ea547878e4"
+    },
+    "deploy/custom_nodes/fasth3_deploy/QUICKSTART.md": {
+      "executable": false,
+      "sha256": "3421ebddba01c9c9a2b86e6121049255f32af5ce58429fee66f722f764936bbf"
+    },
+    "deploy/custom_nodes/fasth3_deploy/README.md": {
+      "executable": false,
+      "sha256": "926a623b6add49c45ce008c70d187dca118a145a199a2755d02c91c37a9ffaa4"
+    },
+    "deploy/custom_nodes/fasth3_deploy/__init__.py": {
+      "executable": false,
+      "sha256": "16f9fc40bfe29bd06db1bb942adf7e96e4c8cfbbd7a8f95bded2c0f5dc762c7c"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/README.md": {
+      "executable": false,
+      "sha256": "3f1c25248b1694b35f31fdb00798b69d0eb62b49fd7ae0b275f2a690cce196da"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/__init__.py": {
+      "executable": false,
+      "sha256": "90c7cd84fec73cc081ac47eb57afd6802919b5bf77414333b90d9b3df1c242bb"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/adapter.py": {
+      "executable": false,
+      "sha256": "a67fdc25934aeac97162d9c31867200b13a41eee70cb03b466c7cd8b49c987c5"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/artifact.py": {
+      "executable": false,
+      "sha256": "a06dd7c5abbb79a20679dbb67edb9c9d36959c1f675bf8fbc73d97defec64131"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/build.py": {
+      "executable": false,
+      "sha256": "1011e9a40b38d8827a0332d55787cbe2f251f6d9f08e86fcfc3525e209c0145c"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/calibration.py": {
+      "executable": false,
+      "sha256": "f8f00eaab92e0b002dcb5acd7c7f83aa0c5006de91a5ca5975f7d062066df208"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/bindings.cpp": {
+      "executable": false,
+      "sha256": "5f4d5dcc6358957aa7103d5651623e86fdae3a75cd0e5a7e6e3243db7a22bfc3"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/check.h": {
+      "executable": false,
+      "sha256": "1cd9425a5182b7c54758f6bc94b6cf01cad5ccf9bdd4dc499618f38c253c5cbe"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/combined.cu": {
+      "executable": false,
+      "sha256": "a894b0e38e909231a1f88382b6a6cc5dc050dfa19d033680df19f19f757a81a8"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/combined_g4.cu": {
+      "executable": false,
+      "sha256": "85088fcb1193046de59ee799807678544c46abaa3cbb2fb3b80bb685458af3bd"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/combined_mixed.cu": {
+      "executable": false,
+      "sha256": "13f99a51d7d8aedb0af159a60415f6a73f56fb5765998c22c24e89366cc46d93"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/combined_mixed_g4.cu": {
+      "executable": false,
+      "sha256": "9aa009390e06fea97fa4507286809d4b8c6e0cb52b7c077c17f1d87b20073190"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/fp16.cu": {
+      "executable": false,
+      "sha256": "87329d7424ecb6e48255a0872ea0229f56df389b74ffc196557b11961e1643b0"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/int8.cu": {
+      "executable": false,
+      "sha256": "008214c54bafe410261586af5bdd560b262dfd8979edddcd6ff09eb882d0615e"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/int8_entry.cuh": {
+      "executable": false,
+      "sha256": "f312a116b54ce4710cc55d158df8951287d006b7339d042690902492ff12d3ee"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/mixed.cu": {
+      "executable": false,
+      "sha256": "7580b49f99ad66bfddf6f4072721a14cb402762e11ed30cc2e95cb127d05fe74"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/mixed_entry.cuh": {
+      "executable": false,
+      "sha256": "a951f73421411d208e8b4d3cb524819b1645438aaa4081aec9302e9fedbe0c0b"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/nvfp4.cu": {
+      "executable": false,
+      "sha256": "f113e9a951117956bac62bbae18344019ec0e4c08ff298a7c1f6d759917b4712"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/nvfp4_prepare.cu": {
+      "executable": false,
+      "sha256": "f4324de4215ed128628c361a3e806b128ee5b27ca0bb4bc1017445dea46157af"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/output_epilogue.cu": {
+      "executable": false,
+      "sha256": "01dbc141195e21747a5a30d51a49c8d8af7834c8fef5dbc6190bc93c770a3c06"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/phase_assign.cu": {
+      "executable": false,
+      "sha256": "e73230cdb54ecc1cef59a0dcf93a6d2cf094cc6e8c56244cecc6c4035a8c4696"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/csrc/prepare.cu": {
+      "executable": false,
+      "sha256": "8838ef20c367601548cdd366f62571890494abfcd96949220fac6f3895481333"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/integration.py": {
+      "executable": false,
+      "sha256": "6bd465e778f9ed86cdc77d14c61f378b8696efe5040d90b850eaa601ab9d2aa5"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/mixed.py": {
+      "executable": false,
+      "sha256": "0d8d2cf8fc498819dd8f35e30684df34ae647a6f44efaac037891273d5b6219a"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/quota.py": {
+      "executable": false,
+      "sha256": "72cc3ce527195344a5f07ec45bc52139ed7e2c2b65e62cef2a9c66437a246678"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/LICENSE": {
+      "executable": false,
+      "sha256": "5c1193672ec9d8d0099251f0f8c22add8643878c73992686d15411bcd6921434"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/primitives/cp_async.cuh": {
+      "executable": false,
+      "sha256": "a8123e4889cd09ab615566cff11cb8d213e3c9b3e8577bff95c74ef329782390"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/primitives/math.cuh": {
+      "executable": false,
+      "sha256": "69adc872c9848f69dec14975678ebd29ab48b23768a5a2c0208e5bf08d8f9219"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/primitives/mma.cuh": {
+      "executable": false,
+      "sha256": "33fd410ef674b0c57e2b28e7dbb2ba3052dcc6187ab1fdc99610e192e8c8c169"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/primitives/numeric_conversion.cuh": {
+      "executable": false,
+      "sha256": "d120bbfcedabc1b458652dbbda86bfde2077e5295cf5fb54340de62af08b7875"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/primitives/permuted_smem.cuh": {
+      "executable": false,
+      "sha256": "1caa86810ff0d99964b30b9b6ceba94b96af7edf9d988e05ba643cb27f8b6a3a"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/primitives/qattn/attn_utils.cuh": {
+      "executable": false,
+      "sha256": "4a1efba1db96ce5bef69e7c0a78a25f286a21df40e064fd61161f56f05586f6b"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/q64_attention.cuh": {
+      "executable": false,
+      "sha256": "798a9d6c1c71e4eb862ebbfc3270ffc6e9f3bd2b42e4756c1652124625e072e6"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/q64_attention_decl.cuh": {
+      "executable": false,
+      "sha256": "ef77b6cc7f3614fea5e5bf47697d5cd9c29acb54f1ab229186e0250774eed804"
+    },
+    "deploy/custom_nodes/fasth3_deploy/anemoi_native/vendor/csrc/attention/cuda/sm120/q64_attention_phase_composer.inl": {
+      "executable": false,
+      "sha256": "3717dcbab4e3242dfec819d6009b4c3b11931928953f756904459d3025295eac"
+    },
+    "deploy/custom_nodes/fasth3_deploy/attention_execution.py": {
+      "executable": false,
+      "sha256": "28256045e8dc1341ae30f18c6d81ca7055ef8aa0d301e24547bf943dd0603497"
+    },
+    "deploy/custom_nodes/fasth3_deploy/attention_options.py": {
+      "executable": false,
+      "sha256": "e9412b1f09e50131c2f74c26a9672f471369b74b20627dcbee77bb36da160e8f"
+    },
+    "deploy/custom_nodes/fasth3_deploy/attention_policy.py": {
+      "executable": false,
+      "sha256": "89cdd3b88b43bfcf325e51962da188f5a8c61aeb1947e6da3f6bef0d4f3d1614"
+    },
+    "deploy/custom_nodes/fasth3_deploy/benchmark.py": {
+      "executable": false,
+      "sha256": "3f6760e7313f5fed0c473a3c5faa973895031ceefc311e90949d8e8b4e59f86a"
+    },
+    "deploy/custom_nodes/fasth3_deploy/benchmark_audio.py": {
+      "executable": false,
+      "sha256": "02bfd24237748d6b606ca2d8d4dcc2635f54f1b6c577f18f26fff2f912206a8a"
+    },
+    "deploy/custom_nodes/fasth3_deploy/benchmark_clock.py": {
+      "executable": false,
+      "sha256": "a7815d84741801a310110e5a2282de1e77ce79985d70ba9580623139e9352a45"
+    },
+    "deploy/custom_nodes/fasth3_deploy/benchmark_output.py": {
+      "executable": false,
+      "sha256": "6b153f7f118156e772bdb3a16b4212c5f28049e874e9b1269c4616e0d2476002"
+    },
+    "deploy/custom_nodes/fasth3_deploy/benchmark_report.py": {
+      "executable": false,
+      "sha256": "2bddaecd691f5729ccd6965e2be2c10d6c20c1983a4a1dc0ff2b8b9c36e39d8f"
+    },
+    "deploy/custom_nodes/fasth3_deploy/benchmark_sampler.py": {
+      "executable": false,
+      "sha256": "59c4c18b0d4f3cfe238c71196173835d0815b53dbb5c7eb5d14f5b6f36c21bd9"
+    },
+    "deploy/custom_nodes/fasth3_deploy/benchmark_video.py": {
+      "executable": false,
+      "sha256": "4b0337cbbe761d71fc01d72734754cef277190ea22897675bbdd214789d78038"
+    },
+    "deploy/custom_nodes/fasth3_deploy/build_identity.py": {
+      "executable": false,
+      "sha256": "18d26df78c444b0500b1d4e702a22618f4652e259c6dd35c40f9a5df26659425"
+    },
+    "deploy/custom_nodes/fasth3_deploy/comfy-build.yaml": {
+      "executable": false,
+      "sha256": "7df14d27522f3d9153606777bb8bc974187ebe061bafecb6b651175f83cca0a7"
+    },
+    "deploy/custom_nodes/fasth3_deploy/compact_output.py": {
+      "executable": false,
+      "sha256": "c66755682ee06151578a2b119d663286661813be4c42ef6b8ab231fc32eda65f"
+    },
+    "deploy/custom_nodes/fasth3_deploy/compile_vsa.py": {
+      "executable": false,
+      "sha256": "80d87dab057707fa0cb8e0aa7fb165253cbce602aabd21781913a71c437e6a77"
+    },
+    "deploy/custom_nodes/fasth3_deploy/compiler.py": {
+      "executable": false,
+      "sha256": "d067c1e481d6d458ae8ac523c1c46b6a4de4ec5c7070be1189f84b203cb53a88"
+    },
+    "deploy/custom_nodes/fasth3_deploy/conditioning.py": {
+      "executable": false,
+      "sha256": "36aabf64a82dcffd6dbfa13929d5202d0ebd27dadc52b03ca48d4caefc605d9e"
+    },
+    "deploy/custom_nodes/fasth3_deploy/contract.py": {
+      "executable": false,
+      "sha256": "4323b3914c05513f689b0853f249d649e8c2736d7ad5825dec84335c7c09a2c4"
+    },
+    "deploy/custom_nodes/fasth3_deploy/cute_sol.py": {
+      "executable": false,
+      "sha256": "12220e72133cba8d36a5e71e97deb41352d2f03b2f3accc4305eab3a022343f7"
+    },
+    "deploy/custom_nodes/fasth3_deploy/decoder_cache.py": {
+      "executable": false,
+      "sha256": "3b319a36445565ab0057246e6c6edbba7c6e3ea924f319524b248fe4b95a2a59"
+    },
+    "deploy/custom_nodes/fasth3_deploy/decoder_diagnostics.py": {
+      "executable": false,
+      "sha256": "586b69761e510c95f131cb7f5d3efb0fa263145e5a4d8265d69c4888d5f72fc3"
+    },
+    "deploy/custom_nodes/fasth3_deploy/decoder_graph.py": {
+      "executable": false,
+      "sha256": "761cbb656525a7966e4e27b64ed63ba8ea25a94ec9b5931915425c604033f156"
+    },
+    "deploy/custom_nodes/fasth3_deploy/decoder_layout.py": {
+      "executable": false,
+      "sha256": "987724e9d947148113f431d2b4e8ffcdc94712d5beed4320aed2ef8e38023011"
+    },
+    "deploy/custom_nodes/fasth3_deploy/decoder_optimizations.py": {
+      "executable": false,
+      "sha256": "bac21fb3444167318295594b1369c75a93892f20f4fad14fd52141c988f26e3a"
+    },
+    "deploy/custom_nodes/fasth3_deploy/decoder_replay.py": {
+      "executable": false,
+      "sha256": "e75f847e6eeea6b03e83d55a561db7ece6232f02294dbb3a4e8662b2ce9d6cbc"
+    },
+    "deploy/custom_nodes/fasth3_deploy/decoder_stream.py": {
+      "executable": false,
+      "sha256": "a1abd9dd3133b8f2ce05efe595b0bee068bad219e49ed042a911235713f8b074"
+    },
+    "deploy/custom_nodes/fasth3_deploy/decoder_tiles.py": {
+      "executable": false,
+      "sha256": "5e7e909af3ba64ba3ad834d1511dfc8d25ec55db4fb2cc4e0f8bb97a0b935b53"
+    },
+    "deploy/custom_nodes/fasth3_deploy/dmad_artifacts.py": {
+      "executable": false,
+      "sha256": "4dcb14e7a97ed3527c032f89fa64ea64357d35736ce0fa40520e88953f22de49"
+    },
+    "deploy/custom_nodes/fasth3_deploy/dmad_nodes.py": {
+      "executable": false,
+      "sha256": "760f643aa8b45a28b4f67d07daa77c18346ae9aff3813d534ade0120855c7809"
+    },
+    "deploy/custom_nodes/fasth3_deploy/dmad_sampling.py": {
+      "executable": false,
+      "sha256": "cac9b80099793ce5473c8c296ab0208078b7ee319e40e5b47c362ebe5644ed8d"
+    },
+    "deploy/custom_nodes/fasth3_deploy/forcingbooster_router.py": {
+      "executable": false,
+      "sha256": "530f00b94cbdfe89b46ed3fc71958f819a70e643f8ce2bc8346e89efe92ad41d"
+    },
+    "deploy/custom_nodes/fasth3_deploy/forcingbooster_training.py": {
+      "executable": false,
+      "sha256": "7ee00b87c8141a3e369ea97f32b433b9e2ec55195f5c1921aa217201cb7adfc2"
+    },
+    "deploy/custom_nodes/fasth3_deploy/fp4_kernel_config.py": {
+      "executable": false,
+      "sha256": "f00b2ac9d1a72403ada29275cd31601e99664941ad5ceecd99bdb2e9f6c34861"
+    },
+    "deploy/custom_nodes/fasth3_deploy/freeze_rows.py": {
+      "executable": false,
+      "sha256": "dbf274fec6b6b1378fa63825068bd18433d748e03e4a3a8b24b06584a9abc335"
+    },
+    "deploy/custom_nodes/fasth3_deploy/fused_mlp.py": {
+      "executable": false,
+      "sha256": "3a6fbf82f36efc1d6134e35287c59b038c570d22b60adf0fa4eced9f5345fc77"
+    },
+    "deploy/custom_nodes/fasth3_deploy/inference_features.py": {
+      "executable": false,
+      "sha256": "5ef2f509d2a20f1e9e76e60a7e54a8e8706d5734c39bceb4f029174372628015"
+    },
+    "deploy/custom_nodes/fasth3_deploy/inference_metrics.py": {
+      "executable": false,
+      "sha256": "366612ab8aee8677414dd6c60265835bb18d14122dc2cab224fd4b28f42f395a"
+    },
+    "deploy/custom_nodes/fasth3_deploy/install.py": {
+      "executable": false,
+      "sha256": "47561157abe2b5e6378c8ff57755e530f05d7ec7ebdcdfa31b1ba7cac9717355"
+    },
+    "deploy/custom_nodes/fasth3_deploy/intermediate_capture.py": {
+      "executable": false,
+      "sha256": "0305ee5bd26db1d41f3ffa62bf5dbb6d49507349d01d5a54bf1abe7fa0df7a6d"
+    },
+    "deploy/custom_nodes/fasth3_deploy/kernel_types.py": {
+      "executable": false,
+      "sha256": "3c7af878ccc3bf05a2db0b73369ac00d0880f6512885310e0dc6556ea4732b6f"
+    },
+    "deploy/custom_nodes/fasth3_deploy/kitchen_baseline.py": {
+      "executable": false,
+      "sha256": "35f08078b57c2f8fba83c4a3ad34f313cdd90c6189cad4ec86ad65cbe3e50f27"
+    },
+    "deploy/custom_nodes/fasth3_deploy/kitchen_vae.py": {
+      "executable": false,
+      "sha256": "c4c8be898bf74563a9a1a3e1e75e294dbe2725eba61c83dfa240701eff047b63"
+    },
+    "deploy/custom_nodes/fasth3_deploy/loader.py": {
+      "executable": false,
+      "sha256": "433a2a969af2885aa1c2d8b603e7108f9cbd878c7699ade68bb108edeac10407"
+    },
+    "deploy/custom_nodes/fasth3_deploy/memory_evidence.py": {
+      "executable": false,
+      "sha256": "5f6a0efaf6d549fb631ea9c3f8f3d8c339ef10d781bd03200de67091e12fcf08"
+    },
+    "deploy/custom_nodes/fasth3_deploy/memory_features.py": {
+      "executable": false,
+      "sha256": "a6597f8143605f822f523d20e769c94a388344d70268778cfbcf1c02b264cf56"
+    },
+    "deploy/custom_nodes/fasth3_deploy/migration_capture.py": {
+      "executable": false,
+      "sha256": "fc6db8ad713543b8754392a021dabccf528d3ede5e0d6a81f06e4cc07ff366ab"
+    },
+    "deploy/custom_nodes/fasth3_deploy/model_cache.py": {
+      "executable": false,
+      "sha256": "da79935baa55e0f6c3993f7ebbbcdbc6b38390a83795772fde36a9bddb7e0053"
+    },
+    "deploy/custom_nodes/fasth3_deploy/model_provenance.py": {
+      "executable": false,
+      "sha256": "3b486b0933aa797dabc392edc4b0f7e2688f09e980f7e9ddca8adfdeaef11240"
+    },
+    "deploy/custom_nodes/fasth3_deploy/modulation_fusion.py": {
+      "executable": false,
+      "sha256": "8f08c30de079680b110cbcc5919f53b0a7884fa2d7340f629ab978bbea4fe00f"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/G4.md": {
+      "executable": false,
+      "sha256": "97362b0bb30d391ee1db32a51573b17650c39e8cb3f9ed9f7c25525b01dff4e7"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/LICENSE": {
+      "executable": false,
+      "sha256": "cd1c9ea1573c9047e9b5a3676ecc1c8f755e56f249ac1ebd8b5ceda7899037da"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/NOTICE": {
+      "executable": false,
+      "sha256": "3176448b40d05d14f8b09a248d125a9a3680e18ef54c631984d4d8acb68c64d5"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/README.md": {
+      "executable": false,
+      "sha256": "4163728ad2998ffc4661b02d59f1fbfa3c03c5ed1d82c510e55a3371767427ee"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/VENDORED.json": {
+      "executable": false,
+      "sha256": "445e8cecff55c3753d75f0ed680f1e153f2cb4ed443f47e412480d41a297d8bc"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/__init__.py": {
+      "executable": false,
+      "sha256": "b154b793d809ca72c80fd86a0581001587d702e4fa39bfd454d4159f37099cf7"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/_abi.py": {
+      "executable": false,
+      "sha256": "8473497a1840ec00fb028821a9ca8d14385dc75bb8ac155fcd8caf55b92f725b"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/adaptive_budget.py": {
+      "executable": false,
+      "sha256": "9236de6f993ec8aa156258e81a6a3817ea37e49ab7ab5a96e829cfe11122c55a"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/build.py": {
+      "executable": false,
+      "sha256": "523f88ce27bd71faba0b2988125125c7807a173863ed7ad86ea8fe8a4a6c90d1"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/launchers.h": {
+      "executable": false,
+      "sha256": "d5d9ec9016469c374060b647376a8d1300a18f9339f249d051c002808d13b734"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/mma.cuh": {
+      "executable": false,
+      "sha256": "2debd200f5b5e88e6fca8da199c8793e19266d216fcb954a7f82953744176d68"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/native.cu": {
+      "executable": false,
+      "sha256": "8de27fbad7e1156757277c4f408b79b1acbcc2f92d141eb9160ceb4af5f3b591"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/output_epilogue.cu": {
+      "executable": false,
+      "sha256": "267c3592894a5b878fceb8df40d67810072507ec9efda9e2b15bfe7587c5f177"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/sol_attn_exact.cu": {
+      "executable": false,
+      "sha256": "9dbfb85670fa5d8832bcf9a1203e1572df46a189683ee462154c1c3c7ad29793"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/sol_attn_preprocess.cu": {
+      "executable": false,
+      "sha256": "3e77f5b780d3248eff2b2cafa388e108ba35292ebcfbe412478354b3f33baac8"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/sol_attn_producer.cu": {
+      "executable": false,
+      "sha256": "281316be4aaf49098dee6a2e3ee0a2d5d3eaad3834dfbd6c5912b3f7dd0a8956"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/sol_attn_route.cu": {
+      "executable": false,
+      "sha256": "0882f60dcd49691a1b2f543261eea5138187e538b7898b972dfcef557ff09f90"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/sol_layout.cuh": {
+      "executable": false,
+      "sha256": "18b4ec55982c4cb6bddfe954efb57fa124056ad2471719e8e79a1819c14c7c80"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/vc_group_fine.cu": {
+      "executable": false,
+      "sha256": "ff226493aa5a364ec913d3fb028991ad85dcd3e4bc5c9d2196ab5ebbddbfee77"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/vc_group_prepare.cu": {
+      "executable": false,
+      "sha256": "72b54b08468b870547377938e4105b2d2045852fae05102d04eb2eba63ec297d"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/vc_group_pv.cuh": {
+      "executable": false,
+      "sha256": "de4337b79bcc294eee931b2c67ba97ac143122c90686bf9f4b49c73a3c997e61"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/csrc/vc_grouped.h": {
+      "executable": false,
+      "sha256": "a8eb0b9152276dd60f3ffe952c39097f33e91aadd8145e7f15a44524090d059f"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/diagnostics.py": {
+      "executable": false,
+      "sha256": "902558bf920cb46e3989b99b0dd2d07f0f09eef25ba4f90107df8edda33c0e09"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/grouped.py": {
+      "executable": false,
+      "sha256": "05a59ae9950521c9ce8ccc9b991027ea22c7c011c1e2acd33f7b81f1e77ab35d"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/grouped_oracle.py": {
+      "executable": false,
+      "sha256": "65f5c1c1dcbced521ccc965711af171301f8e7d0394e916bb0d78bdc0d0680ac"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/instrumentation.py": {
+      "executable": false,
+      "sha256": "6acc64d245801ed07dc13877290c5bc63d030279855b9628e568ec76c01993a2"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/oracle.py": {
+      "executable": false,
+      "sha256": "9ef8ea92f3832e00e32d6818e05c0a4e0b895963cb2c2c5e5d71f9d68b2c343a"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/route_compaction.py": {
+      "executable": false,
+      "sha256": "cd94e0bc26371f3ba5af66ea64fba16fdb198135e0cfa3cae6c5aca0fce54086"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/runtime.py": {
+      "executable": false,
+      "sha256": "9f48b6f5fb1bd5d39f75cdb420d2ee97a1aefc0dd3a42f9c21f8f6c667307fea"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_attention/scratch.py": {
+      "executable": false,
+      "sha256": "d6b63f81e30dbf9a7774b12423f84fc960436ccfcd3b3eb1ce5491f0c42f98df"
+    },
+    "deploy/custom_nodes/fasth3_deploy/native_diagnostic.py": {
+      "executable": false,
+      "sha256": "a579eb1aac2a2deee8c3ba9f59bda383d32267fa9944a05c14f4780f9c31b0cc"
+    },
+    "deploy/custom_nodes/fasth3_deploy/nodes.py": {
+      "executable": false,
+      "sha256": "209a2defdf1443113109721909247ba9318e24f61ee8fd306ee5a5c0c9e5db66"
+    },
+    "deploy/custom_nodes/fasth3_deploy/nvtx.py": {
+      "executable": false,
+      "sha256": "4128b8e417d93ee61982a32afef7b883e73cec3b6721dccb35b0e12da194aaab"
+    },
+    "deploy/custom_nodes/fasth3_deploy/omega_config.py": {
+      "executable": false,
+      "sha256": "13d1752d1a7441f2c42513f6c08bb289b67457e81e45e6059cf8eb6324072c0b"
+    },
+    "deploy/custom_nodes/fasth3_deploy/output_packing.py": {
+      "executable": false,
+      "sha256": "d3b04c1f5475a210663d724ec53471b213cfce275e849241eabf8f0b4da331ee"
+    },
+    "deploy/custom_nodes/fasth3_deploy/pdmd_lora.py": {
+      "executable": false,
+      "sha256": "9557dd5b92ca550061cd7b7bc6b7452c45b0a8b436e301bd9e07c76a07060d54"
+    },
+    "deploy/custom_nodes/fasth3_deploy/precision.py": {
+      "executable": false,
+      "sha256": "7747ad1d6c322dff53f4af46b79a35f14f196e9e4dc5a56acf968900de903670"
+    },
+    "deploy/custom_nodes/fasth3_deploy/requirements-cute.txt": {
+      "executable": false,
+      "sha256": "7909f262f3b81060b5bf692c9bca362e5d00bf921c1f15b913d829e71821ba93"
+    },
+    "deploy/custom_nodes/fasth3_deploy/requirements.txt": {
+      "executable": false,
+      "sha256": "06828da5070143793fbfda98246f78676514e2686302b36064e73f99ddd0f0b4"
+    },
+    "deploy/custom_nodes/fasth3_deploy/runtime.py": {
+      "executable": false,
+      "sha256": "bacf98310bbcb38172c670f0dfd18d8a05d6fe925b807a76646010c5cf50fc61"
+    },
+    "deploy/custom_nodes/fasth3_deploy/sequence_parallel.py": {
+      "executable": false,
+      "sha256": "672fddb7c4b48f32aaddd599707a6d8f6ce555c085c950e5150b36d9730a6523"
+    },
+    "deploy/custom_nodes/fasth3_deploy/sol_attn_minimax_v5.py": {
+      "executable": false,
+      "sha256": "ee612b195c83b44791d27b3415971462fed02fc5f33592bf48996094cf0f7ac4"
+    },
+    "deploy/custom_nodes/fasth3_deploy/speculative_forcing_freeze.py": {
+      "executable": false,
+      "sha256": "2fa067d2af70e10ec2fc8b1c976673f94dc840789745fb9bad0a099f1262619a"
+    },
+    "deploy/custom_nodes/fasth3_deploy/speculative_forcing_probe.py": {
+      "executable": false,
+      "sha256": "b6d9181e65cee00675f838d28d6fe0437d80b50fd77b5625bf9a53fea664770c"
+    },
+    "deploy/custom_nodes/fasth3_deploy/temporal_cat.py": {
+      "executable": false,
+      "sha256": "81fabd32724329ca454f4f9408942ed8912471a2de17d2681e1e136d98191f2b"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/THIRD_PARTY_NOTICES.md": {
+      "executable": false,
+      "sha256": "d2ef9f1a1b1a438f8c73b11d5e4faa94c9ff32b5cfd0b9f68bfe8921dc5540db"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/__init__.py": {
+      "executable": false,
+      "sha256": "f8dd33b38c74a834b76fad7dbd8582d7f58a116fb33b98a01aabc241d20b4a15"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/__init__.py": {
+      "executable": false,
+      "sha256": "eb3ec1ff32f5d2344a839acc90ee48329906532f560596f3ff733d4923553078"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/__init__.py": {
+      "executable": false,
+      "sha256": "42edd3f7a999b03f052836071389179a2edbc0a239221b67a5c8da8d09d127d6"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/__init__.py": {
+      "executable": false,
+      "sha256": "63631d004ed460922766940b7eeac674cbcd8a43eeb0e5595962845c862ca026"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/ampere_helpers.py": {
+      "executable": false,
+      "sha256": "cadac170a7da379e27c36d044360480d710cfa88d082dad2b9decd58e4847111"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/block_info.py": {
+      "executable": false,
+      "sha256": "d518a31b430b6a4aa6e925eb5171036b9984f77c9dca9840f4b32c1e2d60ccdb"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/block_sparsity.py": {
+      "executable": false,
+      "sha256": "bb836711cbee9baed9db96987b301709f149fb72b8fb0842c69cabe327f989d0"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/cute_dsl_utils.py": {
+      "executable": false,
+      "sha256": "162ba9671cb16d20fccf3547e43d606aa83e775329d5287bc9320569afe60137"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/fast_math.py": {
+      "executable": false,
+      "sha256": "7e5f822bf4d0ba36967558f3ae9a1408b410cb726c31222cd61703569d1be738"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/flash_fwd.py": {
+      "executable": false,
+      "sha256": "840e90f8e5d1fca2f73fbdb44df938027aa4750210af814fa28551f7a723ec27"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/mask.py": {
+      "executable": false,
+      "sha256": "f920b98640efc91d737b631bb7ea223f71cd2b086ae3dae2d3db37a28fd390d2"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/named_barrier.py": {
+      "executable": false,
+      "sha256": "98d1cf1f2254203769da8d566f5ddadc755fb1cb3f4e514012da3addb9233c09"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/pack_gqa.py": {
+      "executable": false,
+      "sha256": "e55c56628c37334e4ec672f877018dc1fce89c4c30ede05c7515b08fb5596450"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/pipeline.py": {
+      "executable": false,
+      "sha256": "849bce91c72be0a5c7458979e10c8290f45e05253a83600e30fb9540c61ed56a"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/seqlen_info.py": {
+      "executable": false,
+      "sha256": "8a922e1217b54b5185d9c8d8f928f8836058a2f4b3bddded4c38460a2e39d60f"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/softmax.py": {
+      "executable": false,
+      "sha256": "56ee749e3a388e0bb3f853fea0c236cf89f291d167f269f8b04d3bb2f31cc37a"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/tile_scheduler.py": {
+      "executable": false,
+      "sha256": "ac0d1211e34d73c2bbb44b7f62b3a77d1f9aac177653a5a028cb4f5fa1b1ce0e"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/_vendor/flash_attn/cute/utils.py": {
+      "executable": false,
+      "sha256": "f268b5af4c4d6fad6dd44bd6c6da0c475a6ec36ed90aeb1334b45aa4e1d86d57"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/common/__init__.py": {
+      "executable": false,
+      "sha256": "2d18d24871bacaaeb6417ee37f4e1b57530c6bf3f51e20ca803bad6a6e53c25b"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/common/layout_utils.py": {
+      "executable": false,
+      "sha256": "d8ed2213f8162bf820eb9934ea3ec0b4b3038c7a73fe64d65bcf025639e63c0e"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/common/runtime.py": {
+      "executable": false,
+      "sha256": "b6d19ddc6b0f6f1e4ddd48094133ee56d6c1ab383c57e7d02887318d53c264b4"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/common/selector.py": {
+      "executable": false,
+      "sha256": "b75eab435ec873af383a61ca2f32eb3eb75fd3fec94c30302fbfe8149f9bb0a1"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/interface.py": {
+      "executable": false,
+      "sha256": "3ee49896644691da37d01607e40bfceec22d9ef99c547b98007937adab353f1e"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/mps/__init__.py": {
+      "executable": false,
+      "sha256": "21fa2ede7df2b1f41440283861fa8d681e74edb8c8c498ac9a14d086fe6ac6f6"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/mps/metal.py": {
+      "executable": false,
+      "sha256": "c401d5a2c8b1d827cc71f4e870153e83f9722eeac3da03847e4cea5219094e89"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/mps/preprocess.py": {
+      "executable": false,
+      "sha256": "e276140cd4451856669052f68b859231813a705447d690ac86e9f8a0592a1350"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/preprocess.py": {
+      "executable": false,
+      "sha256": "ad0374ad96bdaf7585aa51867ed0536976945b596281b4c2b1a50aafee19b994"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/LICENSE.flash-attention": {
+      "executable": false,
+      "sha256": "8c9ccb96c065e706135b6cbad279b721da6156e51f3a5f27c6b3329af9416d73"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/__init__.py": {
+      "executable": false,
+      "sha256": "77a77ead8e28f2a388a77497297f6e9e9385cfe0e99a1f67e2036d41ef4c1c78"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/kernel.py": {
+      "executable": false,
+      "sha256": "a614f29e002fdde2e9258da516b452d2ea07ecdeec8410722a344c72a40f61a0"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/mainloop.py": {
+      "executable": false,
+      "sha256": "707d565bccc7fb8c60e130c91d6d65549d8762c562a227ef2c0a231697a1cf2d"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/math.py": {
+      "executable": false,
+      "sha256": "00974a22a4c5b5e47628f67a560dc966a50ef7225eb3f773a296d71b5ac5be7f"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/softmax.py": {
+      "executable": false,
+      "sha256": "c6b88f8e5eec040f194fc2f24f7e69338548b6e33a5ba5e3720ad6d2ea6c0311"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm100/tmem.py": {
+      "executable": false,
+      "sha256": "e761576ab085c7f9c135421ed8e6f202fca5b3f96252a14ae99051e8685c00c8"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm120/__init__.py": {
+      "executable": false,
+      "sha256": "193997e4e5925c7a8cabe0247068698bdab1bb7fab283d0857fc01bf9a2763c1"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm120/kernel.py": {
+      "executable": false,
+      "sha256": "cba5a94506cb15025faf7065340d36eba8747cff5a0852816486213fbd7fb715"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm120/mainloop.py": {
+      "executable": false,
+      "sha256": "8b6b87be7fe21cb0ebfbab34cd0ae819faa96b829c57c7b27c1c14c29e771570"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm89/__init__.py": {
+      "executable": false,
+      "sha256": "9127efe4b871d477a66372ed8c92219ee55ff03fe8ba8e4a63a5c9200e6af4f9"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm89/kernel.py": {
+      "executable": false,
+      "sha256": "1e054a192a7287fbccde177f7b18460e60ab3557088ea3df73a6ceccca87e91f"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm89/mainloop.py": {
+      "executable": false,
+      "sha256": "5ff3c08b6f59d20676fbedc99b76ed6029448ebd8f05d965940d3a535ee50dd2"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/__init__.py": {
+      "executable": false,
+      "sha256": "3c76761acc65784e80872fa953e0057822f21896bcc45bd69992ec165eaaa96c"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/_compat/__init__.py": {
+      "executable": false,
+      "sha256": "dc9300ddffe0a8acd263d301c56b6c3094f0ddb3279be7917ace8e9cfbaf2586"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/_compat/activation.py": {
+      "executable": false,
+      "sha256": "77b1c16a9970b2fe79de4a945db9930850dcf4f4869ed4639805337c6a40a07d"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/_compat/copy_utils.py": {
+      "executable": false,
+      "sha256": "8e5e6fa9a79382995636ff1df391fdc37ed134cb5fa3d8f4db66213f476f5bd2"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/_compat/cute_dsl_utils.py": {
+      "executable": false,
+      "sha256": "afffcb709248851cc14dc91da466e104271de4438dbca73c2ac7c1c6c061bae8"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/_compat/layout_utils.py": {
+      "executable": false,
+      "sha256": "4ad6a7a87adf0bf8dc76c5aa04689d717ca63aeeaba5c754e9a96fb72787fa5a"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/_compat/sm90_utils.py": {
+      "executable": false,
+      "sha256": "3c4bfd2cc468b372671e7654f6ae06cdf5f3b64b4f7f03cf6d4467c51b4829f2"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/atoms.py": {
+      "executable": false,
+      "sha256": "bdabb2257d5384f901c8a8a4d0b3e9b8697fbe89b2f8d4f0fd3db28d21ba135a"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/exact.py": {
+      "executable": false,
+      "sha256": "e44e3e72883f50f93d2112721d7d697e6041ba1f9f2079a27da73fd0030eff6e"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/fwd.py": {
+      "executable": false,
+      "sha256": "87a961541fcf95a8b2bb5ef6d4df7fdf9f2345ca3e1089f99611050ca84e1ad9"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/kernel.py": {
+      "executable": false,
+      "sha256": "fcc3980955a60cdbb93cc4d52187d58359fa99d7a9ec9f594fde2e50b5e497f5"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/mainloop.py": {
+      "executable": false,
+      "sha256": "4cec571d97201d76d5f9fccd4a4919d83d82dfdcc77d7c68ad6514567fbe0da7"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/sm90/split_combine.py": {
+      "executable": false,
+      "sha256": "be1f14997ed4bacb8bff1fb0f7979bda6424af1394661e07d692a2f2460101c3"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/triton_ref/__init__.py": {
+      "executable": false,
+      "sha256": "7053365a47158cf36d0a244451b017cd2ff0402bbd19005b23a53cc12d866840"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/triton_ref/fwd.py": {
+      "executable": false,
+      "sha256": "0eac9c5c6c0642545a4d5ac9a034f7ec302eb3b9de2051d122ecab26e3456de3"
+    },
+    "deploy/custom_nodes/fasth3_deploy/third_party/sol_attn/triton_ref/preprocess.py": {
+      "executable": false,
+      "sha256": "c1aaa53b26ac9293f504f1d107814ed6c1924a9b671ebebfffc54ec83f743264"
+    },
+    "deploy/custom_nodes/fasth3_deploy/transformer_compile.py": {
+      "executable": false,
+      "sha256": "9404a07beb408b5d02d74ad0b82128f4764c757add9ef00a5d2750149b9daaea"
+    },
+    "deploy/custom_nodes/fasth3_deploy/vendor/__init__.py": {
+      "executable": false,
+      "sha256": "24c32cdaaf7e17443f2c8df47a73fa4133ef63d280c17f0fd1ffc4699a5ac20b"
+    },
+    "deploy/custom_nodes/fasth3_deploy/vendor/fused_mlp/LICENSE": {
+      "executable": false,
+      "sha256": "4ca7234fc95fc011701cdf061c91424b348a195f1fe4b54dec579131495952ae"
+    },
+    "deploy/custom_nodes/fasth3_deploy/vendor/fused_mlp/README.md": {
+      "executable": false,
+      "sha256": "61b2e3591255a5441e97d6c579f1b5610e1b7a669dd32d2274d04f72f5abbea8"
+    },
+    "deploy/custom_nodes/fasth3_deploy/vendor/fused_mlp/__init__.py": {
+      "executable": false,
+      "sha256": "5495cd107b4f2e84d953553da3eba6c5e23f28711ce7b7a5940987ee62263434"
+    },
+    "deploy/custom_nodes/fasth3_deploy/vendor/fused_mlp/kernel.py": {
+      "executable": false,
+      "sha256": "7930577ea49239f6043f83f803e395ec020d015daa4cbad1d34ace551f2b6f5b"
+    },
+    "deploy/custom_nodes/fasth3_deploy/vsa_sm120/__init__.py": {
+      "executable": false,
+      "sha256": "930a67756570525a73f9168a0e2e6d02255bc1b08ee5984bcf69dec5a464abd3"
+    },
+    "deploy/custom_nodes/fasth3_deploy/vsa_sm120/attention_candidates.py": {
+      "executable": false,
+      "sha256": "855174750a6e80d04e72daf6e05d8c8933cd08769d7daeab5235675b0f22efb5"
+    },
+    "deploy/custom_nodes/fasth3_deploy/vsa_sm120/attention_triton.py": {
+      "executable": false,
+      "sha256": "81c8b4fe5be15519a834d5c6773fb4b3d1071b8a9d8206dee783c3819f19985b"
+    },
+    "deploy/custom_nodes/fasth3_deploy/vsa_sm120/config.py": {
+      "executable": false,
+      "sha256": "3e4192efc22a7a5324ef9d7d478ea9175044873767730acbff39fcc228399aa8"
+    },
+    "deploy/custom_nodes/fasth3_deploy/vsa_sm120/dispatch.py": {
+      "executable": false,
+      "sha256": "9bf02fbdf1ae3638b5aabe74ed04d38b76ccb5dfacf057a3053903685bb96dce"
+    },
+    "deploy/custom_nodes/fasth3_deploy/vsa_sm120/layout.py": {
+      "executable": false,
+      "sha256": "7d4cc399e71b8bb5dd63a44639c4f1a085b49f320c6a8c4cc195bd07de8c477f"
+    },
+    "deploy/custom_nodes/fasth3_deploy/vsa_sm120/microbench.py": {
+      "executable": false,
+      "sha256": "40e830e3019a72702d6431ebf26e5d5a180b69658991d5bef43499c30a88cc4e"
+    },
+    "deploy/custom_nodes/fasth3_deploy/vsa_sm120/producer.py": {
+      "executable": false,
+      "sha256": "63afcb88408c49ca3ae7154ee09c8930678a043f6e331e3fbc45d8d6212ac576"
+    },
+    "deploy/custom_nodes/fasth3_deploy/vsa_sm120/reference.py": {
+      "executable": false,
+      "sha256": "f9c34af078679be82cddbf1f0ae5c455ab40fbc4d9675b2dc89597ba18d221af"
+    },
+    "deploy/custom_nodes/fasth3_deploy/vsa_sm120/unsafe.py": {
+      "executable": false,
+      "sha256": "9e63ee34d9d4a50f9c7077f4d2e58ea315441d6560d0275d62f4eb8840e2d952"
+    },
+    "deploy/fal/fasth3-b1/comfyui-requirements.txt": {
+      "executable": false,
+      "sha256": "245cca752fd50c0d8af244d987a3fa3c363c0c48174f225293942923c755c79d"
+    },
+    "deploy/fal/fasth3-b1/entrypoint.sh": {
+      "executable": false,
+      "sha256": "f406e76b424b8b03771df859abd3727708706ea307a554175aa4e4ea45bdebcf"
+    },
+    "deploy/fal/fasth3-b1/pyproject.toml": {
+      "executable": false,
+      "sha256": "3c8152e4e04a2ec2efe6cbe29e7f0413fa9644e15cfe837caf78dd0e40c755cd"
+    },
+    "deploy/fal/fasth3-b1/requirements.in": {
+      "executable": false,
+      "sha256": "7c91c5274fc7adfd1f589d3af69dafdfeef30563bed77f23ee4f91a841436220"
+    },
+    "deploy/fal/fasth3-b1/requirements.lock": {
+      "executable": false,
+      "sha256": "2e073b6ec8b51f06a9654d51e4075880bb70c648bc4a43d5210562f854d7856a"
+    },
+    "deploy/fal/fasth3-b1/shared-model-stat-receipt.json": {
+      "executable": false,
+      "sha256": "5d2ebab8cfad0c6b5009e8b5c71656ab5c6fa32c38f64ee33d8af8fcc448cea7"
+    },
+    "deploy/fal/fasth3-b1/uv.lock": {
+      "executable": false,
+      "sha256": "cce3ab08c9da4fd198d3d0f1581662e65735950362f0ea29537d4483cf58d724"
+    },
+    "deploy/fal/h3-sol-upscaler/README.md": {
+      "executable": false,
+      "sha256": "ffa6498ee9ee162eff9a4cae50d4601c07b15f50b009654d3622017f2807b37e"
+    },
+    "deploy/fal/h3-sol-upscaler/comfyui-requirements.txt": {
+      "executable": false,
+      "sha256": "245cca752fd50c0d8af244d987a3fa3c363c0c48174f225293942923c755c79d"
+    },
+    "deploy/fal/h3-sol-upscaler/pyproject.toml": {
+      "executable": false,
+      "sha256": "8cec1e2c95dcd9c45a88256912891e49898132829deb8deed5e808f9d5067424"
+    },
+    "deploy/fal/h3-sol-upscaler/requirements.in": {
+      "executable": false,
+      "sha256": "124a7a1ef8a9615c3f52634f9f1aec8605815d8cdbffb6fff07b6e743e9e93ea"
+    },
+    "deploy/fal/h3-sol-upscaler/requirements.lock": {
+      "executable": false,
+      "sha256": "090d971809723080ab5102205ed19441111c2435a5d1c84dbed7b663c0d2778d"
+    },
+    "deploy/fal/h3-sol-upscaler/uv.lock": {
+      "executable": false,
+      "sha256": "ec1c81f941ce4e7bdbd19aad98fae9e443ae3b1d5acd5bc30b2d28232bb87589"
+    },
+    "deploy/vast/README.md": {
+      "executable": false,
+      "sha256": "d8be916a282834a8a72f574b5cc809ca0aa0c9428869355c9324f31fd67834df"
+    },
+    "deploy/vast/comfyui-requirements.txt": {
+      "executable": false,
+      "sha256": "245cca752fd50c0d8af244d987a3fa3c363c0c48174f225293942923c755c79d"
+    },
+    "deploy/vast/fasth3-environment.json": {
+      "executable": false,
+      "sha256": "370843488705a08d16d2500cf1a9670432bec0a0e8c9aa4acd8d979c2a3d31a0"
+    },
+    "deploy/vast/requirements.in": {
+      "executable": false,
+      "sha256": "f5df6fcebc06401f4fd155ad8e74209941064fd123b20001981d3ee0b5d977a5"
+    },
+    "deploy/vast/requirements.lock": {
+      "executable": false,
+      "sha256": "637361bcf547c71e14d8870560604cf21abc5279b87ddd56f16d2453a7eea500"
+    },
+    "scripts/assemble_worker_artifact.py": {
+      "executable": true,
+      "sha256": "8fd4ec8c2838ee0878557ab22832c9d0863af6ab58b8b99777b1b037feb03d21"
+    },
+    "scripts/download_fasth3_models.sh": {
+      "executable": true,
+      "sha256": "198cbad6d8665be40eef55000e60798d22a325a7d03e6abf8d1835e350481c90"
+    },
+    "scripts/prepare_h3_upscale_conditioning.py": {
+      "executable": true,
+      "sha256": "e90f4c420fc713f10f782d3f855d85c43ba711806c2eb5ce40150bd09a1a13d5"
+    }
+  },
+  "profile": "vast",
+  "runtime": {
+    "base_image": "cuda130-py312",
+    "clipproj_node_ref": "c01ba8fb8f41b4f2094dbd0b185cdc238fb6134c",
+    "comfy-aimdo": "0.5.3",
+    "comfy-kitchen": "0.2.34",
+    "comfyui": "0.36.0",
+    "comfyui_ref": "ee71d5c4993f29086b27fde1629a945ae48425bf",
+    "kitchen_wheel_sha256": "71ba8bc72b54f2914b5e15d210eea2e25931006cf57ca14d033ae4050f4b0d1a",
+    "python": "3.12",
+    "schema": "fasth3-vast-environment/1",
+    "torch": "2.14.0+cu130",
+    "torch_cuda": "13.0",
+    "torchaudio": "2.11.0+cu130",
+    "torchvision": "0.29.0+cu130",
+    "triton": "3.8.0"
+  },
+  "schema": "comfystream-worker-artifact/1"
+}

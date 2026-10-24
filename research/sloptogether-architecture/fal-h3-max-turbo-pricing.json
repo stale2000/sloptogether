@@ -1,0 +1,24 @@
+{
+  "prices": [
+    {
+      "endpoint_id": "minimax/h3-max-turbo/image-to-video",
+      "unit_price": 0.01625,
+      "unit": "seconds",
+      "currency": "USD"
+    },
+    {
+      "endpoint_id": "minimax/h3-max-turbo/text-to-video",
+      "unit_price": 0.01625,
+      "unit": "seconds",
+      "currency": "USD"
+    },
+    {
+      "endpoint_id": "minimax/h3-max-turbo/extend-video",
+      "unit_price": 0.025,
+      "unit": "seconds",
+      "currency": "USD"
+    }
+  ],
+  "next_cursor": null,
+  "has_more": false
+}
