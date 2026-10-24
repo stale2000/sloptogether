@@ -17,12 +17,12 @@ The four-clip number is only the user's test size. The application requirement i
 | Area | What exists | Evidence limit / remaining work |
 |---|---|---|
 | Local application | Next app at `/sloptogether`; API, directory, channel, controls, moderation, output, pairing and download routes | Running in development mode; user flows requiring Twitch login are unavailable locally |
-| Browser program | Four published HLS clips, approximately one minute, audio, 16:9 | Latest player starts at the first clip or supplied marker; full playback across all four boundaries under the final code still needs a recorded run |
+| Browser program | Four published HLS clips, approximately one minute, audio, 16:9 | The public `localdemo` smoke fixture is a static Vercel HLS asset; it verifies playback UI but does not prove DB/R2 publication or continuous generation |
 | Local services | Next, media publisher, loopback S3 emulator and temporary Postgres | No running story producer, custom generation loop, upscale loop, or Fal session controller |
 | Actual Fal generation | Marketplace H3 Max Turbo image-to-video requests completed; one new output became clip four | Generated through an operator/tool call, then manually downloaded and normalized; no custom Fal worker execution |
-| Shared production database | 44 `sloptogether` tables added to the existing Clips.gg project; 25 pre-existing public tables retained | Running app/media worker still use local Postgres; runtime connection has not been verified |
+| Shared production database | 44 `sloptogether` tables added to the existing Clips.gg project; 25 pre-existing public tables retained | Vercel connects through the IPv4 pooler with the scoped role and verified Supabase CA; production has no channel rows |
 | Database access | Scoped `sloptogether_app` login; zero public-table DML grants; no superuser/RLS bypass; `anon` and `authenticated` have no schema usage | All 44 app tables have RLS disabled; preserve private backend-only access until an explicit RLS/API policy design is implemented |
-| Media handling | Worker upload tickets, immutable snapshots, digest checks, quarantine, validation, trusted/human approval and HLS publication | Local upload and publication worked; real R2, upload gateway and remote Fal upload path are unqualified |
+| Media handling | Worker upload tickets, immutable snapshots, digest checks, quarantine, validation, trusted/human approval and HLS publication | Production R2 and upload gateway are not provisioned. The public demo fixture does not qualify worker uploads or publication |
 | Worker source/import | Bounded ComfyStreamer source, provenance manifests, pinned recipes, same shared Python runtime, prepared generation/upscale Fal contexts | Prepared contexts are source artifacts; no deployed SlopTogether apps and no GPU qualification for these images |
 | Twitch | OAuth/session, chat ballots, Extension assets, EventSub subscription handling, subscriber interrupt source | Health reports `twitchOAuth:false`; no live signed-in browser, real chat/Extension ballot, subscriber render/resume or channel-token rotation acceptance |
 | Paid Turbo | Gated Bits intent, receipt/reconciliation, single-attempt accounting, provider queue and ingestion source | Disabled. No real approved SKU/payment/settlement end-to-end run; marketplace smoke did not use Bits |
@@ -54,11 +54,11 @@ Priority P1 blocks the requested operational milestone or safe production use. P
 
 **Remaining:** seed an actual Twitch channel and configure Twitch OAuth before enabling channel-specific moderation or voting.
 
-### P1 — The old runtime database credential is exposed in migration history
+### Resolved — Historical database credential
 
 The scoped login was created using a password-setting statement submitted through `apply_migration`. Supabase migration history still stores that old password statement, and it passed through the tool transcript. **That password has been rotated**; the replacement is in a user-only mode-0600 local file and was not added to migration history. Migration `019` enables the restricted role's login. Vercel now connects through the verified Supavisor transaction pooler using the replacement credential.
 
-**Remaining:** never reintroduce the old password or place credentials in migration history. Keep the replacement only in deployment secrets. Do not delete unrelated migration history/tables.
+The old credential remains in migration history but was rotated and is no longer valid. Keep replacement credentials only in deployment secrets. Do not delete unrelated migration history/tables.
 
 ### P1 — Custom Fal worker deployment is incomplete
 
@@ -135,7 +135,7 @@ README still describes three clips, and the original plan still prohibits the no
 
 | Check | Current result |
 |---|---|
-| `npm test` | 100 web tests passed; 2 opt-in PostgreSQL tests skipped; 5 script tests passed |
+| `npm test` | 102 web tests passed; 2 opt-in PostgreSQL tests skipped; 6 script tests passed |
 | `npm run typecheck` and `npm run lint` | Passed |
 | `npm run media-test` | 39 passed |
 | `npm run worker-test` | 92 passed; mocked session log messages are not real GPU evidence |
@@ -143,7 +143,7 @@ README still describes three clips, and the original plan still prohibits the no
 | Production database read | 44 app tables, 25 public tables, no runtime-role public DML grants, no anonymous schema usage |
 | Live Clips.gg mount | `https://www.clips.gg/sloptogether` and health endpoint return HTTP 200 through the deployed host proxy |
 | Live channel listing | HTTP 200 with `{"channels":[]}`; no production channel is configured |
-| Live output page | Browser route renders the output screen but waits for a channel scene; no production video is available |
+| Live output page | Four HLS clips play at 1280×720; center click toggles play/pause and clip 2 seek worked. This is the gated static smoke fixture, not a DB/R2 channel stream |
 | Production storage | Unconfigured; local R2 settings point at the loopback emulator, not Cloudflare R2 |
 | Fal inventory | No SlopTogether apps, no secrets, zero active runners |
 | Latest browser read | Four-clip source loaded; decoded 1280×720; waiting at the finite queue tail with no media error |
