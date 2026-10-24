@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assertDatabaseTarget } from "../src/index.mjs";
+import { assertDatabaseTarget,databasePoolOptions } from "../src/index.mjs";
 
 const sharedHost="db.lkyaaokrpbqucjrnhrps.supabase.co";
 
@@ -20,4 +20,13 @@ test("allows the Clips.gg IPv4 transaction pooler only with the project-scoped a
 
 test("continues to accept the local demo database",()=>{
   assert.equal(assertDatabaseTarget("postgresql://postgres@127.0.0.1:56432/sloptogether",{}).hostname,"127.0.0.1");
+});
+
+test("uses verified CA TLS for the shared pooler and rejects missing CA configuration",()=>{
+  const url="postgresql://sloptogether_app.lkyaaokrpbqucjrnhrps@aws-1-us-east-2.pooler.supabase.com:6543/postgres?sslmode=require";
+  const ca="-----BEGIN CERTIFICATE-----\nproduction-ca\n-----END CERTIFICATE-----";
+  const options=databasePoolOptions(url,{SLOPTOGETHER_USE_CLIPSGG_DATABASE:"true",SLOPTOGETHER_DATABASE_SSL_CA:ca});
+  assert.equal(new URL(options.connectionString).searchParams.has("sslmode"),false);
+  assert.deepEqual(options.ssl,{ca,rejectUnauthorized:true});
+  assert.throws(()=>databasePoolOptions(url,{SLOPTOGETHER_USE_CLIPSGG_DATABASE:"true"}),/SSL_CA_required/);
 });

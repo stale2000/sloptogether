@@ -74,10 +74,24 @@ export function assertDatabaseTarget(databaseUrl, env = process.env) {
   return url;
 }
 
+export function databasePoolOptions(databaseUrl,env=process.env){
+  const url=assertDatabaseTarget(databaseUrl,env);
+  const clipsDatabaseUsers={
+    "db.lkyaaokrpbqucjrnhrps.supabase.co":"sloptogether_app",
+    "aws-1-us-east-2.pooler.supabase.com":"sloptogether_app.lkyaaokrpbqucjrnhrps",
+  };
+  const sharedClipsDb=Object.hasOwn(clipsDatabaseUsers,url.hostname.toLowerCase());
+  const ca=env.SLOPTOGETHER_DATABASE_SSL_CA?.trim();
+  if(sharedClipsDb&&!ca)throw new Error("SLOPTOGETHER_DATABASE_SSL_CA_required_for_shared_ClipsGG_database");
+  if(ca&&!ca.includes("-----BEGIN CERTIFICATE-----"))throw new Error("SLOPTOGETHER_DATABASE_SSL_CA_invalid");
+  const connectionUrl=new URL(databaseUrl);
+  if(ca)connectionUrl.searchParams.delete("sslmode");
+  return {connectionString:ca?connectionUrl.toString():databaseUrl,...(ca?{ssl:{ca,rejectUnauthorized:true}}:{})};
+}
+
 function makePool(databaseUrl) {
-  assertDatabaseTarget(databaseUrl);
   return new Pool({
-    connectionString: databaseUrl,
+    ...databasePoolOptions(databaseUrl),
     max: 2,
     idleTimeoutMillis: 10_000,
     connectionTimeoutMillis: 5_000,

@@ -25,13 +25,22 @@ function createPool(max=3,applicationName="sloptogether-web"): Pool {
   if (!url.protocol.startsWith("postgres")) {
     throw new Error("DATABASE_URL must use PostgreSQL");
   }
+  const isSharedClipsDb=isClipsDatabase(url);
   const explicitlyAllowsClipsDatabase = process.env.SLOPTOGETHER_USE_CLIPSGG_DATABASE === "true";
-  if (isClipsDatabase(url) && (!explicitlyAllowsClipsDatabase || !hasScopedClipsDatabaseUser(url))) {
+  if (isSharedClipsDb && (!explicitlyAllowsClipsDatabase || !hasScopedClipsDatabaseUser(url))) {
     throw new Error("The Clips.gg database requires SLOPTOGETHER_USE_CLIPSGG_DATABASE=true and the schema-scoped sloptogether_app login.");
   }
+  const databaseCa=process.env.SLOPTOGETHER_DATABASE_SSL_CA?.trim();
+  if(isSharedClipsDb&&process.env.NODE_ENV==="production"&&!databaseCa){
+    throw new Error("SLOPTOGETHER_DATABASE_SSL_CA is required for verified Clips.gg database TLS.");
+  }
+  if(databaseCa&&!databaseCa.includes("-----BEGIN CERTIFICATE-----"))throw new Error("SLOPTOGETHER_DATABASE_SSL_CA must contain the Supabase CA certificate.");
+  const connectionUrl=new URL(connectionString);
+  if(databaseCa)connectionUrl.searchParams.delete("sslmode");
 
   return new Pool({
-    connectionString,
+    connectionString:databaseCa?connectionUrl.toString():connectionString,
+    ...(databaseCa?{ssl:{ca:databaseCa,rejectUnauthorized:true}}:{}),
     max,
     idleTimeoutMillis: 10_000,
     connectionTimeoutMillis: 5_000,

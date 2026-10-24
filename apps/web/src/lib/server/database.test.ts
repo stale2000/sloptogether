@@ -44,3 +44,22 @@ it("rejects an unscoped pooler role even when shared mode is enabled", () => {
   vi.stubEnv("SLOPTOGETHER_USE_CLIPSGG_DATABASE", "true");
   expect(() => pool()).toThrow(/schema-scoped sloptogether_app login/);
 });
+
+it("uses the Supabase CA and removes conflicting sslmode settings for verified pooler TLS",()=>{
+  const ca="-----BEGIN CERTIFICATE-----\nproduction-ca\n-----END CERTIFICATE-----";
+  vi.stubEnv("DATABASE_URL","postgresql://sloptogether_app.lkyaaokrpbqucjrnhrps@aws-1-us-east-2.pooler.supabase.com:6543/postgres?sslmode=require");
+  vi.stubEnv("SLOPTOGETHER_USE_CLIPSGG_DATABASE","true");
+  vi.stubEnv("SLOPTOGETHER_DATABASE_SSL_CA",ca);
+  createdPool=pool();
+  const options=(createdPool as unknown as {options:{connectionString:string;ssl:{ca:string;rejectUnauthorized:boolean}}}).options;
+  expect(new URL(options.connectionString).searchParams.has("sslmode")).toBe(false);
+  expect(options.ssl).toEqual({ca,rejectUnauthorized:true});
+});
+
+it("requires verified CA configuration for the shared database in production",()=>{
+  vi.stubEnv("NODE_ENV","production");
+  vi.stubEnv("DATABASE_URL","postgresql://sloptogether_app.lkyaaokrpbqucjrnhrps@aws-1-us-east-2.pooler.supabase.com:6543/postgres");
+  vi.stubEnv("SLOPTOGETHER_USE_CLIPSGG_DATABASE","true");
+  vi.stubEnv("SLOPTOGETHER_DATABASE_SSL_CA","");
+  expect(()=>pool()).toThrow(/required for verified Clips.gg database TLS/);
+});
