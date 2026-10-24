@@ -27,7 +27,7 @@ The four-clip number is only the user's test size. The application requirement i
 | Twitch | OAuth/session, chat ballots, Extension assets, EventSub subscription handling, subscriber interrupt source | Health reports `twitchOAuth:false`; no live signed-in browser, real chat/Extension ballot, subscriber render/resume or channel-token rotation acceptance |
 | Paid Turbo | Gated Bits intent, receipt/reconciliation, single-attempt accounting, provider queue and ingestion source | Disabled. No real approved SKU/payment/settlement end-to-end run; marketplace smoke did not use Bits |
 | Windows/4090 | Packaging code, role selection, Twitch pairing, WSL2 configuration and candidate memory profiles | No signed runnable public installer; no actual Windows/4090 generation/upscale qualification |
-| Public hosting | Narrow proxy code in the separate Clips.gg checkout | Public `/sloptogether/api/v1/health` returns HTTP 404 on `www.clips.gg`; no child app deployed |
+| Public hosting | Child Vercel project deployed at `https://sloptogether.vercel.app`; narrow proxy merged into the separate Clips.gg repository and deployed to the existing host project | `https://www.clips.gg/sloptogether` and `/api/v1/health` return HTTP 200. Production `GET /api/v1/channels` returns an empty list; no production channel or clips are seeded |
 | Hackathon research | Announcement, API documentation, schedule and rules notes archived under `research/` | Rules notes retain an organizer schedule conflict; submission/access/license requirements still need final review |
 
 ## What the fourth-clip test actually did
@@ -46,22 +46,23 @@ This proves the local admission/publication/player path can accept real generate
 
 Priority P1 blocks the requested operational milestone or safe production use. P2 is a functional/integrity gap that must be addressed before calling the product complete. P3 is release hygiene.
 
-### Resolved in code — Shared database configuration
+### Resolved — Shared database connection
 
-- Web pool, OAuth readiness and media publisher now agree on the direct Clips.gg host, explicit shared-project flag and scoped login. Unsafe root login is rejected.
-- The approved runtime role has no public-table DML grants. The database schema is still not connected from the deployed app; local DNS could not resolve the direct database host. Pooler URL support remains unverified.
+- Web pool and media publisher accept only the direct Clips.gg database with the `sloptogether_app` login or the matching Supavisor pooler host with the project-qualified `sloptogether_app` login. Both require `SLOPTOGETHER_USE_CLIPSGG_DATABASE=true`.
+- Vercel cannot resolve the direct IPv6-only database host. The Vercel runtime now uses Supavisor's IPv4 transaction pooler and the Supabase CA certificate with verification enabled. A verified `psql` query succeeded and the live `/api/v1/channels` endpoint returns `{"channels":[]}`.
+- The scoped runtime role has no superuser, createdb, createrole, or RLS-bypass privileges. Direct SQL confirms `anon` and `authenticated` lack `USAGE` on the private `sloptogether` schema and have no channel-table read/write privileges; the generic Supabase table advisor overstates exposure for this private schema.
 
-**Remaining:** place the rotated credential in the child deployment secret store and verify an actual scoped connection. If a pooler is used, add its username/host form to the same guard.
+**Remaining:** seed an actual Twitch channel and configure Twitch OAuth before enabling channel-specific moderation or voting.
 
 ### P1 — The old runtime database credential is exposed in migration history
 
-The scoped login was created using a password-setting statement submitted through `apply_migration`. Supabase migration history still stores that old password statement, and it passed through the tool transcript. **That password has now been rotated**; the replacement is in a user-only mode-0600 local file and was not added to migration history. Migration `019` now enables the scoped role's login while preserving its restricted privileges; deployment still needs to set the password through its secret manager. Direct PostgreSQL login could not be verified because this host could not resolve the Supabase database hostname.
+The scoped login was created using a password-setting statement submitted through `apply_migration`. Supabase migration history still stores that old password statement, and it passed through the tool transcript. **That password has been rotated**; the replacement is in a user-only mode-0600 local file and was not added to migration history. Migration `019` enables the restricted role's login. Vercel now connects through the verified Supavisor transaction pooler using the replacement credential.
 
-**Required result:** apply migration `019`, put the replacement only in the deployment secret manager, verify old-password rejection and new-login access from the actual runtime environment. Do not print the replacement or delete unrelated migration history/tables.
+**Remaining:** never reintroduce the old password or place credentials in migration history. Keep the replacement only in deployment secrets. Do not delete unrelated migration history/tables.
 
 ### P1 — Custom Fal worker deployment is incomplete
 
-Fresh Fal inventory is empty for SlopTogether. Generated app definitions and the secret setup helper now include the role key, API base and upload-host allowlist, and the worker reads the allowlist from its environment. No Fal secrets/apps were provisioned. The configured default API is not live: the public path returns HTTP 404.
+Fresh Fal inventory is empty for SlopTogether. Generated app definitions and the secret setup helper now include the role key, API base and upload-host allowlist, and the worker reads the allowlist from its environment. No Fal secrets/apps were provisioned. The public API route is live, but GPU workers and remote upload storage are not configured.
 
 The loopback storage emulator cannot be used from remote workers and must remain unexposed. A real R2 HeadBucket attempt failed with a TLS handshake error; working production storage credentials/connectivity have not been established.
 
@@ -134,13 +135,16 @@ README still describes three clips, and the original plan still prohibits the no
 
 | Check | Current result |
 |---|---|
-| `npm test` | 92 web tests passed; 2 opt-in PostgreSQL tests skipped; 5 script tests passed |
+| `npm test` | 100 web tests passed; 2 opt-in PostgreSQL tests skipped; 5 script tests passed |
 | `npm run typecheck` and `npm run lint` | Passed |
-| `npm run media-test` | 34 passed |
-| `npm run worker-test` | 89 passed; mocked session log messages are not real GPU evidence |
+| `npm run media-test` | 39 passed |
+| `npm run worker-test` | 92 passed; mocked session log messages are not real GPU evidence |
 | Local health/program APIs | Online; local emulator; OAuth false; four program spans/revision 4 |
 | Production database read | 44 app tables, 25 public tables, no runtime-role public DML grants, no anonymous schema usage |
-| Public health route | HTTP 404 after the Clips.gg canonical-host redirect |
+| Live Clips.gg mount | `https://www.clips.gg/sloptogether` and health endpoint return HTTP 200 through the deployed host proxy |
+| Live channel listing | HTTP 200 with `{"channels":[]}`; no production channel is configured |
+| Live output page | Browser route renders the output screen but waits for a channel scene; no production video is available |
+| Production storage | Unconfigured; local R2 settings point at the loopback emulator, not Cloudflare R2 |
 | Fal inventory | No SlopTogether apps, no secrets, zero active runners |
 | Latest browser read | Four-clip source loaded; decoded 1280×720; waiting at the finite queue tail with no media error |
 
