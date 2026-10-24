@@ -11,4 +11,5 @@ poll_interval_seconds = 5
 heartbeat_interval_seconds = 30
 request_timeout_seconds = 30
 max_output_bytes = 134217728
-upload_hosts = ["uploads.clips.gg"]
+# Populate after provisioning the private bucket and gateway. Allow only their exact hosts.
+upload_hosts = []

@@ -64,7 +64,7 @@ The old credential remains in migration history but was rotated and is no longer
 
 Fresh Fal inventory is empty for SlopTogether. Generated app definitions and the secret setup helper now include the role key, API base and upload-host allowlist, and the worker reads the allowlist from its environment. No Fal secrets/apps were provisioned. The public API route is live, but GPU workers and remote upload storage are not configured.
 
-The loopback storage emulator cannot be used from remote workers and must remain unexposed. A real R2 HeadBucket attempt failed with a TLS handshake error; working production storage credentials/connectivity have not been established.
+The loopback storage emulator cannot be used from remote workers and must remain unexposed. A real R2 HeadBucket attempt failed with a TLS handshake error; working production storage credentials/connectivity have not been established. The planned `uploads.clips.gg` hostname currently resolves to Vercel, serves the Clips.gg frontend, and presents a certificate expired on 2026-06-02. Do not use it as the gateway host until DNS and TLS point to the deployed Worker.
 
 **Required result:** reachable HTTPS API, real private R2/gateway, exact media/upload host allowlists, channel/role/recipe configuration, independent role keys, successful custom GPU execution and an exercised shutdown controller.
 
