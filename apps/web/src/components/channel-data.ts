@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { API_BASE, type LiveElection, type ProgramOutput, type PublicTimelineResponse, apiFetch, displayProblem } from "./api";
+import { API_BASE, ApiError, type LiveElection, type ProgramOutput, type PublicTimelineResponse, apiFetch, displayProblem } from "./api";
 import type { PublicTimelineSegment } from "@sloptogether/contracts";
 import type { ProgramManifest } from "./program-player";
 
@@ -36,8 +36,8 @@ export type Loadable<T> =
 
 export function useChannelTimeline(channel: string): Loadable<TimelinePayload> {
   const [revision, setRevision] = useState(0);
-  const [value, setValue] = useState<TimelinePayload | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [value, setValue] = useState<{channel:string;payload:TimelinePayload}|null>(null);
+  const [error, setError] = useState<{channel:string;message:string}|null>(null);
 
   const retry = useCallback(() => {
     setError(null);
@@ -46,11 +46,12 @@ export function useChannelTimeline(channel: string): Loadable<TimelinePayload> {
 
   useEffect(() => {
     let stopped = false;
+    let channelMissing = false;
     let reading=false;
     const abort = new AbortController();
 
     const read = async () => {
-      if(reading||document.hidden)return;
+      if(reading||channelMissing||document.hidden)return;
       reading=true;
       try {
         const response = await fetch(`${API_BASE}/channels/${encodeURIComponent(channel)}/timeline`, {
@@ -61,16 +62,18 @@ export function useChannelTimeline(channel: string): Loadable<TimelinePayload> {
         const body = await response.json().catch(() => null) as TimelinePayload | { error?: string; message?: string } | null;
         if (!response.ok) {
           const record = body as { error?: unknown; message?: unknown } | null;
-          throw new Error(typeof record?.message === "string" ? record.message : typeof record?.error === "string" ? record.error : `Timeline unavailable (${response.status}).`);
+          const code=typeof record?.error==="string"?record.error:undefined;
+          throw new ApiError(typeof record?.message === "string" ? record.message : code??`Timeline unavailable (${response.status}).`,response.status,code);
         }
         if (!body || !("channel" in body) || !Array.isArray(body.segments)) throw new Error("The timeline response wasn't valid.");
         if (!stopped) {
-          setValue(body as TimelinePayload);
+          setValue({channel,payload:body as TimelinePayload});
           setError(null);
         }
       } catch (problem) {
         if (!stopped && !(problem instanceof DOMException && problem.name === "AbortError")) {
-          setError(displayProblem(problem));
+          if(problem instanceof ApiError&&problem.status===404&&problem.code==="channel_not_found")channelMissing=true;
+          setError({channel,message:displayProblem(problem)});
         }
       }finally{reading=false}
     };
@@ -86,30 +89,37 @@ export function useChannelTimeline(channel: string): Loadable<TimelinePayload> {
     };
   }, [channel, revision]);
 
-  if (value) return { state: "ready", value, ...(error?{refreshError:error}:{}) };
-  if (error) return { state: "error", error, retry };
+  const currentValue=value?.channel===channel?value.payload:null;
+  const currentError=error?.channel===channel?error.message:null;
+  if (currentValue) return { state: "ready", value:currentValue, ...(currentError?{refreshError:currentError}:{}) };
+  if (currentError) return { state: "error", error:currentError, retry };
   return { state: "loading" };
 }
 
 export function useChannelProgram(channel: string): Loadable<ProgramManifest> {
   const [revision, setRevision] = useState(0);
-  const [value, setValue] = useState<ProgramManifest | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [value, setValue] = useState<{channel:string;manifest:ProgramManifest}|null>(null);
+  const [error, setError] = useState<{channel:string;message:string}|null>(null);
   const retry = useCallback(() => { setError(null); setRevision((n) => n + 1); }, []);
 
   useEffect(() => {
     let stopped = false;
+    let channelMissing = false;
     let reading = false;
     const controller = new AbortController();
     const read = async () => {
-      if (reading || document.hidden) return;
+      if (reading || channelMissing || document.hidden) return;
       reading = true;
       try {
         const response = await fetch(`${API_BASE}/channels/${encodeURIComponent(channel)}/program`, {
           cache: "no-store", credentials: "same-origin", signal: controller.signal,
         });
-        const body = await response.json().catch(() => null) as ProgramManifest | null;
-        if (!response.ok) throw new Error(`Continuous program unavailable (${response.status}).`);
+        const body = await response.json().catch(() => null) as (ProgramManifest & {error?:string;message?:string}) | null;
+        if (!response.ok) {
+          const code=body&&"error" in body&&typeof body.error==="string"?body.error:undefined;
+          const message=body&&"message" in body&&typeof body.message==="string"?body.message:code??`Continuous program unavailable (${response.status}).`;
+          throw new ApiError(message,response.status,code);
+        }
         if (!body || !Number.isSafeInteger(body.epoch) || !Number.isSafeInteger(body.manifestRevision) || !Array.isArray(body.programSpans)) {
           throw new Error("The continuous program manifest was invalid.");
         }
@@ -124,9 +134,12 @@ export function useChannelProgram(channel: string): Loadable<ProgramManifest> {
           }
           if (url.protocol !== "https:" && !developmentOrigin) throw new Error("Production media sources must use HTTPS.");
         }
-        if (!stopped) { setValue(body); setError(null); }
+        if (!stopped) { setValue({channel,manifest:body}); setError(null); }
       } catch (problem) {
-        if (!stopped && !(problem instanceof DOMException && problem.name === "AbortError")) setError(displayProblem(problem));
+        if (!stopped && !(problem instanceof DOMException && problem.name === "AbortError")) {
+          if(problem instanceof ApiError&&problem.status===404&&problem.code==="channel_not_found")channelMissing=true;
+          setError({channel,message:displayProblem(problem)});
+        }
       } finally { reading = false; }
     };
     void read();
@@ -134,8 +147,10 @@ export function useChannelProgram(channel: string): Loadable<ProgramManifest> {
     return () => { stopped = true; controller.abort(); window.clearInterval(timer); };
   }, [channel, revision]);
 
-  if (value) return { state: "ready", value, ...(error?{refreshError:error}:{}) };
-  if (error) return { state: "error", error, retry };
+  const currentValue=value?.channel===channel?value.manifest:null;
+  const currentError=error?.channel===channel?error.message:null;
+  if (currentValue) return { state: "ready", value:currentValue, ...(currentError?{refreshError:currentError}:{}) };
+  if (currentError) return { state: "error", error:currentError, retry };
   return { state: "loading" };
 }
 

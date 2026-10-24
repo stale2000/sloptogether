@@ -94,6 +94,7 @@ export function formatDuration(value: number | null | undefined): string {
 
 export function displayProblem(error: unknown): string {
   if (error instanceof ApiError) {
+    if (error.code === "channel_not_found") return "This channel is not set up yet.";
     if (error.status === 404 || error.status === 503) return "This service is not configured yet. Your settings and content haven't been changed.";
     if (error.status === 401) return "Connect Twitch to continue.";
     if (error.status === 403) return "Your Twitch account doesn't have permission for this action.";
