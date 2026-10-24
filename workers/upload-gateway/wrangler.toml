@@ -1,6 +1,11 @@
 name = "sloptogether-upload-gateway"
 main = "src/index.ts"
 compatibility_date = "2026-10-23"
+workers_dev = false
+
+[[routes]]
+pattern = "uploads.clips.gg"
+custom_domain = true
 
 [[r2_buckets]]
 binding = "MEDIA_BUCKET"
