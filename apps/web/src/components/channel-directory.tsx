@@ -7,6 +7,7 @@ import { API_BASE, displayProblem } from "./api";
 interface ChannelCardData { twitchLogin: string; displayName: string; segmentCount?: number; currentPrompt?: string }
 
 export function ChannelDirectory() {
+  const demoEnabled=process.env.NEXT_PUBLIC_LOCAL_DEMO_ENABLED==="true";
   const [channels, setChannels] = useState<ChannelCardData[]>([]);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
@@ -41,7 +42,7 @@ export function ChannelDirectory() {
       </div>
       {state === "loading" ? <div className="directory-grid" aria-label="Loading channels">{[0, 1, 2].map((i) => <div className="channel-discovery-card discovery-loading" key={i}><div className="loading-pulse"/><div className="loading-pulse short"/><div className="loading-pulse"/></div>)}</div> : null}
       {state === "error" ? <div className="empty-state directory-empty"><span className="empty-glyph">⌁</span><strong>Channels aren&apos;t available yet.</strong><p>{error}</p><a className="button secondary small" href="#how-it-works">See how it works</a></div> : null}
-      {state === "ready" && channels.length === 0 ? <div className="empty-state directory-empty"><strong>No channels yet.</strong><Link className="button secondary small" href="/control">Connect Twitch <span aria-hidden="true">↗</span></Link></div> : null}
+      {state === "ready" && channels.length === 0 ? <div className="empty-state directory-empty"><strong>No channels yet.</strong>{demoEnabled?<><p>Try the four-clip live output demo.</p><Link className="button secondary small" href="/channels/localdemo/output">Watch the demo <span aria-hidden="true">↗</span></Link></>:null}<Link className="button secondary small" href="/control">Connect Twitch <span aria-hidden="true">↗</span></Link></div> : null}
       {state === "ready" && channels.length > 0 && filtered.length === 0 ? <div className="empty-state directory-empty"><strong>No matching channels.</strong><p>Try another Twitch name.</p></div> : null}
       {state === "ready" && filtered.length > 0 ? <div className="directory-grid">
         {filtered.map((channel) => <Link className="channel-discovery-card" key={channel.twitchLogin} href={`/channels/${encodeURIComponent(channel.twitchLogin)}`}>
