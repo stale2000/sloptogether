@@ -72,7 +72,8 @@ export function verifyExtensionRequest(request: Request): ExtensionPrincipal {
 
   const origin = request.headers.get("origin");
   const allowedOrigin = `https://${expectedClient}.ext-twitch.tv`;
-  if (origin && origin !== allowedOrigin && origin !== "https://www.twitch.tv") {
+  const localDemoOrigin=process.env.NODE_ENV==="development"&&process.env.NEXT_PUBLIC_LOCAL_DEMO_ENABLED==="true"&&origin==="http://localhost:3000";
+  if (origin && origin !== allowedOrigin && origin !== "https://www.twitch.tv" && !localDemoOrigin) {
     throw new HttpError(403,"extension_origin_not_allowed");
   }
 

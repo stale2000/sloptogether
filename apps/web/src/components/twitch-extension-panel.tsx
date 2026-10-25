@@ -266,19 +266,22 @@ export function TwitchExtensionPanel(){
 
   const vote=async(electionId:string,choiceId:string)=>{
     if(!auth||!linked)return;
+    const requestEpoch=identityEpoch.current;
     setBusy(choiceId);setMessage(null);setError(null);
     try{
       const response=await fetch(`${API_BASE}/elections/${encodeURIComponent(electionId)}/ballots`,{method:"POST",headers:{"Content-Type":"application/json","x-extension-jwt":auth.token},body:JSON.stringify({choiceId})});
       const body=await response.json().catch(()=>({}));
+      if(requestEpoch!==identityEpoch.current)return;
       if(!response.ok)throw new Error(typeof body?.message==="string"?body.message:"Vote could not be recorded.");
       setMessage("Vote saved. It also counts in chat and on the site.");
       await load(auth);
-    }catch(problem){setError(problem instanceof Error?problem.message:"Vote could not be recorded.")}finally{setBusy(null)}
+    }catch(problem){if(requestEpoch===identityEpoch.current)setError(problem instanceof Error?problem.message:"Vote could not be recorded.")}finally{if(requestEpoch===identityEpoch.current)setBusy(null)}
   };
 
   const submitPrompt=async()=>{
     const prompt=promptDraft.trim();
     if(!auth||!linked||!state?.canSubmitPrompts||!prompt||busy!==null)return;
+    const requestEpoch=identityEpoch.current;
     setBusy("proposal");setMessage(null);setError(null);
     try{
       const response=await fetch(`${API_BASE}/channels/${encodeURIComponent(auth.channelId)}/proposals`,{
@@ -287,12 +290,13 @@ export function TwitchExtensionPanel(){
         body:JSON.stringify({prompt,planningMode:"continuation"}),
       });
       const body=await response.json().catch(()=>({}));
+      if(requestEpoch!==identityEpoch.current)return;
       if(!response.ok)throw new Error(typeof body?.message==="string"?body.message:"Prompt could not be submitted.");
       setPromptDraft("");
       setMessage(body.state==="pending"?"Prompt submitted for review. It will join the vote after approval.":"Prompt entered the open vote. Cast your ballot below.");
       await load(auth);
-    }catch(problem){setError(problem instanceof Error?problem.message:"Prompt could not be submitted.")}
-    finally{setBusy(null)}
+    }catch(problem){if(requestEpoch===identityEpoch.current)setError(problem instanceof Error?problem.message:"Prompt could not be submitted.")}
+    finally{if(requestEpoch===identityEpoch.current)setBusy(null)}
   };
 
   const purchaseTurbo=async(product:PaidProduct)=>{

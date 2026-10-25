@@ -96,6 +96,19 @@ describe("channel access boundaries",()=>{
     expect(verifyExtensionRequest(new Request("https://clips.gg",{headers:{"x-extension-jwt":jwt(unlinked)}})).linkedTwitchUserId).toBeNull();
   });
 
+  it("allows the local Extension preview origin only in explicit development demo mode",()=>{
+    const token=jwt({channel_id:"123",exp:Math.floor(Date.now()/1000)+300,opaque_user_id:"U-local-viewer",role:"viewer",user_id:"2",client_id:"extension-client"});
+    const request=new Request("http://localhost:3000/sloptogether/extension",{headers:{Origin:"http://localhost:3000","x-extension-jwt":token}});
+    vi.stubEnv("NODE_ENV","development");
+    vi.stubEnv("NEXT_PUBLIC_LOCAL_DEMO_ENABLED","true");
+    expect(verifyExtensionRequest(request).channelId).toBe("123");
+    vi.stubEnv("NEXT_PUBLIC_LOCAL_DEMO_ENABLED","false");
+    expect(()=>verifyExtensionRequest(request)).toThrow("extension_origin_not_allowed");
+    vi.stubEnv("NEXT_PUBLIC_LOCAL_DEMO_ENABLED","true");
+    vi.stubEnv("NODE_ENV","production");
+    expect(()=>verifyExtensionRequest(request)).toThrow("extension_origin_not_allowed");
+  });
+
   it("lets allowlisted reviewers review content without gaining moderator or settings authority",async()=>{
     mocks.moderatedChannels.mockRejectedValue(new Error("Twitch unavailable"));
     expect(await canReviewContent(channel,reviewer)).toBe(true);
