@@ -14,6 +14,14 @@ test("packages exactly the Twitch Extension assets with CDN-safe paths", () => {
     ], { encoding: "utf8" });
     assert.match(result, /Extension ZIP ready:/);
     assert.match(result, /\(\d+ bytes\)/);
+    const files = JSON.parse(execFileSync("python3.12", ["-c", [
+      "import json,zipfile,sys",
+      "with zipfile.ZipFile(sys.argv[1]) as z:",
+      " print(json.dumps({name:z.read(name).decode('utf-8') for name in ('index.html','extension.js')}))",
+    ].join("\n"), output], { encoding: "utf8" }));
+    assert.match(files["index.html"], /id="prompt-form"/);
+    assert.match(files["extension.js"], /fetch\(`\$\{API\}\/channels\/\$\{encodeURIComponent\(currentAuthorization\.channelId\)\}\/proposals`/);
+    assert.match(files["extension.js"], /const requestEpoch = identityEpoch;[\s\S]*?if \(requestEpoch !== identityEpoch\) return;/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

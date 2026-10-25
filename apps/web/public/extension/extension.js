@@ -17,6 +17,9 @@
     helper: document.getElementById("helper"),
     choices: document.getElementById("choices"),
     submit: document.getElementById("submit-vote"),
+    promptForm: document.getElementById("prompt-form"),
+    promptInput: document.getElementById("prompt-input"),
+    promptSubmit: document.getElementById("submit-prompt"),
     note: document.getElementById("vote-note"),
     empty: document.getElementById("empty"),
     link: document.getElementById("link-account"),
@@ -31,6 +34,7 @@
   let pollTimer = 0;
   let isVisible = true;
   let isSubmitting = false;
+  let isSubmittingPrompt = false;
   let bitsState = null;
   let bitsPending = false;
   let bitsBusy = false;
@@ -339,6 +343,14 @@
     nodes.submit.disabled = true;
   }
 
+  function renderPromptForm(canSubmitPrompts) {
+    const visible = Boolean(authorization && canSubmitPrompts);
+    nodes.promptForm.hidden = !visible;
+    nodes.promptInput.disabled = !linkedIdentity(authorization) || isSubmittingPrompt;
+    nodes.promptSubmit.disabled = !linkedIdentity(authorization) || isSubmittingPrompt || !nodes.promptInput.value.trim();
+    nodes.promptSubmit.textContent = isSubmittingPrompt ? "Submitting…" : "Submit prompt";
+  }
+
   function renderChoices(election) {
     const choices = Array.isArray(election.choices) ? election.choices : [];
     const ownChoice = election.myVote?.choiceId || null;
@@ -420,14 +432,17 @@
 
   async function refresh() {
     if (!authorization || !isVisible) return;
+    const requestEpoch = identityEpoch;
     stopPolling();
     abortController = new AbortController();
     clearError();
     try {
       const channelId = authorization.channelId;
       if (!channelId) throw new Error("Twitch did not provide a channel context.");
-      const result = await api(`/channels/${encodeURIComponent(channelId)}/timeline`, {});
+      const result = await api("/extension/state", {});
+      if (requestEpoch !== identityEpoch) return;
       renderSubscriberNotice(result.subscriberInterrupts || result.channel?.subscriberInterrupts);
+      renderPromptForm(result.canSubmitPrompts === true);
       void loadTurbo();
       const election = result.activeElection || result.election ||
         (Array.isArray(result.elections) ? result.elections.find((item) => item?.state === "open") : null);
@@ -439,6 +454,7 @@
       }
       pollTimer = window.setTimeout(refresh, POLL_MS);
     } catch (error) {
+      if (requestEpoch !== identityEpoch) return;
       if (error.name === "AbortError") return;
       nodes.status.hidden = false;
       message(nodes.status, "The vote is temporarily unavailable. Your channel is still playing its current scene.");
@@ -457,6 +473,7 @@
       setError("Link your Twitch identity before voting.");
       return;
     }
+    const requestEpoch = identityEpoch;
     isSubmitting = true;
     nodes.submit.disabled = true;
     clearError();
@@ -465,17 +482,54 @@
         method: "POST",
         body: JSON.stringify({ choiceId: selectedChoiceId }),
       });
+      if (requestEpoch !== identityEpoch) return;
       nodes.submit.textContent = "Vote saved";
       await refresh();
     } catch (error) {
+      if (requestEpoch !== identityEpoch) return;
       setError(error.status === 401 || error.status === 403
         ? "Twitch could not verify your linked identity. Reconnect and try again."
         : error.status === 409
           ? "This round closed before your vote arrived."
           : error.message || "Your vote was not saved.");
     } finally {
-      isSubmitting = false;
-      if (currentElection) renderChoices(currentElection);
+      if (requestEpoch === identityEpoch) {
+        isSubmitting = false;
+        if (currentElection) renderChoices(currentElection);
+      }
+    }
+  }
+
+  async function submitPrompt() {
+    if (!authorization || !linkedIdentity(authorization) || isSubmittingPrompt) return;
+    const prompt = nodes.promptInput.value.trim();
+    if (!prompt) return;
+    const requestEpoch = identityEpoch;
+    const currentAuthorization = authorization;
+    isSubmittingPrompt = true;
+    clearError();
+    renderPromptForm(true);
+    try {
+      const response = await fetch(`${API}/channels/${encodeURIComponent(currentAuthorization.channelId)}/proposals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-extension-jwt": currentAuthorization.token },
+        body: JSON.stringify({ prompt, planningMode: "continuation" }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (requestEpoch !== identityEpoch) return;
+      if (!response.ok) throw new Error(result.message || result.error || "Prompt could not be submitted.");
+      nodes.promptInput.value = "";
+      nodes.note.textContent = result.state === "pending"
+        ? "Prompt submitted for review. It will join the vote after approval."
+        : "Prompt entered the open vote. Cast your ballot below.";
+      await refresh();
+    } catch (error) {
+      if (requestEpoch === identityEpoch) setError(error.message || "Prompt could not be submitted.");
+    } finally {
+      if (requestEpoch === identityEpoch) {
+        isSubmittingPrompt = false;
+        renderPromptForm(nodes.promptForm.hidden === false);
+      }
     }
   }
 
@@ -491,6 +545,10 @@
         authorizedIdentity = nextIdentity;
         identityEpoch += 1;
         resetBitsForIdentityChange();
+        isSubmitting = false;
+        isSubmittingPrompt = false;
+        nodes.promptInput.value = "";
+        renderPromptForm(false);
         currentElection = null;
         selectedChoiceId = null;
         nodes.ballot.hidden = true;
@@ -559,6 +617,8 @@
   }
 
   nodes.submit.addEventListener("click", submitVote);
+  nodes.promptInput.addEventListener("input", () => renderPromptForm(nodes.promptForm.hidden === false));
+  nodes.promptSubmit.addEventListener("click", submitPrompt);
   nodes.turboLink.addEventListener("click", () => {
     try { window.Twitch?.ext?.actions?.requestIdShare(); setTurboStatus("Confirm Twitch identity sharing, then return to use Bits."); }
     catch { setError("Twitch identity linking is not available right now."); }

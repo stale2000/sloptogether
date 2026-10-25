@@ -33,6 +33,13 @@
         <button id="submit-vote" class="primary" type="button" disabled>Cast vote</button>
         <p id="vote-note" class="note">Votes are free. Chat and this Extension share one vote per linked Twitch account.</p>
       </section>
+      <section id="prompt-form" class="prompt-form" aria-label="Submit a scene prompt" hidden>
+        <h2>Suggest the next scene</h2>
+        <label for="prompt-input">Prompt idea</label>
+        <textarea id="prompt-input" maxlength="1000" rows="3" placeholder="Describe one clear 15-second scene." aria-describedby="prompt-help"></textarea>
+        <p id="prompt-help" class="helper">Prompts are screened before review or voting.</p>
+        <button id="submit-prompt" class="secondary" type="button" disabled>Submit prompt</button>
+      </section>
       <section id="subscriber-card" class="subscriber-card" aria-label="Subscriber scene update" hidden></section>
       <section id="empty" class="empty" hidden><span aria-hidden="true">✦</span><p>Nothing to vote on yet.</p><small>Check back when this channel opens a new scene round.</small></section>
       <button id="link-account" class="secondary" type="button" hidden>Link Twitch account to vote</button>

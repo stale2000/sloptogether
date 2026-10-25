@@ -17,6 +17,12 @@ button { font: inherit; }
 h1 { margin: 0; font-size: 17px; font-weight: 740; letter-spacing: -.025em; }
 .status { margin: 17px 0 0; color: #c3c4c9; font-size: 13px; }
 .ballot { margin-top: 17px; }
+.prompt-form { margin-top: 17px; padding: 12px; border: 1px solid #373940; border-radius: 10px; background: #17181d; }
+.prompt-form label { display: block; margin: 9px 0 5px; color: #d9dadd; font-size: 11px; font-weight: 650; }
+.prompt-form textarea { display: block; width: 100%; min-height: 70px; resize: vertical; padding: 9px; border: 1px solid #444750; border-radius: 8px; background: #101114; color: #f3f2ef; font: inherit; font-size: 11px; line-height: 1.45; }
+.prompt-form textarea:focus-visible { outline: 2px solid #b9f36b; outline-offset: 2px; }
+.prompt-form .helper { margin: 6px 0 0; }
+.prompt-form .secondary { margin-top: 8px; }
 h2 { margin: 0; font-size: 15px; font-weight: 700; }
 .turbo { margin-top: 17px; padding: 12px; border: 1px solid #66543a; border-radius: 10px; background: #211d17; }
 .turbo .helper { margin-bottom: 8px; }
