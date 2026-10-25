@@ -6,7 +6,7 @@ Updated October 24, 2026, America/Los_Angeles. This is the current execution pla
 
 Deliver the public multi-channel Twitch application at `clips.gg/sloptogether`, with a browser program suitable for OBS capture, genuine background generation/upscale workers, moderation and user participation. Preserve all existing Clips.gg data/features. The four-clip local program is retained as a useful smoke fixture.
 
-Current baseline: four published local clips / approximately 60 seconds; no deployed SlopTogether Fal apps; zero GPU runners; local Postgres/S3; production schema created but not connected; public route 404; Twitch login unconfigured. The exposed scoped DB password has been rotated; its replacement is not yet in a production secret manager.
+Current production baseline (checked October 24): `https://www.clips.gg/sloptogether` and its API are live; production health reports database, R2 configuration, and OpenAI preflight configured. Playback, moderation, and Extension panel/config routes return 200. The Twitch Extension is registered as version `0.0.1` in Local Test and its testing asset base now points to `https://www.clips.gg/sloptogether/extension/`; Bits support remains off. The public channel list is empty, Twitch OAuth is off, Comfy generation is off, and no SlopTogether Fal app or GPU runner exists. The four-clip stream is still a fixture. R2 credentials and the moderation key were added to Vercel and redeployed, but a real channel upload/render path has not been exercised. The scoped database credential replacement remains stored in Vercel secrets; do not copy it into source control.
 
 ## Continuous stream contract
 

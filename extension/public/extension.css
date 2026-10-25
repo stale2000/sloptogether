@@ -56,7 +56,7 @@ h2 { margin: 0; font-size: 14px; font-weight: 700; }
 .turbo { margin-top: 13px; padding: 10px; border: 1px solid var(--line); border-left: 3px solid var(--purple); border-radius: 4px; background: var(--surface); }
 .turbo .helper { margin-bottom: 7px; }
 .turbo-products { display: grid; gap: 6px; }
-.turbo-product { display: flex; min-height: 40px; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 4px; background: var(--field); text-align: left; cursor: pointer; }
+.turbo-product { display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 4px; background: var(--field); text-align: left; cursor: pointer; }
 .turbo-product:disabled { opacity: .58; cursor: not-allowed; }
 .turbo-product span { font-size: 11px; font-weight: 700; }
 .turbo-product small { color: var(--soft); font-size: 10px; white-space: nowrap; }
@@ -64,18 +64,18 @@ h2 { margin: 0; font-size: 14px; font-weight: 700; }
 .helper,.note { color: var(--soft); font-size: 10px; line-height: 1.45; }
 .helper { margin: 6px 0 9px; }
 .choices { display: grid; gap: 6px; }
-.choice { display: flex; width: 100%; min-height: 40px; align-items: center; gap: 8px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); text-align: left; cursor: pointer; }
+.choice { display: flex; width: 100%; min-height: 44px; align-items: center; gap: 8px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); text-align: left; cursor: pointer; }
 .choice:hover { border-color: var(--purple); }
 .choice[aria-pressed="true"] { border-color: var(--purple); box-shadow: inset 3px 0 var(--purple); }
 .choice-title { min-width: 0; flex: 1; font-size: 11px; line-height: 1.35; }
 .choice-count { color: var(--soft); font-size: 9px; white-space: nowrap; }
 .choice-radio { display: grid; width: 14px; height: 14px; flex: 0 0 auto; place-items: center; border: 1px solid var(--dim); border-radius: 50%; }
 .choice[aria-pressed="true"] .choice-radio { border-color: var(--purple); background: var(--purple); box-shadow: inset 0 0 0 3px var(--surface); }
-.primary,.secondary,.prompt-toggle { min-height: 38px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 4px; font-size: 11px; font-weight: 700; cursor: pointer; }
+.primary,.secondary,.prompt-toggle { min-height: 44px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 4px; font-size: 11px; font-weight: 700; cursor: pointer; }
 .primary { width: 100%; margin-top: 9px; border-color: var(--purple-action); background: var(--purple-action); color: #fff; }
 .primary:hover:not(:disabled) { background: var(--purple-hover); }
 .primary:disabled { opacity: .55; cursor: not-allowed; }
-.primary-link { display: block; min-height: 38px; margin-top: 12px; padding: 10px 11px; border: 1px solid var(--purple-action); border-radius: 4px; background: var(--purple-action); color: #fff; font-size: 11px; font-weight: 700; text-align: center; }
+.primary-link { display: block; min-height: 44px; margin-top: 12px; padding: 12px 11px; border: 1px solid var(--purple-action); border-radius: 4px; background: var(--purple-action); color: #fff; font-size: 11px; font-weight: 700; text-align: center; }
 .primary-link:hover { background: var(--purple-hover); }
 .secondary,.prompt-toggle { background: transparent; color: var(--purple); }
 .secondary { width: 100%; margin-top: 9px; }
