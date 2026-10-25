@@ -3,7 +3,7 @@ import "server-only";
 import { createHash,randomInt,randomUUID } from "node:crypto";
 import { z } from "zod";
 import { compileH3StoryPrompt,h3StoryPromptPlanSchema } from "@sloptogether/contracts";
-import { findChannel,requireStreamerController } from "./channels";
+import { findChannel,requireChannelModerator } from "./channels";
 import { transaction,query } from "./db";
 import { ApiError,assertSameOrigin,readJson } from "./http";
 import { requestPrincipal } from "./principals";
@@ -87,14 +87,14 @@ function providerJob(payload:Record<string,unknown>):ComfyJob|null{
   return z.string().uuid().safeParse(job.id).success&&typeof job.status==="string"?job:null;
 }
 
-async function comfyOwner(channel:Awaited<ReturnType<typeof findChannel>>,request:Request){
+async function comfyOperator(channel:Awaited<ReturnType<typeof findChannel>>,request:Request){
   const principal=await requestPrincipal(request);
-  if(!principal||principal.kind!=="session")throw new ApiError(401,"login_required","Sign in as the channel owner to use Comfy Cloud credits.");
-  return requireStreamerController(channel,principal);
+  if(!principal||principal.kind!=="session")throw new ApiError(401,"login_required","Sign in as the streamer or a Twitch moderator to use Comfy Cloud credits.");
+  return requireChannelModerator(channel,principal);
 }
 
 async function ownedGeneration(locator:string,id:string,request:Request){
-  const channel=await findChannel(locator);const actor=await comfyOwner(channel,request);
+  const channel=await findChannel(locator);const actor=await comfyOperator(channel,request);
   comfyApiKey();
   const row=await query<ComfyFrameRow>(`SELECT id,request_id,twitch_channel_id,requested_by,prompt,prompt_sha256,generation_kind,generated_text,state,provider_job_id,output_asset_id,error_code,created_at,updated_at
     FROM sloptogether.comfy_frame_generations WHERE id=$1 AND twitch_channel_id=$2 AND requested_by=$3`,[id,channel.twitch_channel_id,actor]);
@@ -103,7 +103,7 @@ async function ownedGeneration(locator:string,id:string,request:Request){
 }
 
 async function createComfyGeneration(locator:string,request:Request,kind:ComfyKind){
-  assertSameOrigin(request);const channel=await findChannel(locator);const actor=await comfyOwner(channel,request);
+  assertSameOrigin(request);const channel=await findChannel(locator);const actor=await comfyOperator(channel,request);
   const body=await readJson(request,requestSchema);const key=comfyKey(channel.twitch_channel_id,kind);
   const workflowVersion=kind==="frame"?COMFY_FRAME_WORKFLOW_VERSION:COMFY_PROMPT_WORKFLOW_VERSION;
   const prompt=body.prompt.trim();const promptSha=createHash("sha256").update(prompt).digest();
@@ -124,7 +124,7 @@ async function createComfyGeneration(locator:string,request:Request,kind:ComfyKi
     if(Number(accountRecent.rows[0]?.count??0)>=5)throw new ApiError(429,"comfy_frame_account_rate_limited","The Comfy Cloud account has reached its frame-generation limit for this hour.");
     const recent=await client.query<{count:string}>(`SELECT count(*)::text AS count FROM sloptogether.comfy_frame_generations
       WHERE twitch_channel_id=$1 AND requested_by=$2 AND created_at>now()-interval '1 hour'`,[channel.twitch_channel_id,actor]);
-    if(Number(recent.rows[0]?.count??0)>=3)throw new ApiError(429,"comfy_frame_rate_limited","This channel owner has reached the Comfy Cloud frame-generation limit for this hour.");
+    if(Number(recent.rows[0]?.count??0)>=3)throw new ApiError(429,"comfy_frame_rate_limited","This operator has reached the Comfy Cloud frame-generation limit for this hour.");
     const id=randomUUID();
     const inserted=await client.query<ComfyFrameRow>(`INSERT INTO sloptogether.comfy_frame_generations
       (id,request_id,twitch_channel_id,requested_by,prompt,prompt_sha256,generation_kind,workflow_version,state)
@@ -171,7 +171,7 @@ function publicState(row:ComfyFrameRow){
 }
 
 export async function listComfyGenerations(locator:string,request:Request){
-  const channel=await findChannel(locator);const actor=await comfyOwner(channel,request);
+  const channel=await findChannel(locator);const actor=await comfyOperator(channel,request);
   const rows=await query<ComfyFrameRow>(`SELECT id,request_id,twitch_channel_id,requested_by,prompt,prompt_sha256,generation_kind,generated_text,state,provider_job_id,output_asset_id,error_code,created_at,updated_at
     FROM sloptogether.comfy_frame_generations WHERE twitch_channel_id=$1 AND requested_by=$2
     ORDER BY created_at DESC LIMIT 10`,[channel.twitch_channel_id,actor]);

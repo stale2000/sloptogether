@@ -2,11 +2,11 @@ import { createHash } from "node:crypto";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 import { compileH3StoryPrompt } from "@sloptogether/contracts";
 
-const mocks=vi.hoisted(()=>({transaction:vi.fn(),query:vi.fn(),requestPrincipal:vi.fn(),findChannel:vi.fn(),requireStreamerController:vi.fn(),screenPromptAndImages:vi.fn()}));
+const mocks=vi.hoisted(()=>({transaction:vi.fn(),query:vi.fn(),requestPrincipal:vi.fn(),findChannel:vi.fn(),requireChannelModerator:vi.fn(),screenPromptAndImages:vi.fn()}));
 vi.mock("server-only",()=>({}));
 vi.mock("./db",()=>({transaction:mocks.transaction,query:mocks.query}));
 vi.mock("./principals",()=>({requestPrincipal:mocks.requestPrincipal}));
-vi.mock("./channels",()=>({findChannel:mocks.findChannel,requireStreamerController:mocks.requireStreamerController}));
+vi.mock("./channels",()=>({findChannel:mocks.findChannel,requireChannelModerator:mocks.requireChannelModerator}));
 vi.mock("./preflight",()=>({screenPromptAndImages:mocks.screenPromptAndImages}));
 
 import { cancelComfyGeneration,createComfyFrameGeneration,createComfyPromptGeneration,getComfyFrameGenerationImage,getComfyGeneration,getComfyPromptGenerationText } from "./comfy-frame-service";
@@ -49,12 +49,33 @@ beforeEach(()=>{
   vi.stubEnv("SLOPTOGETHER_OPENAI_MODERATION_KEY","test-moderation-key");
   mocks.requestPrincipal.mockReturnValue(principal);
   mocks.findChannel.mockResolvedValue(channel);
-  mocks.requireStreamerController.mockResolvedValue(ownerId);
+  mocks.requireChannelModerator.mockResolvedValue(ownerId);
   mocks.screenPromptAndImages.mockResolvedValue({decision:"clear"});
 });
 afterEach(()=>{vi.unstubAllEnvs();vi.unstubAllGlobals();});
 
 describe("Comfy Cloud start-frame generation",()=>{
+  it("allows a verified moderator session to manually request a frame",async()=>{
+    const moderatorId="789";mocks.requestPrincipal.mockReturnValue({kind:"session",session:{twitchUserId:moderatorId}});
+    mocks.requireChannelModerator.mockResolvedValue(moderatorId);
+    const {db}=client();mocks.transaction.mockImplementation(async(work:(client:typeof db)=>Promise<unknown>)=>work(db));
+    const fetch=vi.fn().mockResolvedValue(new Response(JSON.stringify({id:providerId,status:"queued",outputs:[]}),{status:201}));
+    vi.stubGlobal("fetch",fetch);
+    await expect(createComfyFrameGeneration("localdemo",request({requestId,prompt}))).resolves.toMatchObject({kind:"frame",state:"queued"});
+    expect(mocks.requireChannelModerator).toHaveBeenCalledWith(channel,{kind:"session",session:{twitchUserId:moderatorId}});
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let extension or worker credentials generate frames automatically",async()=>{
+    const fetch=vi.fn();vi.stubGlobal("fetch",fetch);
+    for(const principal of [{kind:"extension",extension:{channelId:"123",role:"broadcaster"}},{kind:"worker-key",worker:{channelId:"123",scopes:["worker:generation"]}}]){
+      mocks.requestPrincipal.mockReturnValue(principal);
+      await expect(createComfyFrameGeneration("localdemo",request({requestId,prompt}))).rejects.toMatchObject({status:401,code:"login_required"});
+    }
+    expect(mocks.requireChannelModerator).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("submits one fixed, cropped H3-sized workflow after prompt screening",async()=>{
     vi.stubEnv("SLOPTOGETHER_COMFY_API_KEY","");
     vi.stubEnv("COMFY_API_KEY","test-comfy-api-key-with-enough-length");
@@ -215,7 +236,7 @@ describe("Comfy Cloud start-frame generation",()=>{
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("does not let headless workers spend the channel owner's Comfy credits",async()=>{
+  it("does not let headless workers initiate Comfy generation",async()=>{
     mocks.requestPrincipal.mockReturnValue({kind:"worker-key"});
     const fetch=vi.fn();vi.stubGlobal("fetch",fetch);
     await expect(createComfyFrameGeneration("localdemo",request({requestId,prompt})))

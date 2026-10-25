@@ -50,7 +50,7 @@ export function ChannelWorkspace({ channelSlug }: { channelSlug: string }) {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [endImageFile,setEndImageFile]=useState<File|null>(null);
   const [promptText,setPromptText]=useState("");
-  const [channelOwner,setChannelOwner]=useState(false);
+  const [canUseComfyTools,setCanUseComfyTools]=useState(false);
   const [comfyFrameEnabled,setComfyFrameEnabled]=useState(false);
   const [comfyPromptEnabled,setComfyPromptEnabled]=useState(false);
   const [comfyGenerations,setComfyGenerations]=useState<ComfyGeneration[]>([]);
@@ -70,19 +70,19 @@ export function ChannelWorkspace({ channelSlug }: { channelSlug: string }) {
   useEffect(()=>{
     if(!channelId)return;
     let active=true;
-    setChannelOwner(false);setComfyFrameEnabled(false);setComfyPromptEnabled(false);
+    setCanUseComfyTools(false);setComfyFrameEnabled(false);setComfyPromptEnabled(false);
     void apiFetch<SessionSummary>("/auth/session").then(async session=>{
       if(!active)return;
-      const owner=Boolean(session.channels?.some(item=>item.twitchChannelId===channelId&&item.role==="broadcaster"));
-      setChannelOwner(owner);
-      if(!owner)return;
+      const authorized=Boolean(session.channels?.some(item=>item.twitchChannelId===channelId&&(item.role==="broadcaster"||item.role==="moderator")));
+      setCanUseComfyTools(authorized);
+      if(!authorized)return;
       const comfy=await apiFetch<{available:{frame:boolean;prompt:boolean};generations:ComfyGeneration[]}>(`/channels/${encodeURIComponent(channelSlug)}/comfy-generations`);
       if(!active)return;
       setComfyFrameEnabled(comfy.available.frame);setComfyPromptEnabled(comfy.available.prompt);
       setComfyGenerations(comfy.generations);
       const pending=comfy.generations.find(item=>["submitting","queued","running"].includes(item.state));
       if(pending)setActiveComfyId(pending.id);
-    }).catch(()=>{if(active){setChannelOwner(false);setComfyFrameEnabled(false);setComfyPromptEnabled(false);}});
+    }).catch(()=>{if(active){setCanUseComfyTools(false);setComfyFrameEnabled(false);setComfyPromptEnabled(false);}});
     return()=>{active=false};
   },[channelId,channelSlug]);
 
@@ -118,7 +118,7 @@ export function ChannelWorkspace({ channelSlug }: { channelSlug: string }) {
 
   const generateComfyGeneration=async(kind:"frame"|"prompt")=>{
     if(!promptText.trim()){setComfyError("Add a scene prompt before generating a frame.");return;}
-    if(!window.confirm(`This sends the prompt to Comfy Cloud and uses the channel owner's credits for one ${kind==="frame"?"image":"prompt"} generation. Continue?`))return;
+    if(!window.confirm(`This sends the prompt to Comfy Cloud and uses Comfy Cloud credits for one ${kind==="frame"?"image":"prompt"} generation. Continue?`))return;
     setComfyBusy(true);setComfyError(null);setComfyNote(null);
     try{
       const route=kind==="frame"?"comfy-frame-generations":"comfy-prompt-generations";
@@ -311,9 +311,9 @@ export function ChannelWorkspace({ channelSlug }: { channelSlug: string }) {
                 </select>
                 <label className="file-input-row" htmlFor="proposal-frame"><span className="file-icon">＋</span><span><b>{imageFile?.name ?? "Add a start frame"}</b><small>Optional · PNG, JPEG or WebP · up to 16 MB</small></span></label>
                 <input id="proposal-frame" type="file" className="visually-hidden" accept="image/png,image/jpeg,image/webp" onChange={(event) => setImageFile(event.currentTarget.files?.[0] ?? null)} />
-                {channelOwner?<div className="comfy-frame-tool">
+                {canUseComfyTools?<div className="comfy-frame-tool">
                   <SectionLabel>OPTIONAL COMFY CLOUD TOOLS</SectionLabel>
-                  {comfyPromptEnabled?<><p className="panel-copy">Generate an H3 scene prompt with the channel owner&apos;s Comfy credits.</p><button className="button secondary full-button" type="button" onClick={()=>void generateComfyGeneration("prompt")} disabled={comfySubmitBlocked}>{activeComfyJob?.kind==="prompt"?"Writing H3 prompt…":"Generate H3 prompt with Comfy Cloud"}</button></>:null}
+                  {comfyPromptEnabled?<><p className="panel-copy">Generate an H3 scene prompt with Comfy Cloud credits.</p><button className="button secondary full-button" type="button" onClick={()=>void generateComfyGeneration("prompt")} disabled={comfySubmitBlocked}>{activeComfyJob?.kind==="prompt"?"Writing H3 prompt…":"Generate H3 prompt with Comfy Cloud"}</button></>:null}
                   {comfyFrameEnabled?<><p className="panel-copy">Generate a 448×256 start frame. Each request uses Comfy credits and requires confirmation.</p><button className="button secondary full-button" type="button" onClick={()=>void generateComfyGeneration("frame")} disabled={comfySubmitBlocked}>{activeComfyJob?.kind==="frame"?"Generating start frame…":"Generate start frame with Comfy Cloud"}</button></>:null}
                   {!comfyPromptEnabled&&!comfyFrameEnabled?<p className="fine-print">Comfy Cloud generation is disabled for this deployment.</p>:null}
                   {activeComfyId?<button className="text-link" type="button" onClick={()=>void cancelComfyGeneration(activeComfyId)}>Cancel Comfy Cloud job</button>:null}
