@@ -10,7 +10,7 @@ import { requestPrincipal } from "./principals";
 import { screenPromptAndImages } from "./preflight";
 
 const COMFY_ORIGIN="https://cloud.comfy.org";
-const COMFY_FRAME_WORKFLOW_VERSION="openai-gpt-image-1.5-center-crop-448x256-v2";
+const COMFY_FRAME_WORKFLOW_VERSION="openai-gpt-image-2.5-flare-848x480-center-crop-448x256-v3";
 const COMFY_PROMPT_WORKFLOW_VERSION="openai-chat-gpt-4.1-nano-h3-prompt-v1";
 const COMFY_IMAGE_NODE="28";
 const COMFY_PROMPT_NODE="19";
@@ -52,8 +52,9 @@ function workflow(prompt:string,kind:ComfyKind){
     };
   }
   return {
-    "25":{class_type:"OpenAIGPTImageNodeV2",_meta:{title:"OpenAI GPT Image 1.5"},inputs:{
-      prompt,model:"gpt-image-1.5","model.size":"1536x1024","model.quality":"low","model.background":"opaque",n:1,seed:randomInt(0,2**31),
+    "25":{class_type:"OpenAIGPTImageNodeV2",_meta:{title:"OpenAI GPT Image 2.5 Flare · 848×480"},inputs:{
+      prompt,model:"gpt-image-2.5-flare","model.size":"Custom","model.custom_width":848,"model.custom_height":480,
+      "model.quality":"low","model.background":"opaque",n:1,seed:randomInt(0,2**31),
     }},
     "26":{class_type:"ImageScale",_meta:{title:"Fit start frame to TrimH3"},inputs:{image:["25",0],upscale_method:"lanczos",width:448,height:256,crop:"center"}},
     "28":{class_type:"SaveImage",_meta:{title:"Generated start frame"},inputs:{filename_prefix:"sloptogether/start-frame",images:["26",0]}},
