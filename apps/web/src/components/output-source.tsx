@@ -31,6 +31,7 @@ export function OutputSource({ channel }: { channel: string }) {
 
   const tryClaimOutput = useCallback(async () => {
     setError(null);
+    if (isLocalDemoFallbackEnabled(channel)) return;
     try {
       const session=await apiFetch<SessionSummary>("/auth/session");
       const canControl=session.authenticated&&session.channels?.some(item=>item.login.toLowerCase()===channel.toLowerCase());
@@ -92,10 +93,10 @@ export function OutputSource({ channel }: { channel: string }) {
   }, [controller, reportPosition]);
 
   useEffect(()=>{
-    if(!hasStarted||controller?.canControl)return;
+    if(!hasStarted||controller?.canControl||isLocalDemoFallbackEnabled(channel))return;
     const id=window.setInterval(()=>void tryClaimOutput(),10_000);
     return()=>window.clearInterval(id);
-  },[controller?.canControl,hasStarted,tryClaimOutput]);
+  },[channel,controller?.canControl,hasStarted,tryClaimOutput]);
 
   const current = data.state === "ready" ? data.value.currentProgramItem : null;
   const programSpans=program.state==="ready"?program.value.programSpans:[];
