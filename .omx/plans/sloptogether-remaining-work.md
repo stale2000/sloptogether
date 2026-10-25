@@ -1,15 +1,17 @@
 # SlopTogether remaining work
 
-Reviewed October 24, 2026 against the current `main` checkout and live Clips.gg deployment. This is the prioritized execution view; the [completion plan](sloptogether-completion-plan.md) retains the full acceptance contract.
+Updated October 25, 2026 against the current `main` checkout and live Clips.gg deployment. This is the prioritized execution view; the [completion plan](sloptogether-completion-plan.md) retains the full acceptance contract.
 
 ## Current evidence
 
 - **Live playback smoke works:** `https://clips.gg/sloptogether/channels/localdemo/output` redirects to `www.clips.gg`. The live page serves four HLS spans (60.333 seconds total); browser checks passed for starting playback, jumping to clips 2–4, seeking, and center-click pause/resume. See the static fallback in [channel-data.ts](../../apps/web/src/components/channel-data.ts#L43-L55) and the playback controls in [output-source.tsx](../../apps/web/src/components/output-source.tsx#L101-L120).
 - **Production health:** database, Cloudflare R2 configuration, moderation key, and Twitch OAuth credentials are reported configured. Comfy prompt/frame generation is off. The health endpoint checks configuration presence; it is not evidence of a real upload, moderation request, or authenticated Twitch session. See [env.ts](../../apps/web/src/lib/server/env.ts#L21-L53).
-- **No real channel:** `GET /api/v1/channels` returns zero channels; `/api/v1/channels/localdemo/program` returns 404. The public demo comes from static JSON/HLS files, not a database channel or worker output.
-- **Twitch is configured but unaccepted by a user:** the OAuth app and Extension are registered, and OAuth start reaches Twitch with the production callback. The user explicitly skipped the Twitch consent test. No actual account session, channel creation, moderator role, Extension JWT, chat ballot, or EventSub delivery has been verified. Channel creation and worker-key issuance require an authenticated broadcaster session: [channel-service.ts](../../apps/web/src/lib/server/channel-service.ts#L62-L78) and [channel-service.ts](../../apps/web/src/lib/server/channel-service.ts#L375-L396).
+- **Production channel exists:** the broadcaster completed Twitch OAuth and created channel `stale2000`. Its live output is `https://www.clips.gg/sloptogether/channels/stale2000/output` and currently waits for the first approved scene. The static `localdemo` remains a separate playback-only fixture.
+- **First-scene submission is reachable:** `/sloptogether/channels/stale2000/participate` now exposes the existing prompt and frame workflow without adding controls to the clean output page. The live frame upload and proposal submission are not yet complete; a local start frame still needs to be selected in the browser.
+- **Twitch features remain unqualified:** OAuth/channel creation were verified, but no moderator-role matrix, Extension JWT/vote, chat ballot or EventSub delivery has been tested. Channel creation and worker-key issuance require an authenticated broadcaster session: [channel-service.ts](../../apps/web/src/lib/server/channel-service.ts#L62-L78) and [channel-service.ts](../../apps/web/src/lib/server/channel-service.ts#L375-L396).
 - **Storage is configured but unqualified:** health reports `cloudflare_r2`, and the private bucket/upload gateway are present. No real signed object upload → validation → HLS publication → range read has been exercised; the media publisher is a separate process with its own runtime requirements: [workers/media-publisher/README.md](../../workers/media-publisher/README.md#L9-L18).
-- **Fal workers are not deployed:** current Fal inventory has no SlopTogether apps and the Fal secret store is empty. Generation/upscale contexts exist only under `/tmp/sloptogether-fal-apps-20261024`; no SlopTogether GPU was started. The app definitions use `GPU-RTXPRO6000`, `min_concurrency=0`, `max_concurrency=1`, and role-specific keys: [prepare_fal_apps.py](../../workers/runtime/fal/prepare_fal_apps.py#L22-L38), [set_worker_secrets.py](../../workers/runtime/fal/set_worker_secrets.py#L14-L42). The controller caps a session at eight hours: [fal_session.py](../../workers/runtime/src/sloptogether_worker/fal_session.py#L19-L20) and [fal_session.py](../../workers/runtime/src/sloptogether_worker/fal_session.py#L140-L157).
+- **Fal apps are deployed; inference is not qualified:** private `sloptogether-h3-generation` and `sloptogether-h3-upscale` apps are deployed with `GPU-RTXPRO6000`, `min_concurrency=0`, `max_concurrency=1`, `keep_alive=60`, and role-scoped keys in Fal Secrets. Deployment validation briefly started a generation runner and left an upscaler runner pending; both were stopped, and no generation/upscale job ran. The deployment definitions are in [prepare_fal_apps.py](../../workers/runtime/fal/prepare_fal_apps.py#L22-L38). The supervisor has an eight-hour hard ceiling, but the live test should wake only the role needed for an already queued job and stop it after completion; do not keep both GPUs warm for the full session.
+- **Credential rotation is a prerequisite for live inference:** the previous diagnostic output exposed local provider credentials and a generation worker key. The user has been asked to rotate them and replace the matching Fal secret before allowing workers to claim production jobs. Do not print credential-bearing process environments or expose one-time keys in accessibility output.
 - **Hardware/release evidence is missing:** no actual Windows/WSL2 RTX 4090 generation or upscale run, signed installer, custom Fal inference, or sustained stream run exists. The WSL profile currently has a 128 GiB system-RAM gate and is not hardware qualified: [workers/runtime/README.md](../../workers/runtime/README.md#L12-L35).
 
 ## Priority order
@@ -22,13 +24,12 @@ Reviewed October 24, 2026 against the current `main` checkout and live Clips.gg 
 
 **Acceptance:** the live smoke route passes after each deployment, the database-backed channel list remains truthful, and the demo moderator route clearly says it has no review queue.
 
-### P1 — Bootstrap a real Twitch channel (deferred)
+### Complete — Bootstrap a real Twitch channel
 
-1. The next required action is a Twitch account consent/login using `openid user:read:moderated_channels`; the user explicitly declined this test for now. Do not initiate it until the user opts in.
-2. After consent, verify state-cookie/callback/session handling, create the broadcaster's channel through the API, and set an initial contribution mode, review policy, owner budget and trusted-worker grants.
-3. Issue separate generation, upscale, and owner story-producer keys through the authenticated channel control flow. Never mint a production key by direct database edits or reuse the Twitch OAuth/Extension signing secrets.
+1. Twitch consent completed; the broadcaster channel was created through the production control room.
+2. Separate generation and upscale worker keys were issued through the channel control flow and stored in the corresponding Fal secret entries. Rotate the exposed generation key and replace its Fal secret before worker authentication is used.
 
-**Acceptance:** one real channel appears in the public list; its broadcaster session can read settings, create scoped keys, and revoke them. No Twitch broadcast is needed for these checks.
+**Acceptance achieved:** the live channel output and control room resolve for `stale2000`; no Twitch broadcast was started.
 
 ### P1 — Qualify the production data path
 
@@ -40,10 +41,11 @@ Reviewed October 24, 2026 against the current `main` checkout and live Clips.gg 
 
 ### P1 — Deploy and qualify the two Fal workers
 
-1. Only after the R2/media path and channel-scoped keys work, regenerate build contexts into a durable, reviewed location from the committed source; `/tmp` contexts are disposable.
-2. Store the generation and upscale keys only in the matching private Fal apps, with exact API URL and upload-host allowlist. Keep zero minimum concurrency and one runner maximum.
-3. Start the eight-hour session controller before waking GPUs. Run one FastH3 job end-to-end, then one SoL upscale on that accepted base clip. Verify leases, recipe, input/output hashes, audio, dimensions, moderation, approval, R2/HLS output, status, and that active Fal runners return to zero after shutdown.
-4. Resolve the target-GPU mismatch before calling the requested 4090 supported: the prepared generation app pins `GPU-RTXPRO6000`/SM120. Measure a 4090-compatible profile on actual 24 GB hardware, including the current 128 GiB host-RAM gate, VRAM peaks, latency and quality. Do not claim hardware support based on a different GPU.
+1. The private generation and upscale apps are deployed from contexts staged under `/tmp/sloptogether-fal-apps-20261025`. Regenerate them from committed source for a durable release; `/tmp` contexts are disposable.
+2. Rotate the exposed generation worker key and update only `SLOPTOGETHER_WORKER_KEY_GENERATION` in Fal Secrets. The separate upscale key is stored as `SLOPTOGETHER_WORKER_KEY_UPSCALE`.
+3. After the first-scene proposal resolves to a ready job, wake only the generation app, run the job, then let it scale down. Wake the upscale app only if an accepted base clip has an upscale job. Keep `min_concurrency=0`, `max_concurrency=1`, and verify both apps return to zero active runners.
+4. Verify leases, recipe, input/output hashes, audio, dimensions, moderation, approval, R2/HLS output, and playback. Stop each runner promptly after its job; the eight-hour supervisor limit is a hard ceiling, not a target uptime.
+5. Resolve the target-GPU mismatch before calling the requested 4090 supported: the prepared generation app pins `GPU-RTXPRO6000`/SM120. Measure a 4090-compatible profile on actual 24 GB hardware, including the current 128 GiB host-RAM gate, VRAM peaks, latency and quality. Do not claim hardware support based on a different GPU.
 
 **Acceptance:** both private apps complete one authentic job through the normal APIs; no marketplace clip, manual normalization, fixture SQL, or direct upload stands in for the custom workers.
 
@@ -57,7 +59,7 @@ Reviewed October 24, 2026 against the current `main` checkout and live Clips.gg 
 
 ### P2 — Qualify Twitch Extension, chat, moderation and subscriptions
 
-1. The Extension currently remains in Local Test; Bits are off. After Twitch account consent, test panel authorization, linked identity, proposal submission, shared election/ballot across site/chat/Extension, moderator review, bans and revocation.
+1. The Extension currently remains in Local Test; Bits are off. Test panel authorization, linked identity, proposal submission, shared election/ballot across site/chat/Extension, moderator review, bans and revocation.
 2. Configure EventSub secrets/subscriptions and verify HMAC signature, replay deduplication, subscription/resub/gift handling and safe-boundary subscriber interruption/resume.
 3. Keep Bits disabled until Twitch approves a fixed SKU/action and pricing, transaction verification is live, and the single-attempt/reconciliation path is tested. Do not implement a paid custom-prompt lock or guaranteed vote override; keep the user-requested policy boundary in [channel-playback-and-extension-flow.md](channel-playback-and-extension-flow.md#L24-L31).
 
@@ -72,13 +74,13 @@ Reviewed October 24, 2026 against the current `main` checkout and live Clips.gg 
 
 ## Open decisions and constraints
 
-- **Explicitly deferred:** the user chose “Skip sign-in test.” OAuth app credentials are configured, but no user consent/session or first real channel exists. Do not retest without renewed user authorization.
+- **Twitch consent and channel creation completed:** the owner connected Twitch and created `stale2000`. No Extension, chat, moderator-role or EventSub behavior has been exercised yet.
 - **Bits:** Twitch-approved SKU/action, final prices/payout, and whether Bits fund an already-selected candidate or reserve a slot remain open. The custom paid prompt/guaranteed override is not an allowed design.
-- **Operating limits:** set the owner's generation/subscriber budget, target horizon and shared-compute spend cap before continuous/Fal runs. The eight-hour shutdown applies to each authorized test GPU session, not stream lifetime.
+- **Operating limits:** set the owner's generation/subscriber budget, target horizon and shared-compute spend cap before continuous runs. Wake one Fal role only when its queue has work; do not use the two-app heartbeat controller to hold both GPUs warm. The eight-hour limit is a hard shutdown ceiling for an authorized test session, not target uptime.
 - **Other policy choices:** Twitch-ban sync, vote/tie rules, Channel Points, vote weighting, GPU-contributor recognition, per-channel BYOK, auto-start, replay/quarantine retention and normal-story audio remain open; see [open-questions.md](../../docs/open-questions.md#business-or-channel-behavior-still-to-choose). Settled decisions are in [product-decisions.md](../../docs/product-decisions.md).
 - **No destructive cleanup:** use only the existing Clips.gg project and isolated `sloptogether` schema; do not delete or rewrite unrelated tables, migrations, host routes, or the uncommitted ComfyStream import work.
 
 ## Verified checks and gaps
 
-- **Passed:** live output playback/seek/pause/resume on `www.clips.gg`; current Vercel deployment is `READY`; health reports database/R2/OpenAI/Twitch OAuth configured; `npm test` 100 passed / 2 skipped, lint/typecheck/build pass; Fal worker unit set 20 passed.
-- **Not proven:** real channel OAuth consent; database-backed production channel; R2 upload/publication round trip; supervised CPU media publisher; custom Fal generation/upscale; continuous refill; real Twitch Extension/EventSub/Bits; Windows/4090; sustained-session limits.
+- **Passed:** live `stale2000` participation route and clean output route resolve; Vercel deployment for commit `1ba9169` is `READY`; web tests 101 passed / 2 skipped, lint/typecheck/build passed; Fal generation and upscale apps are deployed private with zero minimum concurrency. Deployment validation runners were stopped and no inference job was run.
+- **Not proven:** production first-frame upload/proposal, R2 upload/publication round trip, supervised CPU media publisher, custom Fal generation/upscale, continuous refill, live Twitch Extension/chat/EventSub/Bits, Windows/4090, or sustained-session limits. Rotate the exposed generation key and provider credentials before worker inference.
