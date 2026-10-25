@@ -89,6 +89,8 @@ set +a
 python3.12 scripts/upload-local-fal-smoke.py /tmp/sloptogether-fal-test/sloptogether-fal-smoke.mp4
 ```
 
+This claims and submits the existing Fal-generated MP4; it exercises the local worker API, upload, validation, approval and HLS publication path without running inference. After the publisher finishes, open `http://localhost:3000/sloptogether/channels/localworker/output` and press **Start program** to play the local HLS clip.
+
 ```sh
 FAL_KEY= npm run media-worker:local
 ```
