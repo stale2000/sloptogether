@@ -1,6 +1,6 @@
 # SlopTogether
 
-Collaborative Twitch video generation: viewers vote through a Twitch Extension or chat, the shared worker runtime renders/upscales on Linux/Fal, and the streamer captures a 16:9 browser window in ordinary OBS. A Windows client can use the Linux nodes through WSL2; that inference path remains experimental pending RTX 4090 qualification. Configurable channel keys enable trusted workers and full streamer overrides; no OBS plugin or site-to-Twitch broadcaster is required.
+Collaborative Twitch video generation: viewers submit scene prompts through the site or Twitch Extension and vote through the Extension, site, or chat. All ballots share one channel election. The shared worker runtime renders/upscales on Linux/Fal, and the streamer captures a 16:9 browser window in ordinary OBS. A Windows client can use the Linux nodes through WSL2; that inference path remains experimental pending RTX 4090 qualification. Configurable channel keys enable trusted workers and full streamer overrides; no OBS plugin or site-to-Twitch broadcaster is required.
 
 Public URL: **https://www.clips.gg/sloptogether** (the apex domain redirects to `www`).
 
@@ -59,7 +59,7 @@ SLOPTOGETHER_LOCAL_S3_DATA=/tmp/sloptogether-minio-data SLOPTOGETHER_LOCAL_S3_PO
 Start the web app in a third terminal:
 
 ```sh
-env -u FAL_KEY npm run dev
+env VERCEL_OIDC_TOKEN= FAL_KEY= NEXT_PUBLIC_LOCAL_DEMO_ENABLED=true npm run dev
 ```
 
 For an empty local database, create it and apply migrations `001` through `019` in order:
@@ -71,24 +71,22 @@ for migration in db/migrations/*.sql; do
 done
 ```
 
-The demo seed creates the local channel, main branch, first slot and playback row if absent, then writes a scoped local worker key to `/tmp/sloptogether-worker.env`:
+The demo seed creates the local test channel, main branch, first slot and playback row if absent, then writes a unique scoped worker key with mode `0600`. Use reserved local channel ID `900000002` (`localworker`) so the fixture does not collide with an existing `localdemo` channel:
 
 ```sh
 set -a
 . apps/web/.env.local
 set +a
-node scripts/seed-local-fal-demo.mjs
+VERCEL_OIDC_TOKEN= FAL_KEY= SLOPTOGETHER_LOCAL_TEST_CHANNEL_ID=900000002 node scripts/seed-local-fal-demo.mjs
 ```
 
 Upload the already generated clip through the same worker API, without starting inference, then run the media publisher in another terminal:
 
 ```sh
 set -a
-. apps/web/.env.local
-. workers/media-publisher/.env.local
-. /tmp/sloptogether-worker.env
+. /tmp/sloptogether-worker-900000002.env
 set +a
-python3.12 scripts/upload-local-fal-smoke.py
+python3.12 scripts/upload-local-fal-smoke.py /tmp/sloptogether-fal-test/sloptogether-fal-smoke.mp4
 ```
 
 ```sh
@@ -96,10 +94,12 @@ set -a
 . apps/web/.env.local
 . workers/media-publisher/.env.local
 set +a
-npm run media-worker
+FAL_KEY= npm run media-worker:local
 ```
 
 The seed expects an existing H3 MP4 and two PNG anchors under `/tmp/sloptogether-fal-test`; set `FAL_SMOKE_VIDEO`, `FAL_SMOKE_START_FRAME`, or `FAL_SMOKE_END_FRAME` when any fixture lives elsewhere. It reuses those files and never submits another generation job. Before writing, it checks the database name, Postgres backend address/port and data directory, plus the local S3 emulator marker. It rejects production mode, localhost tunnels to remote databases and non-project storage endpoints.
+
+The Windows client uses the same job protocol through WSL2; use `workers/runtime/worker.wsl.example.toml` and the packaged executable. Native Windows inference remains disabled. Worker configuration and packaging tests pass on this host, but no Windows/RTX 4090 execution or signed installer has been verified.
 
 To smoke-test the owner story producer on the local fixture without Twitch login or paid story generation, issue its local-only key and run one template-backed plan:
 

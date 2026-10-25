@@ -20,6 +20,7 @@ interface ExtensionState {
   elections:ExtensionElection[];
   activeElection:ExtensionElection|null;
   subscriberInterrupts:{enabled:boolean;current:{id:string;label:string;state:string}|null};
+  canSubmitPrompts:boolean;
 }
 interface TwitchHelper {
   onAuthorized:(callback:(auth:ExtensionAuth)=>void)=>void;
@@ -89,6 +90,7 @@ export function TwitchExtensionPanel(){
   const bitsTransactionEpoch=useRef<number|null>(null);
   const transactionCallbacks=useRef(false);
   const [busy,setBusy]=useState<string|null>(null);
+  const [promptDraft,setPromptDraft]=useState("");
   const [message,setMessage]=useState<string|null>(null);
   const [error,setError]=useState<string|null>(null);
   const active=useRef(true);
@@ -101,7 +103,7 @@ export function TwitchExtensionPanel(){
       const body=await response.json();
       if(!response.ok)throw new Error(typeof body?.message==="string"?body.message:"The channel panel could not load.");
       if(!body?.channel||typeof body.channel.displayName!=="string"||!Array.isArray(body.elections)
-        ||!body.elections.every(isElection)||(body.activeElection!==null&&!isElection(body.activeElection)))
+        ||!body.elections.every(isElection)||(body.activeElection!==null&&!isElection(body.activeElection))||typeof body.canSubmitPrompts!=="boolean")
         throw new Error("The channel returned an invalid vote response.");
       if(active.current&&requestEpoch===identityEpoch.current){setState(body as ExtensionState);setError(null)}
     }catch(problem){if(active.current&&requestEpoch===identityEpoch.current)setError(problem instanceof Error?problem.message:"The channel panel could not load.")}
@@ -146,6 +148,7 @@ export function TwitchExtensionPanel(){
         setBitsStatusVersion(version=>version+1);
         setState(null);
         setBusy(null);
+        setPromptDraft("");
         setMessage(null);
         setError(null);
       }
@@ -273,6 +276,25 @@ export function TwitchExtensionPanel(){
     }catch(problem){setError(problem instanceof Error?problem.message:"Vote could not be recorded.")}finally{setBusy(null)}
   };
 
+  const submitPrompt=async()=>{
+    const prompt=promptDraft.trim();
+    if(!auth||!linked||!state?.canSubmitPrompts||!prompt||busy!==null)return;
+    setBusy("proposal");setMessage(null);setError(null);
+    try{
+      const response=await fetch(`${API_BASE}/channels/${encodeURIComponent(auth.channelId)}/proposals`,{
+        method:"POST",
+        headers:{"Content-Type":"application/json","x-extension-jwt":auth.token},
+        body:JSON.stringify({prompt,planningMode:"continuation"}),
+      });
+      const body=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(typeof body?.message==="string"?body.message:"Prompt could not be submitted.");
+      setPromptDraft("");
+      setMessage(body.state==="pending"?"Prompt submitted for review. It will join the vote after approval.":"Prompt entered the open vote. Cast your ballot below.");
+      await load(auth);
+    }catch(problem){setError(problem instanceof Error?problem.message:"Prompt could not be submitted.")}
+    finally{setBusy(null)}
+  };
+
   const purchaseTurbo=async(product:PaidProduct)=>{
     const helper=window.Twitch?.ext;
     if(!auth||!linked||!bitsState?.enabled||!helper?.bits||!bitsState.target)return;
@@ -345,9 +367,17 @@ export function TwitchExtensionPanel(){
     <main className="extension-content">
       {error?<p role="status" className="extension-note">{error}</p>:null}
       {!auth&&!error?<p className="extension-note">Open this panel inside Twitch to connect to its channel vote.</p>:null}
-      {auth&&!linked?<p className="extension-note">Share your Twitch identity before voting. <button type="button" onClick={()=>window.Twitch?.ext?.actions?.requestIdShare()}>Link Twitch account</button></p>:null}
+      {auth&&!linked?<p className="extension-note">Share your Twitch identity before submitting prompts or voting. <button type="button" onClick={()=>window.Twitch?.ext?.actions?.requestIdShare()}>Link Twitch account</button></p>:null}
       {subscriber?<section className="extension-scene"><small>SUBSCRIBER MOMENT</small><strong>{subscriber.label}</strong><span>{subscriber.state==="playing"?"Shout-out is playing":"Shout-out is queued"}</span></section>:null}
       {bitsPending||bitsBusy?<section className="extension-votes"><small>{bitsPending?"PAID TURBO ATTEMPT":"PREPARING TURBO ATTEMPT"}</small><strong>{pendingBitsDisplay?.promptPreview??bitsTargetInFlight??"This purchase remains locked to its original scene."}</strong><small>{pendingBitsDisplay?.amountBits?`${pendingBitsDisplay.amountBits} Bits · ${pendingBitsDisplay.resolution}. `:""}One attempt only. Do not purchase again while Twitch confirms this transaction.</small></section>:bitsState?.enabled&&bitsState.target?<section className="extension-votes"><small>OPTIONAL TURBO RENDER</small><strong>{bitsState.target.promptPreview}</strong><small>Applies to the next channel-selected scene. One render attempt; a rejected result does not reuse this exchange.</small>{bitsState.products.map(product=><button key={product.sku} disabled={!linked} onClick={()=>void purchaseTurbo(product)}><span>{product.displayName}</span><small>{product.amountBits} Bits · {product.resolution}</small></button>)}</section>:null}
+      {auth&&state?.canSubmitPrompts?<section className="extension-prompt-form" aria-label="Submit a scene prompt">
+        <small>SUGGEST THE NEXT SCENE</small>
+        <label htmlFor="extension-prompt">Prompt idea</label>
+        <textarea id="extension-prompt" maxLength={1000} rows={3} value={promptDraft} disabled={!linked||busy!==null} onChange={event=>setPromptDraft(event.currentTarget.value)} placeholder="Describe one clear 15-second scene. Prompts are screened before voting."/>
+        <small className="extension-prompt-help">Submissions open when a reviewed start frame is ready; prompts are screened before entering the ballot.</small>
+        <div className="extension-prompt-actions"><small>{promptDraft.length}/1000 · one prompt per submission</small><button type="button" disabled={!state||!linked||busy!==null||!promptDraft.trim()} onClick={()=>void submitPrompt()}>{busy==="proposal"?"SUBMITTING…":"SUBMIT PROMPT"}</button></div>
+      </section>:null}
+      {auth&&linked&&state&&!state.canSubmitPrompts?<p className="extension-note">This channel currently limits prompt submissions to approved contributors.</p>:null}
       {election?.choices.length?<section aria-label="Choose the next scene" className="extension-votes"><small>WHAT HAPPENS NEXT?</small>{election.choices.map(choice=><button key={choice.id} disabled={busy!==null||!linked||election.state!=="open"} aria-pressed={(election.myChoiceId??election.myVote?.choiceId)===choice.id} onClick={()=>void vote(election.id,choice.id)}><span>{choice.title}</span><small>{busy===choice.id?"SAVING…":`${choice.votes} votes`}</small></button>)}</section>:state?<p className="extension-note">No open vote right now. Tell chat what scene you would like to see.</p>:null}
       {message?<p role="status" className="extension-success">{message}</p>:null}
       {bitsReceiptUnverified&&auth?<button type="button" className="button secondary small" onClick={()=>void retryBitsReconciliation()}>Retry transaction check</button>:null}

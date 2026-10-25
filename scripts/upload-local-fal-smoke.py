@@ -16,7 +16,8 @@ from sloptogether_worker.config import WorkerConfig
 from sloptogether_worker.errors import WorkerError
 
 
-LOCAL_CHANNEL_ID = "900000001"
+LOCAL_CHANNEL_ID = os.environ.get("SLOPTOGETHER_LOCAL_TEST_CHANNEL_ID", "900000001")
+LOCAL_CHANNEL_IDS = {"900000001", "900000002"}
 DEFAULT_VIDEO = "/tmp/sloptogether-fal-test/sloptogether-fal-smoke.mp4"
 
 
@@ -32,7 +33,7 @@ def _loopback_http(value: str | None) -> bool:
 
 
 def validate_local_target(config: WorkerConfig) -> None:
-    if config.role != "generation" or config.channel_id != LOCAL_CHANNEL_ID:
+    if LOCAL_CHANNEL_ID not in LOCAL_CHANNEL_IDS or config.role != "generation" or config.channel_id != LOCAL_CHANNEL_ID:
         raise WorkerError("local_preview_worker_scope_invalid", "The local smoke uploader requires its seeded generation channel.")
     api = urlsplit(config.api_base_url)
     storage = urlsplit(config.local_s3_endpoint or "")

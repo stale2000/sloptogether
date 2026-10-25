@@ -5,8 +5,10 @@ import pg from "pg";
 import { assertLocalDemoDatabase,assertLocalDemoEnvironment } from "./local-demo-guard.mjs";
 
 const {Pool}=pg;
-const channelId="900000001";
-const login="localdemo";
+const channelId=process.env.SLOPTOGETHER_LOCAL_TEST_CHANNEL_ID??"900000001";
+const loginByLocalId={"900000001":"localdemo","900000002":"localworker"};
+const login=loginByLocalId[channelId];
+if(!login)throw new Error("local_demo_channel_id_invalid");
 const recipeId="fast-h3-trim-5step-vsa20-b1";
 const recipeSha=Buffer.from("9a2d5d19fb22b7e55d29c8e6048c4c421c5b73b044b7cc010188efe7df9ccaef","hex");
 const falVideoPath=process.env.FAL_SMOKE_VIDEO??"/tmp/sloptogether-fal-test/sloptogether-fal-smoke.mp4";
@@ -39,8 +41,10 @@ const accessSecret=randomBytes(32).toString("base64url"),workerKey=`slw_${keyId}
 const secretHash=createHash("sha256").update(pepper).update("\0").update(workerKey).digest();
 const ownerKey=process.env.SLOPTOGETHER_TOKEN_ENCRYPTION_KEY;
 if(!ownerKey)throw new Error("local_demo_web_environment_missing");
-const workerEnv=`SLOPTOGETHER_WORKER_KEY=${workerKey}\nSLOPTOGETHER_API_BASE_URL=http://localhost:3000/sloptogether/api/v1\nSLOPTOGETHER_WORKER_ROLE=generation\nSLOPTOGETHER_WORKER_PLATFORM=linux\nSLOPTOGETHER_CHANNEL_ID=${channelId}\nSLOPTOGETHER_LOCAL_S3_ENDPOINT=${endpointValue}\nSLOPTOGETHER_WORKER_HOME=/tmp/sloptogether-local-worker\nSLOPTOGETHER_COMFY_URL=http://127.0.0.1:8188\n`;
-const workerEnvPath="/tmp/sloptogether-worker.env";
+const workerEnv=`SLOPTOGETHER_WORKER_KEY=${workerKey}\nSLOPTOGETHER_API_BASE_URL=http://localhost:3000/sloptogether/api/v1\nSLOPTOGETHER_WORKER_ROLE=generation\nSLOPTOGETHER_WORKER_PLATFORM=linux\nSLOPTOGETHER_CHANNEL_ID=${channelId}\nSLOPTOGETHER_LOCAL_TEST_CHANNEL_ID=${channelId}\nSLOPTOGETHER_LOCAL_S3_ENDPOINT=${endpointValue}\nSLOPTOGETHER_WORKER_HOME=/tmp/sloptogether-local-worker-${channelId}\nSLOPTOGETHER_COMFY_URL=http://127.0.0.1:8188\n`;
+const workerEnvPath=`/tmp/sloptogether-worker-${channelId}.env`;
+if(await stat(workerEnvPath).then(()=>true,error=>{if(error?.code==="ENOENT")return false;throw error;}))
+  throw new Error("local_demo_worker_env_already_exists");
 const s3=new S3Client({region:endpointValue?"us-east-1":"auto",endpoint:endpointValue,forcePathStyle:true,
   credentials:{accessKeyId:process.env.R2_ACCESS_KEY_ID,secretAccessKey:process.env.R2_SECRET_ACCESS_KEY}});
 const pool=new Pool({connectionString:databaseUrl,max:1,application_name:"sloptogether-local-fal-demo-seed"});
@@ -113,6 +117,6 @@ try{
       [channelId,channelId,keyId,jobId,JSON.stringify({segmentId:slot.rows[0].id,revisionId:revision.rows[0].id,recipeId,localOnly:true})]);
     await client.query("COMMIT");
   }catch(error){await client.query("ROLLBACK").catch(()=>undefined);throw error;}finally{client.release();}
-  await writeFile(workerEnvPath,workerEnv,{mode:0o600});await chmod(workerEnvPath,0o600);
+  await writeFile(workerEnvPath,workerEnv,{mode:0o600,flag:"wx"});await chmod(workerEnvPath,0o600);
   console.log(JSON.stringify({channel:login,segmentId:slot.rows[0].id,revisionId,jobId,workerEnvPath,workerRole:"generation",approvalPath:"trusted_execution_policy",localOnly:true}));
 }finally{await pool.end();await s3.destroy();}

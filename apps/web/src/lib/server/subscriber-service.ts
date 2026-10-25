@@ -3,7 +3,7 @@ import "server-only";
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { interruptSettingsSchema, uuidSchema, type InterruptSettings } from "@sloptogether/contracts";
 import type { PoolClient } from "pg";
-import { findChannel, isBanned, requireChannelModerator, type ChannelRow } from "./channels";
+import { canContribute, findChannel, isBanned, requireChannelModerator, type ChannelRow } from "./channels";
 import { lifecyclePool, query, transaction, transactionOnClient, TransactionCleanupError } from "./db";
 import { verifyExtensionRequest } from "./extension-auth";
 import { ApiError, assertSameOrigin, readJson } from "./http";
@@ -329,11 +329,13 @@ export async function getExtensionState(request: Request) {
     getActiveElections(channel.twitch_channel_id, { kind: "extension", extension }),
     getPublicSubscriberState(channel.twitch_channel_id),
   ]);
+  const canSubmitPrompts=await canContribute(channel,{kind:"extension",extension});
   return {
     channel: { twitchChannelId: channel.twitch_channel_id, twitchLogin: channel.twitch_login, displayName: channel.display_name },
     elections,
     activeElection: elections[0] ?? null,
     subscriberInterrupts,
+    canSubmitPrompts,
   };
 }
 

@@ -206,6 +206,17 @@
 .extension-votes button:disabled { opacity:.65; }
 .extension-votes button>span { font-size:11px; }
 .extension-votes button>small { color:#aaa5b7; font:9px var(--mono); }
+.extension-prompt-form { display:grid; gap:8px; margin:13px 0; padding:11px; border:1px solid #33313e; border-radius:11px; background:rgba(255,255,255,.035); }
+.extension-prompt-form>small { color:#b9a9ff; font:9px var(--mono); letter-spacing:.1em; }
+.extension-prompt-form>.extension-prompt-help { color:#aaa5b7; font:10px/1.45 var(--sans); letter-spacing:0; }
+.extension-prompt-form>label { color:#e8e4f0; font-size:11px; }
+.extension-prompt-form textarea { width:100%; min-height:76px; resize:vertical; padding:9px; border:1px solid #393643; border-radius:8px; outline:none; color:#f5f2fb; background:#17161d; font:11px/1.5 var(--sans); }
+.extension-prompt-form textarea:focus-visible { border-color:#ac98ff; box-shadow:0 0 0 2px rgba(172,152,255,.18); }
+.extension-prompt-form textarea:disabled { opacity:.65; }
+.extension-prompt-actions { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.extension-prompt-actions>small { color:#aaa5b7; font:9px var(--mono); }
+.extension-prompt-actions>button { flex:none; padding:8px 10px; border:1px solid #ac98ff; border-radius:8px; color:#17141f; background:#c2b4ff; font:9px var(--mono); letter-spacing:.04em; cursor:pointer; }
+.extension-prompt-actions>button:disabled { opacity:.55; cursor:not-allowed; }
 .extension-note { padding:9px; border:1px solid #393643; border-radius:9px; color:var(--soft); font-size:11px; line-height:1.5; }
 .extension-success { margin:10px 0; color:var(--mint); font-size:10px; }
 .extension-footer { margin-top:13px; padding-top:10px; border-top:1px solid rgba(255,255,255,.08); color:var(--dim); font:9px var(--mono); }
