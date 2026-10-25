@@ -94,7 +94,13 @@ class WorkerConfigurationTest(unittest.TestCase):
         self.assertTrue(_is_wsl_unc_path(worker["comfy_input_dir"]))
         self.assertTrue(_is_wsl_unc_path(worker["comfy_output_dir"]))
         self.assertEqual(_wsl_distro_from_unc_path(worker["comfy_input_dir"]),_wsl_distro_from_unc_path(worker["comfy_output_dir"]))
+        self.assertEqual(worker["upload_hosts"],["uploads.clips.gg","42741bd068def2af3e3f6cd52a353cdf.r2.cloudflarestorage.com"])
         self.assertNotIn("WORKER_KEY",path.read_text(encoding="utf-8"))
+
+    def test_default_worker_template_allows_only_the_deployed_upload_hosts(self) -> None:
+        path=Path(__file__).parents[1]/"worker.example.toml"
+        worker=tomllib.loads(path.read_text(encoding="utf-8"))["worker"]
+        self.assertEqual(worker["upload_hosts"],["uploads.clips.gg","42741bd068def2af3e3f6cd52a353cdf.r2.cloudflarestorage.com"])
 
     def test_adaptive_trim_profile_is_limited_to_the_pinned_fal_deployment(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
