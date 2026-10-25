@@ -1,0 +1,47 @@
+/* A channel-first visual language: Twitch's dark surfaces, clear actions, and compact rows. */
+body { background: var(--bg); }
+.site-header { min-height: 68px; border-color: var(--line); }
+.brand-mark { border-radius: 8px; background: var(--violet-2); box-shadow: none; }
+.brand-mark:after { border-color: #fff; }
+.button { border-radius: 5px; background: #772ce8; color: #fff; box-shadow: none; }
+.button:hover { background: #9147ff; filter: none; }
+.button.secondary,.button.ghost { border-radius: 5px; background: var(--panel-2); border-color: #3b3b40; box-shadow: none; }
+.button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible { outline-color: var(--violet); }
+.panel,.card,.flow-card,.channel-discovery-card,.review-card,.auth-card,.channel-stat { border-radius: 8px; box-shadow: none; }
+.panel { border-color: var(--line); background: var(--panel); }
+.channel-avatar { border: 1px solid #47375f; border-radius: 50%; background: #39245c; color: #e7d7ff; box-shadow: none; }
+.video-frame { border-color: #303032; border-radius: 8px; box-shadow: none; }
+.program-tag { border-radius: 4px; background: #282033; color: #d5b8ff; }
+.timeline-row,.choice-row,.vote-choice,.review-card { border-radius: 6px; }
+.timeline-row:hover,.timeline-row.active,.choice-row:hover,.choice-row[aria-pressed=true],.vote-choice:hover,.vote-choice.chosen { border-color: #9147ff; background: #211a2c; }
+.scene-card { border-radius: 6px; background: var(--panel); }
+.scene-current { border-color: #65507f; background: #211a2c; }
+.scene-art,.scene-art-1,.scene-art-2 { border-radius: 6px; color: #d9bfff; background: #282033; }
+.scene-status-ready,.status-pill.ready,.inline-success { color: var(--mint); }
+.empty-state,.muted-panel { border-style: solid; border-radius: 8px; background: var(--panel); }
+.review-preview { border-radius: 5px; background: #201c2b; }
+.field input,.field textarea,.field select,.search-box,.prompt-input,.select-input,.text-input { border-radius: 5px; border-color: #3b3b40; background: #0e0e10; }
+.field input:focus,.field textarea:focus,.field select:focus,.search-box:focus,.prompt-input:focus,.select-input:focus,.text-input:focus { border-color: #9147ff; box-shadow: 0 0 0 2px rgb(145 71 255 / 18%); }
+.vote-window,.free-pill { border-radius: 4px; }
+.support-orbit { display: none; }
+.extension-frame { width: min(318px, 100%); min-height: 496px; margin: 16px auto; padding: 12px; border: 1px solid #3a3645; border-radius: 4px; background: #201c2b; color: #e5e3e8; }
+.extension-content { max-width: none; padding: 12px 0; }
+.extension-header { border-color: #3a3645; }
+.extension-scene,.extension-prompt-form { border: 1px solid #3a3645; border-radius: 4px; background: #262232; }
+.extension-votes button { border-color: #3a3645; border-radius: 4px; background: #262232; }
+.extension-votes button:hover,.extension-votes button[aria-pressed=true] { border-color: #bf94ff; background: #30233f; }
+.extension-prompt-form textarea { border-color: #3a3645; border-radius: 4px; background: #17151e; }
+.extension-prompt-form textarea:focus-visible { border-color: #bf94ff; box-shadow: 0 0 0 2px rgb(191 148 255 / 18%); }
+.extension-prompt-toggle { width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid #3a3645; border-radius: 4px; background: transparent; color: #bf94ff; text-align: left; font-size: 11px; font-weight: 700; cursor: pointer; }
+.extension-prompt-toggle:before { content: "+"; margin-right: 8px; }
+.extension-prompt-toggle[aria-expanded="true"]:before { content: "−"; }
+.extension-prompt-actions>button { border-color: #6441a4; border-radius: 4px; background: #6441a4; color: #fff; }
+.extension-prompt-actions>button:hover:not(:disabled) { background: #772ce8; }
+.extension-frame[data-theme="light"] { border-color: #dedce3; background: #fff; color: #232127; }
+.extension-frame[data-theme="light"] .extension-header { border-color: #dedce3; }
+.extension-frame[data-theme="light"] .extension-channel,.extension-frame[data-theme="light"] .extension-footer,.extension-frame[data-theme="light"] .extension-votes button>small,.extension-frame[data-theme="light"] .extension-prompt-actions>small { color: #706e78; }
+.extension-frame[data-theme="light"] .extension-scene,.extension-frame[data-theme="light"] .extension-prompt-form,.extension-frame[data-theme="light"] .extension-votes button,.extension-frame[data-theme="light"] .extension-note { border-color: #dedce3; background: #f5f4f7; color: #232127; }
+.extension-frame[data-theme="light"] .extension-prompt-form textarea { border-color: #dedce3; background: #fff; color: #232127; }
+.extension-frame[data-theme="light"] .extension-prompt-form>label { color: #232127; }
+.extension-frame[data-theme="light"] .extension-prompt-toggle { border-color: #dedce3; color: #6441a4; }
+.extension-frame[data-theme="light"] .extension-prompt-actions>button { border-color: #6441a4; background: #6441a4; color: #fff; }

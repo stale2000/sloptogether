@@ -100,6 +100,7 @@ export function OutputSource({ channel }: { channel: string }) {
   const current = data.state === "ready" ? data.value.currentProgramItem : null;
   const programSpans=program.state==="ready"?program.value.programSpans:[];
   const programDuration=programSpans.reduce((maximum,span)=>Math.max(maximum,span.outputEndSeconds),0);
+  const scrubPercent=programDuration>0?Math.max(0,Math.min(100,((scrubbing?scrubSeconds:playheadSeconds)/programDuration)*100)):0;
   const programIdentity=program.state==="ready"?`${program.value.epoch}:${program.value.manifestRevision}`:"";
   const localDemoPlaying=program.state==="ready"&&isLocalDemoFallbackEnabled(channel)&&program.value.playlistUrl==="/sloptogether/demo/localdemo/playlist.m3u8";
   useEffect(()=>{
@@ -130,7 +131,7 @@ export function OutputSource({ channel }: { channel: string }) {
             canAutoInterrupt={controller?.canControl===true}
             onStarted={()=>setHasStarted(true)} onNeedsUserStart={notifyPlaybackNeedsUserStart} onProgress={(event) => { latestPosition.current = event; void reportPosition(event); }} />
           {programReady&&programDuration>0?<div className="output-scrubber" aria-label="Program clip timeline">
-            <div className="output-scrubber-row"><span>{formatProgramTime(scrubbing?scrubSeconds:playheadSeconds)}</span><input type="range" min="0" max={programDuration} step="0.1" value={Math.min(programDuration,scrubbing?scrubSeconds:playheadSeconds)} aria-label="Seek through clips"
+            <div className="output-scrubber-row"><span>{formatProgramTime(scrubbing?scrubSeconds:playheadSeconds)}</span><input type="range" min="0" max={programDuration} step="0.1" value={Math.min(programDuration,scrubbing?scrubSeconds:playheadSeconds)} style={{backgroundImage:`linear-gradient(90deg,#9147ff 0%,#9147ff ${scrubPercent}%,#3d3747 ${scrubPercent}%,#3d3747 100%)`}} aria-label="Seek through clips"
               onPointerDown={()=>{setScrubSeconds(playheadSeconds);setScrubbing(true)}} onChange={event=>{setScrubbing(true);setScrubSeconds(Number(event.currentTarget.value))}}
               onPointerUp={event=>seekTo(Number(event.currentTarget.value))} onKeyUp={event=>seekTo(Number(event.currentTarget.value))} onBlur={event=>{if(scrubbing)seekTo(Number(event.currentTarget.value))}} />
               <span>{formatProgramTime(programDuration)}</span></div>

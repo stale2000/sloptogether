@@ -35,14 +35,20 @@ export function ChannelDirectory() {
   return (
     <div className="directory-section" id="channels">
       <div className="directory-heading">
-        <div><span className="eyebrow">LIVE CHANNELS</span><h2>Your channels</h2><p>Watch, vote, contribute.</p></div>
+        <div><span className="eyebrow">CHANNELS</span><h2>Stories in progress</h2><p>Drop into a channel, shape the next scene, and watch the story move.</p></div>
         {state === "ready" && channels.length > 0 ? (
           <label className="search-wrap"><span className="visually-hidden">Find a channel</span><span className="search-icon">⌕</span><input className="search-box" value={filter} onChange={(event) => setFilter(event.currentTarget.value)} placeholder="Find a channel" /></label>
         ) : null}
       </div>
       {state === "loading" ? <div className="directory-grid" aria-label="Loading channels">{[0, 1, 2].map((i) => <div className="channel-discovery-card discovery-loading" key={i}><div className="loading-pulse"/><div className="loading-pulse short"/><div className="loading-pulse"/></div>)}</div> : null}
       {state === "error" ? <div className="empty-state directory-empty"><span className="empty-glyph">⌁</span><strong>Channels aren&apos;t available yet.</strong><p>{error}</p><a className="button secondary small" href="#how-it-works">See how it works</a></div> : null}
-      {state === "ready" && channels.length === 0 ? <div className="empty-state directory-empty"><strong>No channels yet.</strong>{demoEnabled?<><p>Try the four-clip live output demo.</p><Link className="button secondary small" href="/channels/localdemo/output">Watch the demo <span aria-hidden="true">↗</span></Link></>:null}<Link className="button secondary small" href="/control">Connect Twitch <span aria-hidden="true">↗</span></Link></div> : null}
+      {state === "ready" && channels.length === 0 ? <section className="empty-state directory-empty channel-welcome">
+        <div><span className="channel-welcome-label">YOUR CHANNEL LOBBY</span><strong>No channels in the room yet.</strong><p>Connect your channel to open it to the community, or watch the sample story loop.</p></div>
+        <div className="channel-welcome-actions">
+          {demoEnabled?<Link className="button secondary small" href="/channels/localdemo/output"><span className="play-glyph" aria-hidden="true">▶</span> Watch the 4-clip demo</Link>:null}
+          <Link className="button small" href="/control">Connect Twitch <span aria-hidden="true">↗</span></Link>
+        </div>
+      </section> : null}
       {state === "ready" && channels.length > 0 && filtered.length === 0 ? <div className="empty-state directory-empty"><strong>No matching channels.</strong><p>Try another Twitch name.</p></div> : null}
       {state === "ready" && filtered.length > 0 ? <div className="directory-grid">
         {filtered.map((channel) => <Link className="channel-discovery-card" key={channel.twitchLogin} href={`/channels/${encodeURIComponent(channel.twitchLogin)}`}>

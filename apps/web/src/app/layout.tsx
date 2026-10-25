@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import "./globals.css";
 import "./homepage.css";
 import "./output-scrubber.css";
+import "./twitch-ui.css";
 
 export const metadata: Metadata = {
   title: {
@@ -15,7 +16,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#101018",
+  themeColor: "#0e0e10",
   colorScheme: "dark light",
 };
 

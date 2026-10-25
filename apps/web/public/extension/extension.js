@@ -17,6 +17,8 @@
     helper: document.getElementById("helper"),
     choices: document.getElementById("choices"),
     submit: document.getElementById("submit-vote"),
+    promptSection: document.getElementById("prompt-section"),
+    promptToggle: document.getElementById("prompt-toggle"),
     promptForm: document.getElementById("prompt-form"),
     promptInput: document.getElementById("prompt-input"),
     promptSubmit: document.getElementById("submit-prompt"),
@@ -35,6 +37,8 @@
   let isVisible = true;
   let isSubmitting = false;
   let isSubmittingPrompt = false;
+  let isPromptFormOpen = false;
+  let canSubmitPrompts = false;
   let bitsState = null;
   let bitsPending = false;
   let bitsBusy = false;
@@ -343,12 +347,27 @@
     nodes.submit.disabled = true;
   }
 
-  function renderPromptForm(canSubmitPrompts) {
-    const visible = Boolean(authorization && canSubmitPrompts);
-    nodes.promptForm.hidden = !visible;
+  function renderPromptForm(allowed = canSubmitPrompts) {
+    canSubmitPrompts = allowed;
+    nodes.promptSection.hidden = !authorization || !canSubmitPrompts;
+    nodes.promptForm.hidden = !isPromptFormOpen;
+    nodes.promptToggle.setAttribute("aria-expanded", String(isPromptFormOpen));
+    nodes.promptToggle.textContent = linkedIdentity(authorization) ? "Suggest a scene" : "Link account to suggest";
     nodes.promptInput.disabled = !linkedIdentity(authorization) || isSubmittingPrompt;
     nodes.promptSubmit.disabled = !linkedIdentity(authorization) || isSubmittingPrompt || !nodes.promptInput.value.trim();
     nodes.promptSubmit.textContent = isSubmittingPrompt ? "Submitting…" : "Submit prompt";
+  }
+
+  function togglePromptForm() {
+    if (!linkedIdentity(authorization)) {
+      try { window.Twitch?.ext?.actions?.requestIdShare(); } catch { /* Linking is optional until the viewer submits. */ }
+      message(nodes.status, "Link your Twitch account to suggest a scene.");
+      nodes.status.hidden = false;
+      return;
+    }
+    isPromptFormOpen = !isPromptFormOpen;
+    renderPromptForm();
+    if (isPromptFormOpen) nodes.promptInput.focus();
   }
 
   function renderChoices(election) {
@@ -508,7 +527,7 @@
     const currentAuthorization = authorization;
     isSubmittingPrompt = true;
     clearError();
-    renderPromptForm(true);
+    renderPromptForm();
     try {
       const response = await fetch(`${API}/channels/${encodeURIComponent(currentAuthorization.channelId)}/proposals`, {
         method: "POST",
@@ -519,6 +538,7 @@
       if (requestEpoch !== identityEpoch) return;
       if (!response.ok) throw new Error(result.message || result.error || "Prompt could not be submitted.");
       nodes.promptInput.value = "";
+      isPromptFormOpen = false;
       nodes.note.textContent = result.state === "pending"
         ? "Prompt submitted for review. It will join the vote after approval."
         : "Prompt entered the open vote. Cast your ballot below.";
@@ -528,7 +548,7 @@
     } finally {
       if (requestEpoch === identityEpoch) {
         isSubmittingPrompt = false;
-        renderPromptForm(nodes.promptForm.hidden === false);
+        renderPromptForm();
       }
     }
   }
@@ -547,6 +567,8 @@
         resetBitsForIdentityChange();
         isSubmitting = false;
         isSubmittingPrompt = false;
+        isPromptFormOpen = false;
+        canSubmitPrompts = false;
         nodes.promptInput.value = "";
         renderPromptForm(false);
         currentElection = null;
@@ -577,6 +599,7 @@
       }
     });
     helper.onContext((context) => {
+      if (context?.theme === "light" || context?.theme === "dark") document.documentElement.dataset.theme = context.theme;
       if (context?.mode === "config") {
         message(nodes.status, "Configure this Extension from the broadcaster dashboard.");
       }
@@ -617,7 +640,8 @@
   }
 
   nodes.submit.addEventListener("click", submitVote);
-  nodes.promptInput.addEventListener("input", () => renderPromptForm(nodes.promptForm.hidden === false));
+  nodes.promptInput.addEventListener("input", () => renderPromptForm());
+  nodes.promptToggle.addEventListener("click", togglePromptForm);
   nodes.promptSubmit.addEventListener("click", submitPrompt);
   nodes.turboLink.addEventListener("click", () => {
     try { window.Twitch?.ext?.actions?.requestIdShare(); setTurboStatus("Confirm Twitch identity sharing, then return to use Bits."); }
