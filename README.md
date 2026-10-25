@@ -90,10 +90,6 @@ python3.12 scripts/upload-local-fal-smoke.py /tmp/sloptogether-fal-test/sloptoge
 ```
 
 ```sh
-set -a
-. apps/web/.env.local
-. workers/media-publisher/.env.local
-set +a
 FAL_KEY= npm run media-worker:local
 ```
 
