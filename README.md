@@ -6,7 +6,9 @@ Public URL: **https://www.clips.gg/sloptogether** (the apex domain redirects to 
 
 ## Planning documents
 
-- [Detailed implementation plan](.omx/plans/sloptogether-plan.md)
+- [What's left, in priority order](.omx/plans/sloptogether-remaining-work.md)
+- [Full completion and acceptance plan](.omx/plans/sloptogether-completion-plan.md)
+- [Original product/implementation plan (historical)](.omx/plans/sloptogether-plan.md)
 - [Confirmed product decisions](docs/product-decisions.md)
 - [Remaining open questions](docs/open-questions.md)
 - [Moderation, trust and continuous generation](docs/moderation-and-trust.md)
@@ -36,7 +38,7 @@ Current status and remaining work: [implementation audit](docs/implementation-au
 
 The isolated Next app, Twitch OAuth routes and Extension voting/Bits frontend, channel settings/moderation, upload tickets and Cloudflare R2 gateway, paired worker clients, Linux/Fal inference path, subscriber EventSub intake, browser OBS output, playback controls, and scoped worker/streamer keys are implemented in this repository. Native Windows inference remains unavailable; the WSL2 backend path requires separately installed Linux nodes/models and is not yet hardware-qualified or packaged as a signed installer. `apps/web/next.config.ts` mounts the app at `/sloptogether`.
 
-The child app and host proxy are deployed at `https://www.clips.gg/sloptogether`. A gated `localdemo` fallback plays the four generated HLS clips on the output route for smoke testing; it does not seed a channel or replace the database-backed stream. The production channel list is empty. Real channel playback is not production-ready until Twitch settings, a private R2 bucket/gateway, and supervised media/story workers are configured. Migrations `001`–`019` use the existing Clips.gg project through a private `sloptogether` schema and scoped runtime role. The Vercel child connects to the Supabase IPv4 transaction pooler using verified CA TLS. `workers/media-publisher` validates uploads, applies configured trust/review policy, appends approved base clips to HLS, and screens continuation endpoints so the owner story producer can advance the chain. Twitch/OAuth/EventSub playback, remote media publication, and marker updates are not yet qualified. The Bits-to-Fal Turbo queue remains gated off pending Twitch approval and live Fal/R2/DB acceptance. A signed Windows release is not available. Do not advertise the worker as qualified for RTX 4090 until measured generation and upscale profiles are available.
+The child app and host proxy are deployed at `https://www.clips.gg/sloptogether`. A production-gated `localdemo` fallback plays four static HLS clips on the output route for smoke testing; it does not seed a channel or replace database-backed streams. The live smoke route has been verified for playback, clip jumps, seeking and pause/resume. Production health sees the database, R2 configuration, moderation preflight and Twitch OAuth credentials, but the database-backed channel list is empty. A real channel flow still requires user-authorized Twitch consent, and the R2 upload/media-publisher round trip and custom Fal generation/upscale workers have not been exercised. Twitch/EventSub, live Extension voting/moderation, Bits approval, continuous refill, and the signed Windows release remain unqualified. Do not advertise the worker as qualified for RTX 4090 until measured generation and upscale profiles are available; see the [remaining-work plan](.omx/plans/sloptogether-remaining-work.md).
 
 ## Local smoke test
 

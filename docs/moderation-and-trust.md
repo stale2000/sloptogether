@@ -1,6 +1,6 @@
 # Moderation, worker trust and continuous generation
 
-These are the user's selected product rules, prepared October 23, 2026. They replace the earlier blanket requirement for human review of every generated clip. The application remains planned rather than implemented.
+These are the user's selected product rules, prepared October 23, 2026. They replace the earlier blanket requirement for human review of every generated clip. The main implementation exists, but live Twitch authorization, custom Fal execution, and channel-level policy acceptance remain unverified; see the [remaining-work plan](../.omx/plans/sloptogether-remaining-work.md).
 
 ## Independent channel settings
 

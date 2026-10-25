@@ -1,6 +1,6 @@
 # SlopTogether completion plan
 
-Updated October 24, 2026, America/Los_Angeles. This is the current execution plan following [the implementation audit](../../docs/implementation-audit-2026-10-24.md). The original product specification remains useful for feature contracts; this document supersedes its outdated deployment assumptions and readiness claims.
+Updated October 24, 2026, America/Los_Angeles. This is the full execution/acceptance plan following [the implementation audit](../../docs/implementation-audit-2026-10-24.md). For the short prioritized snapshot of what's still outstanding, see [the remaining-work plan](sloptogether-remaining-work.md). The original product specification remains useful for feature contracts; this document supersedes its outdated deployment assumptions and readiness claims.
 
 ## Objective and current baseline
 

@@ -1,14 +1,14 @@
 # SlopTogether implementation audit
 
-Reviewed October 24, 2026, America/Los_Angeles. This document records the current implementation and observed runtime, including the limitations of the four-clip local demonstration. It supersedes older deployment/readiness statements. The next steps are in [the completion plan](../.omx/plans/sloptogether-completion-plan.md).
+Reviewed October 24, 2026, America/Los_Angeles. This audit was initially written before the production demo, R2 and Twitch OAuth wiring were verified. Its historical fixture/provenance findings remain useful; the current production snapshot and prioritized sequence are in the [remaining-work plan](../.omx/plans/sloptogether-remaining-work.md) and [completion plan](../.omx/plans/sloptogether-completion-plan.md).
 
 ## Current result
 
-The local site and a four-clip browser program exist. The API returns four committed HLS spans totaling **60.333332 seconds**, at manifest revision 4. All four parent video assets are published at 1280×720 with audio. Browser playback advanced from the beginning with `paused=false`, `readyState=4`, and decoded 1280×720 video in the preceding verification. The latest read found playback at the queue tail, approximately 60.4 seconds, with `readyState=2`; new content is not being generated automatically.
+The public `www.clips.gg/sloptogether` child app is live. The production-only static `localdemo` fallback plays four HLS clips totaling **60.333332 seconds** at 1280×720 with audio. A live-browser check verified clip jumps, seeking, and center-click pause/resume. This is an explicitly gated playback fixture, not a database-backed channel, real upload, or live generation run.
 
 Output page: `http://localhost:3000/sloptogether/channels/localdemo/output`.
 
-**The requested two custom SlopTogether Fal workers are not running.** Fresh CLI reads returned no SlopTogether applications, no Fal secrets, and no active runners. Completed marketplace H3 Max Turbo requests prove Fal video generation works, but do not prove the imported TrimH3 generation worker or SoL upscale worker works on Fal.
+**The requested two custom SlopTogether Fal workers are not running.** Fresh CLI reads returned no SlopTogether applications and an empty Fal secret store. Generation/upscale contexts were staged locally and 20 Fal worker tests pass, but no custom Fal image was deployed, no runner was started, and no TrimH3/SoL worker inference was executed.
 
 The four-clip number is only the user's test size. The application requirement is a continuous stream with no fixed clip-count/duration cap: future work must refill and append while playback runs, with restart/recovery and bounded resource use. The finite fixture has not established that behavior. The requested eight-hour GPU shutdown applies to test compute, not the lifetime of a product stream.
 
@@ -23,12 +23,12 @@ The four-clip number is only the user's test size. The application requirement i
 | Actual Fal generation | Marketplace H3 Max Turbo image-to-video requests completed; one new output became clip four | Generated through an operator/tool call, then manually downloaded and normalized; no custom Fal worker execution |
 | Shared production database | 44 `sloptogether` tables added to the existing Clips.gg project; 25 pre-existing public tables retained | Vercel connects through the IPv4 pooler with the scoped role and verified Supabase CA; production has no channel rows |
 | Database access | Scoped `sloptogether_app` login; zero public-table DML grants; no superuser/RLS bypass; `anon` and `authenticated` have no schema usage | All 44 app tables have RLS disabled; preserve private backend-only access until an explicit RLS/API policy design is implemented |
-| Media handling | Worker upload tickets, immutable snapshots, digest checks, quarantine, validation, trusted/human approval and HLS publication | Private `sloptogether-media` bucket and upload gateway are deployed; R2 S3 credentials are not yet provisioned, so production upload and publication remain disabled |
+| Media handling | Worker upload tickets, immutable snapshots, digest checks, quarantine, validation, trusted/human approval and HLS publication | Private `sloptogether-media` bucket, upload gateway and bucket-scoped R2 credentials are configured; production health reports `cloudflare_r2`. A real signed upload, validation and HLS publication round trip has not been tested |
 | Worker source/import | Bounded ComfyStreamer source, provenance manifests, pinned recipes, same shared Python runtime, prepared generation/upscale Fal contexts | Prepared contexts are source artifacts; no deployed SlopTogether apps and no GPU qualification for these images |
-| Twitch | OAuth/session, chat ballots, Extension prompt submission and ballots, EventSub subscription handling, subscriber interrupt source | Health reports `twitchOAuth:false`; local API accepted an Extension prompt and ballot, but no live Twitch credentials, signed-in browser, real Extension session, subscriber render/resume or channel-token rotation acceptance |
+| Twitch | OAuth/session, chat ballots, Extension prompt submission and ballots, EventSub subscription handling, subscriber interrupt source | Production health reports `twitchOAuth:true`; OAuth app/client and Extension signing credentials are configured. User consent was explicitly skipped, so there is no authenticated session or production channel. Extension is still Local Test; no live Extension ballot, EventSub delivery, subscriber render/resume, or role-based channel acceptance |
 | Paid Turbo | Gated Bits intent, receipt/reconciliation, single-attempt accounting, provider queue and ingestion source | Disabled. No real approved SKU/payment/settlement end-to-end run; marketplace smoke did not use Bits |
 | Windows/4090 | Packaging code, role selection, Twitch pairing, WSL2 configuration and candidate memory profiles | No signed runnable public installer; no actual Windows/4090 generation/upscale qualification |
-| Public hosting | Child Vercel project deployed at `https://sloptogether.vercel.app`; narrow proxy merged into the separate Clips.gg repository and deployed to the existing host project | `https://www.clips.gg/sloptogether` and `/api/v1/health` return HTTP 200. Production `GET /api/v1/channels` returns an empty list; no production channel or clips are seeded |
+| Public hosting | Child Vercel project and narrow host proxy are deployed separately | `https://www.clips.gg/sloptogether` and `/api/v1/health` return HTTP 200. The localdemo fallback plays publicly; production `GET /api/v1/channels` returns an empty list and there is no real channel row |
 | Hackathon research | Announcement, API documentation, schedule and rules notes archived under `research/` | Rules notes retain an organizer schedule conflict; submission/access/license requirements still need final review |
 
 ## What the fourth-clip test actually did
@@ -65,7 +65,7 @@ The old credential remains in migration history but was rotated and is no longer
 
 Fresh Fal inventory is empty for SlopTogether. Generated app definitions and the secret setup helper now include the role key, API base and upload-host allowlist, and the worker reads the allowlist from its environment. No Fal secrets/apps were provisioned. The public API route is live, but GPU workers and remote upload storage are not configured.
 
-The loopback storage emulator cannot be used from remote workers and must remain unexposed. The private `sloptogether-media` bucket and `sloptogether-upload-gateway` Worker are now provisioned. Cloudflare attached `uploads.clips.gg`, created its exact proxied DNS record and TLS certificate, and disabled the Worker's `workers.dev` endpoint. The Worker is bound only to the SlopTogether bucket; the bucket's public `r2.dev` domain is disabled and its object list is empty. Its gateway/ticket secrets and upload origin are active in the latest READY Vercel Production deployment. The Vercel environment also has the R2 account ID and bucket name, but lacks a permanent R2 S3 API token with Object Read & Write scoped only to `sloptogether-media`. Do not reuse Clips.gg's existing media bucket or key. The app's `/api/v1/health` still reports object storage unconfigured until the S3 access key and secret are installed and deployed.
+The loopback storage emulator cannot be used from remote workers and must remain unexposed. The private `sloptogether-media` bucket, `sloptogether-upload-gateway` Worker, gateway/ticket secrets, and bucket-scoped R2 S3 credentials are configured in production. Health reports `objectStorageMode=cloudflare_r2`; that is configuration evidence only. No signed upload/validation/publish/range-read acceptance has exercised the real media path, and the media publisher is not running as a supervised production process. Do not reuse Clips.gg's existing media bucket or key.
 
 **Required result:** reachable HTTPS API, real private R2/gateway, exact media/upload host allowlists, channel/role/recipe configuration, independent role keys, successful custom GPU execution and an exercised shutdown controller.
 
@@ -114,7 +114,7 @@ The review queue now refreshes every five seconds and preserves its previous ite
 
 ### P2 — Worker readiness, upscaling and Windows claims need real evidence
 
-The Fal session controller now waits for both authenticated Comfy wake pings before reporting both apps awake. This still does not prove worker API authentication, job polling or completed work. No SlopTogether Fal apps or role secrets are provisioned. The web API is deployed, but the private R2 bucket and upload gateway are not.
+The Fal session controller waits for both authenticated Comfy wake pings before reporting both apps awake and enforces an eight-hour ceiling. This does not prove worker API authentication, job polling or completed work. No SlopTogether Fal apps or worker role secrets are provisioned. The private R2 bucket and upload gateway are configured, but production uploads and media publication are untested.
 
 There is no custom Fal upscale result in this demonstration. Normal worker and paid-Turbo conformance code already exists, but it was bypassed by the manual normalization in this smoke run; exercise it rather than adding a third geometry path. The 4090 SoL candidate requires 128 GiB system RAM and remains unmeasured on Windows/WSL2. Public Windows packaging, signing and hardware qualification are unfinished.
 
@@ -122,7 +122,7 @@ There is no custom Fal upscale result in this demonstration. Normal worker and p
 
 ### P2 — Twitch and paid features have source coverage but no live acceptance
 
-Twitch OAuth is locally unconfigured. Chat/Extension voting, role moderation, bans/device pairing, subscriber-event-to-clip interrupt/resume and single-use Bits transactions have not been exercised together against live Twitch. Bits gates remain disabled; no end-user payment was collected by the smoke. Approved products, pricing and the owner revenue policy are still release dependencies.
+Twitch OAuth credentials are configured in production, but the user explicitly skipped the Twitch account-consent test. Chat/Extension voting, role moderation, bans/device pairing, subscriber-event-to-clip interrupt/resume and single-use Bits transactions have not been exercised against live Twitch. The Extension remains in Local Test, Bits support is off, and no end-user payment was collected. Approved products, pricing and the owner revenue policy remain release dependencies.
 
 **Required result:** real broadcaster/moderator/viewer sessions, the same election through site/chat/Extension, verified EventSub deduplication and subscriber interrupt/resume, then approved monetization with one render per verified payment. No Twitch broadcast is authorized by this audit.
 
@@ -136,20 +136,18 @@ The README now describes the four-clip fixture and deployed public path. Using t
 
 | Check | Current result |
 |---|---|
-| `npm test` | 102 web tests passed; 2 opt-in PostgreSQL tests skipped; 6 script tests passed |
-| `npm run typecheck` and `npm run lint` | Passed |
-| `npm run media-test` | 39 passed |
-| `npm run worker-test` | 92 passed; mocked session log messages are not real GPU evidence |
-| Local health/program APIs | Online; local emulator; OAuth false; four program spans/revision 4 |
+| `npm test`, `npm run typecheck`, `npm run lint`, `npm run build` | 100 web tests passed, 2 skipped; lint, typecheck and build passed after the controller-polling fix |
+| Fal worker tests | 20 passed with `PYTHONPATH=workers/runtime/src`; no GPU was used |
+| Local health/program APIs | Online with local services; local OAuth false; four static program spans/revision 4 |
 | Production database read | 44 app tables, 25 public tables, no runtime-role public DML grants, no anonymous schema usage |
 | Live Clips.gg mount | `https://www.clips.gg/sloptogether` and health endpoint return HTTP 200 through the deployed host proxy |
 | Live channel listing | HTTP 200 with `{"channels":[]}`; no production channel is configured |
 | Live output page | Four HLS clips play at 1280×720; center click toggles play/pause and clip 2 seek worked. This is the gated static smoke fixture, not a DB/R2 channel stream |
-| Production storage | Unconfigured; local R2 settings point at the loopback emulator, not Cloudflare R2 |
+| Production storage | Health reports `cloudflare_r2`; no real object upload/publication round trip tested |
 | Fal inventory | No SlopTogether apps, no secrets, zero active runners |
-| Latest browser read | Four-clip source loaded; decoded 1280×720; waiting at the finite queue tail with no media error |
+| Latest browser read | Four clips played on live `www.clips.gg`; clip 4 seek, pause/resume and direct `clips.gg`→`www` redirect verified |
 
-The last production build passed before the latest playback/auth/preflight edits. It must be repeated on the next implementation snapshot. Unit/helper passes do not substitute for real GPU, authenticated Twitch, private R2 or multi-browser playback acceptance.
+The latest source change passed local build/lint/typecheck/tests and a Vercel Production deployment reached `READY`. Unit/helper and static-demo passes do not substitute for real GPU, authenticated Twitch, R2 upload/publication, or sustained-stream acceptance.
 
 ## Confirmed decisions to preserve
 
