@@ -391,7 +391,7 @@ export async function issueWorkerKey(locator:string,request:Request){
       if(executionRole)await client.query(`INSERT INTO sloptogether.trusted_executions(twitch_channel_id,key_id,issuer_twitch_user_id,execution_role,recipe_ids,policy_revision)
         VALUES($1,$2,$3,$4,$5,$6)`,[channel.twitch_channel_id,id,issuer,executionRole,[],channel.policy_revision]);
     }
-    await client.query("INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,actor_key_id,action,target_kind,target_id,after_state) VALUES($1,$2,$3,'worker_key.issue','application_key',$3,$4::jsonb)",[channel.twitch_channel_id,issuer,id,JSON.stringify({displayName:body.displayName,scopes:body.scopes})]);
+    await client.query("INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,actor_key_id,action,target_kind,target_id,after_state) VALUES($1,$2,$3,'worker_key.issue','application_key',$5,$4::jsonb)",[channel.twitch_channel_id,issuer,id,JSON.stringify({displayName:body.displayName,scopes:body.scopes}),id]);
   });
   return {keyId:id,secret:value,displayName:body.displayName,scopes:body.scopes};
 }
