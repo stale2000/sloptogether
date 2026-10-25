@@ -333,8 +333,8 @@ export function ChannelWorkspace({ channelSlug }: { channelSlug: string }) {
               <div className="panel support-card">
                 <div className="support-orbit" aria-hidden="true">✦</div>
                 <SectionLabel>MORE WAYS TO JOIN</SectionLabel>
-                <h2>GPU tasks are not open yet.</h2>
-                <p className="panel-copy">No SlopTogether Fal worker is deployed, and the signed Windows release is not published yet.</p>
+                <h2>Volunteer GPU tasks aren’t open yet.</h2>
+                <p className="panel-copy">Fal runners are private; the Windows worker client is not published.</p>
                 <Link href="/downloads" className="text-link">Check worker release status <span>↗</span></Link>
               </div>
             </aside>
