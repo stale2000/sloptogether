@@ -73,9 +73,9 @@ Reviewed October 24, 2026 against the current `main` checkout and live Clips.gg 
 ## Open decisions and constraints
 
 - **Explicitly deferred:** the user chose “Skip sign-in test.” OAuth app credentials are configured, but no user consent/session or first real channel exists. Do not retest without renewed user authorization.
-- **Bits:** approved SKU/action and final prices/payout remain Twitch-dependent. The previously requested custom paid prompt/guaranteed override is not an allowed design.
+- **Bits:** Twitch-approved SKU/action, final prices/payout, and whether Bits fund an already-selected candidate or reserve a slot remain open. The custom paid prompt/guaranteed override is not an allowed design.
 - **Operating limits:** set the owner's generation/subscriber budget, target horizon and shared-compute spend cap before continuous/Fal runs. The eight-hour shutdown applies to each authorized test GPU session, not stream lifetime.
-- **Product policy:** finalize replay/quarantine retention and normal-story audio policy; settled decisions are recorded in [product-decisions.md](../../docs/product-decisions.md).
+- **Other policy choices:** Twitch-ban sync, vote/tie rules, Channel Points, vote weighting, GPU-contributor recognition, per-channel BYOK, auto-start, replay/quarantine retention and normal-story audio remain open; see [open-questions.md](../../docs/open-questions.md#business-or-channel-behavior-still-to-choose). Settled decisions are in [product-decisions.md](../../docs/product-decisions.md).
 - **No destructive cleanup:** use only the existing Clips.gg project and isolated `sloptogether` schema; do not delete or rewrite unrelated tables, migrations, host routes, or the uncommitted ComfyStream import work.
 
 ## Verified checks and gaps
