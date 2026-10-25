@@ -76,7 +76,7 @@ describe("Comfy Cloud start-frame generation",()=>{
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("submits one fixed, cropped H3-sized workflow after prompt screening",async()=>{
+  it("submits the 8-step Z-Image Turbo workflow at exact H3 frame size after prompt screening",async()=>{
     vi.stubEnv("SLOPTOGETHER_COMFY_API_KEY","");
     vi.stubEnv("COMFY_API_KEY","test-comfy-api-key-with-enough-length");
     vi.stubEnv("NODE_ENV","development");
@@ -95,13 +95,25 @@ describe("Comfy Cloud start-frame generation",()=>{
     expect((init as RequestInit).headers).toMatchObject({Authorization:"Bearer test-comfy-api-key-with-enough-length","Idempotency-Key":localId});
     const body=JSON.parse(String((init as RequestInit).body));
     expect(body.extra_data.api_key_comfy_org).toBe("test-comfy-api-key-with-enough-length");
-    expect(body.workflow["25"]).toMatchObject({class_type:"OpenAIGPTImageNodeV2",inputs:{
-      model:"gpt-image-2.5-flare","model.size":"Custom","model.custom_width":848,"model.custom_height":480,
-      "model.quality":"low","model.background":"opaque",n:1,
-    }});
-    expect(body.workflow["26"].inputs).toMatchObject({width:448,height:256,crop:"center"});
-    expect(body.workflow["28"].inputs.images).toEqual(["26",0]);
+    expect(body.workflow["106"]).toMatchObject({class_type:"UNETLoader",inputs:{unet_name:"z_image_turbo_bf16.safetensors"}});
+    expect(body.workflow["107"]).toMatchObject({class_type:"CLIPTextEncode",inputs:{clip:["102",0]}});
+    expect(body.workflow["108"]).toMatchObject({class_type:"EmptySD3LatentImage",inputs:{width:448,height:256,batch_size:1}});
+    expect(body.workflow["110"]).toMatchObject({class_type:"KSampler",inputs:{steps:8,cfg:1,latent_image:["108",0]}});
+    expect(body.workflow["159"].inputs.images).toEqual(["105",0]);
     expect(calls.some(sql=>sql.includes("INSERT INTO sloptogether.audit_log"))).toBe(true);
+  });
+
+  it("accepts the saved Z-Image Turbo PNG node as the completed frame output",async()=>{
+    const assetId="70afcad4-d30a-4fd8-9c33-f6c1c277a7bf";
+    const row={id:localId,request_id:requestId,twitch_channel_id:"123",requested_by:ownerId,prompt,prompt_sha256:Buffer.alloc(32),generation_kind:"frame",generated_text:null,state:"running",
+      provider_job_id:providerId,output_asset_id:null,error_code:null,created_at:new Date(),updated_at:new Date()};
+    mocks.query.mockResolvedValue({rows:[row],rowCount:1});
+    vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response(JSON.stringify({id:providerId,status:"succeeded",outputs:[{
+      node_id:"159",type:"image",content_type:"image/png",size_bytes:512,id:assetId,
+    }]}),{status:200})));
+    await expect(getComfyGeneration("localdemo",localId,new Request("http://localhost:3000/sloptogether/api/v1/channels/localdemo/comfy-generations/x")))
+      .resolves.toMatchObject({kind:"frame",state:"succeeded"});
+    expect(mocks.query).toHaveBeenCalledWith(expect.stringContaining("SET state='succeeded',output_asset_id=$2"),[localId,assetId]);
   });
 
   it("submits a cheap Comfy OpenAI Chat prompt workflow with a saved text output",async()=>{

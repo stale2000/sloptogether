@@ -10,9 +10,9 @@ import { requestPrincipal } from "./principals";
 import { screenPromptAndImages } from "./preflight";
 
 const COMFY_ORIGIN="https://cloud.comfy.org";
-const COMFY_FRAME_WORKFLOW_VERSION="openai-gpt-image-2.5-flare-848x480-center-crop-448x256-v3";
+const COMFY_FRAME_WORKFLOW_VERSION="z-image-turbo-8step-448x256-v1";
 const COMFY_PROMPT_WORKFLOW_VERSION="openai-chat-gpt-4.1-nano-h3-prompt-v1";
-const COMFY_IMAGE_NODE="28";
+const COMFY_IMAGE_NODE="159";
 const COMFY_PROMPT_NODE="19";
 const MAX_RESPONSE_BYTES=16*1024*1024;
 const requestSchema=z.object({requestId:z.string().uuid(),prompt:z.string().trim().min(1).max(1000)}).strict();
@@ -51,13 +51,19 @@ function workflow(prompt:string,kind:ComfyKind){
       "19":{class_type:"SaveText",_meta:{title:"Generated H3 prompt"},inputs:{text:["3",0],filename_prefix:"sloptogether/prompt",format:"txt"}},
     };
   }
+  const framePrompt=`${prompt} Keep the main subject and story object in the central horizontal band of a wide frame; avoid important details at the top or bottom.`;
   return {
-    "25":{class_type:"OpenAIGPTImageNodeV2",_meta:{title:"OpenAI GPT Image 2.5 Flare · 848×480"},inputs:{
-      prompt,model:"gpt-image-2.5-flare","model.size":"Custom","model.custom_width":848,"model.custom_height":480,
-      "model.quality":"low","model.background":"opaque",n:1,seed:randomInt(0,2**31),
-    }},
-    "26":{class_type:"ImageScale",_meta:{title:"Fit start frame to TrimH3"},inputs:{image:["25",0],upscale_method:"lanczos",width:448,height:256,crop:"center"}},
-    "28":{class_type:"SaveImage",_meta:{title:"Generated start frame"},inputs:{filename_prefix:"sloptogether/start-frame",images:["26",0]}},
+    "102":{class_type:"CLIPLoader",inputs:{clip_name:"qwen_3_4b.safetensors",type:"lumina2",device:"default"}},
+    "103":{class_type:"VAELoader",inputs:{vae_name:"ae.safetensors"}},
+    "104":{class_type:"ConditioningZeroOut",inputs:{conditioning:["107",0]}},
+    "105":{class_type:"VAEDecode",inputs:{samples:["110",0],vae:["103",0]}},
+    "106":{class_type:"UNETLoader",inputs:{unet_name:"z_image_turbo_bf16.safetensors",weight_dtype:"default"}},
+    "107":{class_type:"CLIPTextEncode",inputs:{text:framePrompt,clip:["102",0]}},
+    "108":{class_type:"EmptySD3LatentImage",inputs:{width:448,height:256,batch_size:1}},
+    "109":{class_type:"ModelSamplingAuraFlow",inputs:{shift:3,sampling:"flow",model:["106",0]}},
+    "110":{class_type:"KSampler",inputs:{seed:randomInt(0,2**31),steps:8,cfg:1,sampler_name:"res_multistep",scheduler:"simple",denoise:1,
+      model:["109",0],positive:["107",0],negative:["104",0],latent_image:["108",0]}},
+    "159":{class_type:"SaveImage",inputs:{filename_prefix:"sloptogether/start-frame",images:["105",0]}},
   };
 }
 
