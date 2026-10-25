@@ -74,7 +74,9 @@ describe("Comfy Cloud start-frame generation",()=>{
     expect((init as RequestInit).headers).toMatchObject({Authorization:"Bearer test-comfy-api-key-with-enough-length","Idempotency-Key":localId});
     const body=JSON.parse(String((init as RequestInit).body));
     expect(body.extra_data.api_key_comfy_org).toBe("test-comfy-api-key-with-enough-length");
-    expect(body.workflow["25"].class_type).toBe("OpenAIGPTImage1");
+    expect(body.workflow["25"]).toMatchObject({class_type:"OpenAIGPTImageNodeV2",inputs:{
+      model:"gpt-image-1.5","model.size":"1536x1024","model.quality":"low","model.background":"opaque",n:1,
+    }});
     expect(body.workflow["26"].inputs).toMatchObject({width:448,height:256,crop:"center"});
     expect(body.workflow["28"].inputs.images).toEqual(["26",0]);
     expect(calls.some(sql=>sql.includes("INSERT INTO sloptogether.audit_log"))).toBe(true);
