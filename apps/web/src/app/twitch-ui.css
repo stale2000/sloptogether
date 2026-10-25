@@ -1,5 +1,7 @@
 /* A channel-first visual language: Twitch's dark surfaces, clear actions, and compact rows. */
-body { background: var(--bg); }
+body { font-family: var(--sans); line-height: 1.55; background: var(--bg); }
+.hero h1,.page-heading h1,.page-title-row h1,.download-hero h1,.directory-heading h2,.section-heading h2,.panel h2,.channel-discovery-card h3 { font-family: var(--sans); font-weight: 700; letter-spacing: -.025em; }
+.site-header .brand { letter-spacing: -.04em; }
 .site-header { min-height: 68px; border-color: var(--line); }
 .brand-mark { border-radius: 8px; background: var(--violet-2); box-shadow: none; }
 .brand-mark:after { border-color: #fff; }
@@ -24,24 +26,3 @@ body { background: var(--bg); }
 .field input:focus,.field textarea:focus,.field select:focus,.search-box:focus,.prompt-input:focus,.select-input:focus,.text-input:focus { border-color: #9147ff; box-shadow: 0 0 0 2px rgb(145 71 255 / 18%); }
 .vote-window,.free-pill { border-radius: 4px; }
 .support-orbit { display: none; }
-.extension-frame { width: min(318px, 100%); min-height: 496px; margin: 16px auto; padding: 12px; border: 1px solid #3a3645; border-radius: 4px; background: #201c2b; color: #e5e3e8; }
-.extension-content { max-width: none; padding: 12px 0; }
-.extension-header { border-color: #3a3645; }
-.extension-scene,.extension-prompt-form { border: 1px solid #3a3645; border-radius: 4px; background: #262232; }
-.extension-votes button { border-color: #3a3645; border-radius: 4px; background: #262232; }
-.extension-votes button:hover,.extension-votes button[aria-pressed=true] { border-color: #bf94ff; background: #30233f; }
-.extension-prompt-form textarea { border-color: #3a3645; border-radius: 4px; background: #17151e; }
-.extension-prompt-form textarea:focus-visible { border-color: #bf94ff; box-shadow: 0 0 0 2px rgb(191 148 255 / 18%); }
-.extension-prompt-toggle { width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid #3a3645; border-radius: 4px; background: transparent; color: #bf94ff; text-align: left; font-size: 11px; font-weight: 700; cursor: pointer; }
-.extension-prompt-toggle:before { content: "+"; margin-right: 8px; }
-.extension-prompt-toggle[aria-expanded="true"]:before { content: "−"; }
-.extension-prompt-actions>button { border-color: #6441a4; border-radius: 4px; background: #6441a4; color: #fff; }
-.extension-prompt-actions>button:hover:not(:disabled) { background: #772ce8; }
-.extension-frame[data-theme="light"] { border-color: #dedce3; background: #fff; color: #232127; }
-.extension-frame[data-theme="light"] .extension-header { border-color: #dedce3; }
-.extension-frame[data-theme="light"] .extension-channel,.extension-frame[data-theme="light"] .extension-footer,.extension-frame[data-theme="light"] .extension-votes button>small,.extension-frame[data-theme="light"] .extension-prompt-actions>small { color: #706e78; }
-.extension-frame[data-theme="light"] .extension-scene,.extension-frame[data-theme="light"] .extension-prompt-form,.extension-frame[data-theme="light"] .extension-votes button,.extension-frame[data-theme="light"] .extension-note { border-color: #dedce3; background: #f5f4f7; color: #232127; }
-.extension-frame[data-theme="light"] .extension-prompt-form textarea { border-color: #dedce3; background: #fff; color: #232127; }
-.extension-frame[data-theme="light"] .extension-prompt-form>label { color: #232127; }
-.extension-frame[data-theme="light"] .extension-prompt-toggle { border-color: #dedce3; color: #6441a4; }
-.extension-frame[data-theme="light"] .extension-prompt-actions>button { border-color: #6441a4; background: #6441a4; color: #fff; }

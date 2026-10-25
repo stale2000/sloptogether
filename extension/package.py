@@ -3,24 +3,37 @@ from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSETS = ("index.html", "extension.css", "extension.js")
+ASSETS = ("panel.html", "config.html", "extension.css", "panel.js", "config.js", "bits-state.mjs", "figtree-latin.woff2")
 HELPER = "https://extension-files.twitch.tv/helper/v1/twitch-ext.min.js"
+
+SOURCE_FILES = {
+    "panel.html": ROOT / "extension" / "public" / "panel.html",
+    "config.html": ROOT / "extension" / "public" / "config.html",
+    "extension.css": ROOT / "extension" / "public" / "extension.css",
+    "figtree-latin.woff2": ROOT / "extension" / "public" / "figtree-latin.woff2",
+    "panel.js": ROOT / "extension" / "src" / "panel.js",
+    "config.js": ROOT / "extension" / "src" / "config.js",
+    "bits-state.mjs": ROOT / "extension" / "src" / "bits-state.mjs",
+}
 
 
 def package(output: Path) -> Path:
-    source = ROOT / "apps" / "web" / "public" / "extension"
+    source = ROOT / "extension"
     files = {}
     for name in ASSETS:
-        path = source / name
+        path = SOURCE_FILES[name]
         if path.is_symlink() or not path.is_file():
             raise ValueError(f"extension_asset_invalid:{name}")
         files[name] = path.read_bytes()
 
-    html = files["index.html"].decode("utf-8")
-    if "./extension.css" not in html or "./extension.js" not in html:
-        raise ValueError("extension_assets_must_use_sibling_paths")
-    if HELPER not in html or html.index(HELPER) > html.index("./extension.js"):
-        raise ValueError("twitch_helper_must_load_before_extension_script")
+    for page, script in (("panel.html", "./panel.js"), ("config.html", "./config.js")):
+        html = files[page].decode("utf-8")
+        if "./extension.css" not in html or script not in html:
+            raise ValueError(f"extension_assets_must_use_sibling_paths:{page}")
+        if HELPER not in html or html.index(HELPER) > html.index(script):
+            raise ValueError(f"twitch_helper_must_load_before_extension_script:{page}")
+    if b'from "./bits-state.mjs"' not in files["panel.js"]:
+        raise ValueError("extension_bits_state_module_missing")
 
     output = output.expanduser()
     source = source.resolve()
@@ -44,7 +57,7 @@ def package(output: Path) -> Path:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Package the static Twitch Extension assets.")
+    parser = argparse.ArgumentParser(description="Package the isolated Twitch Extension assets.")
     parser.add_argument("--output", type=Path, default=ROOT / "dist" / "sloptogether-twitch-extension.zip")
     args = parser.parse_args()
     try:

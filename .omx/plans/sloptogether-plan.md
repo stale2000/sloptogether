@@ -113,7 +113,7 @@ Proposed first-party layout (future files; only vendor/docs/plans are created no
 
 ```text
 apps/web/                  prefixed Next app, dashboard, player, API/EBS
-apps/extension/            static Twitch panel/component/mobile/config assets
+extension/                 isolated Twitch viewer/config frontend, assets and ZIP build
 services/coordinator/      scheduling, provider adapters, outbox reconciliation
 services/media/            isolated decode, validation, conformance, publication
 workers/runtime/           shared roles, engine, leases, upload/story API

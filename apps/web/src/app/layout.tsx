@@ -1,9 +1,17 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import { Figtree } from "next/font/google";
 import "./globals.css";
 import "./homepage.css";
 import "./output-scrubber.css";
 import "./twitch-ui.css";
+
+const figtree = Figtree({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-figtree",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: {
@@ -22,7 +30,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={figtree.variable}>
       <body>{children}</body>
     </html>
   );

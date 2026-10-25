@@ -1,5 +1,5 @@
-import { TwitchExtensionPanel } from "../../components/twitch-extension-panel";
+import { redirect } from "next/navigation";
 
 export default function ExtensionPage() {
-  return <TwitchExtensionPanel />;
+  redirect("/extension/panel.html");
 }

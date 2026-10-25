@@ -1,3 +1,5 @@
+import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
+
 (() => {
   "use strict";
 
@@ -22,7 +24,6 @@
     promptForm: document.getElementById("prompt-form"),
     promptInput: document.getElementById("prompt-input"),
     promptSubmit: document.getElementById("submit-prompt"),
-    note: document.getElementById("vote-note"),
     empty: document.getElementById("empty"),
     link: document.getElementById("link-account"),
     error: document.getElementById("error"),
@@ -62,24 +63,6 @@
   function setError(text) {
     nodes.error.hidden = false;
     message(nodes.error, text);
-  }
-
-  function bitsOutcome(state) {
-    switch (state) {
-      case "receipt_seen": return { pending: true, error: false, text: "Receipt received. Twitch is checking the transaction; do not purchase again." };
-      case "receipt_unverified": return { pending: true, error: false, text: "Twitch has not confirmed this receipt yet. No render starts while it is unverified; do not buy again." };
-      case "reserved": return { pending: false, error: false, text: "One Turbo render attempt is reserved for this scene." };
-      case "paid_unfulfilled": return { pending: false, error: true, text: "The payment could not be fulfilled and cannot be reused. Contact the channel owner." };
-      case "verified_unallocated": return { pending: false, error: true, text: "Twitch verified the payment, but it could not be matched to this scene. Contact support." };
-      case "development_ignored": return { pending: false, error: true, text: "Twitch marked this as a test transaction. No production render was started." };
-      case "consumed_succeeded": return { pending: false, error: false, text: "The paid render attempt completed." };
-      case "consumed_failed":
-      case "consumed_rejected":
-      case "consumed_uncertain": return { pending: false, error: true, text: "This payment's one render attempt is spent. A new attempt requires a new purchase." };
-      case "expired": return { pending: false, error: false, text: "The purchase window expired without a receipt. No render was started." };
-      case "cancelled": return { pending: false, error: true, text: "The purchase was cancelled. Start a new action if you still want to participate." };
-      default: return { pending: true, error: false, text: "The server is reconciling this single Turbo attempt." };
-    }
   }
 
   function setTurboStatus(text) {
@@ -128,8 +111,8 @@
       nodes.turbo.hidden = false;
       const prompt = bitsIntent?.promptPreview || bitsTargetInFlight?.promptPreview;
       message(nodes.turboPrompt, prompt
-        ? `${prompt} — this action is locked to this scene. Do not purchase again while Twitch confirms it.`
-        : "Your purchase is locked to its original scene. Do not purchase again while Twitch confirms it.");
+        ? `${prompt} · locked during verification.`
+        : "Locked to the original scene during verification.");
       nodes.turboLink.hidden = true;
       return;
     }
@@ -138,13 +121,13 @@
       return;
     }
     nodes.turbo.hidden = false;
-    message(nodes.turboPrompt, `${bitsState.target.promptPreview} — one approximately 15-second Turbo render attempt. Rejected or failed attempts do not reuse the Bits.`);
+    message(nodes.turboPrompt, `${bitsState.target.promptPreview} · one 15-second Turbo attempt.`);
     for (const product of bitsState.products) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "turbo-product";
       button.disabled = !linkedIdentity(authorization) || bitsBusy || bitsPending;
-      button.addEventListener("click", () => { void purchaseTurbo(product); });
+      button.addEventListener("click", () => { void useTurboBits(product); });
       const title = document.createElement("span");
       title.textContent = product.displayName;
       const price = document.createElement("small");
@@ -204,10 +187,8 @@
       if (typeof result.state !== "string") throw new Error("status_invalid");
       if (requestEpoch !== identityEpoch || bitsIntent?.intentId !== intentId) return;
       clearError();
-      const expiry = Date.parse(result.expiresAt || "");
-      const lateReceiptWindow = result.state === "expired" && !result.transactionReceived && Number.isFinite(expiry) && Date.now() < expiry + 10 * 60_000;
-      if (lateReceiptWindow) {
-        setTurboStatus("The purchase window ended. Waiting for a delayed Twitch receipt; do not purchase again yet.");
+      if (isLateReceiptGracePending(result.state,result.transactionReceived,result.expiresAt)) {
+        setTurboStatus("Bits verification in progress.");
         bitsTimer = window.setTimeout(checkBitsIntent, 5000);
         return;
       }
@@ -228,7 +209,7 @@
     }
   }
 
-  async function purchaseTurbo(product) {
+  async function useTurboBits(product) {
     const helper = window.Twitch?.ext;
     if (!authorization || !linkedIdentity(authorization) || !bitsState?.enabled || !helper?.bits || !bitsState.target || bitsBusy || bitsPending) return;
     const requestEpoch = identityEpoch;
@@ -249,14 +230,14 @@
       if (!response.ok) throw new Error(result.message || "The Turbo action is not available for this scene.");
       intentId = result.intentId;
       if (typeof intentId !== "string" || result.segmentRevisionId !== target.segmentRevisionId) throw new Error("The selected scene changed. Refresh the panel before using Bits.");
-      if (requestEpoch !== identityEpoch) throw new Error("Twitch identity changed before the Bits confirmation opened.");
+      if (requestEpoch !== identityEpoch) throw new Error("Account changed before confirmation.");
       bitsIntent = { intentId, sku: product.sku, promptPreview: target.promptPreview, identityEpoch: requestEpoch };
       bitsPending = true;
       const linkedId = helper.viewer?.id;
       if (linkedId) {
         try { window.sessionStorage.setItem(`sloptogether-bits:${currentAuthorization.channelId}:${linkedId}`, intentId); } catch { /* Server polling still works for this panel session. */ }
       }
-      setTurboStatus(`Twitch is opening the ${product.amountBits} Bits confirmation. One render attempt will be assigned to this scene.`);
+      setTurboStatus(`Confirm ${product.amountBits} Bits to use one render attempt on this scene.`);
       renderTurboProducts();
       bitsTransactionEpoch = requestEpoch;
       helper.bits.useBits(product.sku);
@@ -291,7 +272,7 @@
       if (!response.ok) throw new Error(result.message || "Transaction check could not be queued.");
       if (requestEpoch !== identityEpoch || bitsIntent?.intentId !== intentId) return;
       clearError();
-      setTurboStatus(result.queued ? "A fresh Twitch transaction check is queued." : `A transaction check is already queued${result.retryAfterSeconds ? `; retry in ${result.retryAfterSeconds} seconds.` : "."}`);
+      setTurboStatus(result.queued ? "Verification queued." : `Verification already queued${result.retryAfterSeconds ? `; retry in ${result.retryAfterSeconds}s.` : "."}`);
       bitsTimer = window.setTimeout(checkBitsIntent, 5000);
     } catch (error) { if (requestEpoch === identityEpoch) setError(error.message || "Transaction check could not be queued."); }
   }
@@ -309,7 +290,7 @@
   }
 
   async function api(path, options = {}) {
-    if (!authorization?.token) throw new Error("Waiting for Twitch authorization.");
+    if (!authorization?.token) throw new Error("Waiting for Extension authorization.");
     const response = await fetch(`${API}${path}`, {
       ...options,
       cache: "no-store",
@@ -361,7 +342,7 @@
   function togglePromptForm() {
     if (!linkedIdentity(authorization)) {
       try { window.Twitch?.ext?.actions?.requestIdShare(); } catch { /* Linking is optional until the viewer submits. */ }
-      message(nodes.status, "Link your Twitch account to suggest a scene.");
+      message(nodes.status, "Link your account to suggest a scene.");
       nodes.status.hidden = false;
       return;
     }
@@ -426,9 +407,8 @@
       ? ownChoice === selectedChoiceId ? "Keep my vote" : "Change vote"
       : "Cast vote";
     nodes.helper.textContent = election.state === "open"
-      ? "Vote for one cleared scene. Change your choice any time before this round closes."
-      : "This vote is closed. Results are read-only.";
-    nodes.note.textContent = "Votes are free. Chat and this Extension share one vote per linked Twitch account.";
+      ? "Choose one scene."
+      : "Voting closed.";
   }
 
   function renderSubscriberNotice(value) {
@@ -457,7 +437,7 @@
     clearError();
     try {
       const channelId = authorization.channelId;
-      if (!channelId) throw new Error("Twitch did not provide a channel context.");
+      if (!channelId) throw new Error("Channel context unavailable.");
       const result = await api("/extension/state", {});
       if (requestEpoch !== identityEpoch) return;
       renderSubscriberNotice(result.subscriberInterrupts || result.channel?.subscriberInterrupts);
@@ -489,7 +469,7 @@
     if (!authorization || !currentElection || !selectedChoiceId || isSubmitting) return;
     if (!linkedIdentity(authorization)) {
       nodes.link.hidden = false;
-      setError("Link your Twitch identity before voting.");
+      setError("Link your account before voting.");
       return;
     }
     const requestEpoch = identityEpoch;
@@ -507,7 +487,7 @@
     } catch (error) {
       if (requestEpoch !== identityEpoch) return;
       setError(error.status === 401 || error.status === 403
-        ? "Twitch could not verify your linked identity. Reconnect and try again."
+        ? "Identity could not be verified. Reconnect and try again."
         : error.status === 409
           ? "This round closed before your vote arrived."
           : error.message || "Your vote was not saved.");
@@ -539,9 +519,8 @@
       if (!response.ok) throw new Error(result.message || result.error || "Prompt could not be submitted.");
       nodes.promptInput.value = "";
       isPromptFormOpen = false;
-      nodes.note.textContent = result.state === "pending"
-        ? "Prompt submitted for review. It will join the vote after approval."
-        : "Prompt entered the open vote. Cast your ballot below.";
+      nodes.status.textContent = result.state === "pending" ? "Prompt sent for review." : "Prompt added to the vote.";
+      nodes.status.hidden = false;
       await refresh();
     } catch (error) {
       if (requestEpoch === identityEpoch) setError(error.message || "Prompt could not be submitted.");
@@ -579,7 +558,7 @@
         nodes.subscriber.hidden = true;
         nodes.subscriber.replaceChildren();
         nodes.status.hidden = false;
-        message(nodes.status, "Loading this Twitch channel…");
+        message(nodes.status, "Loading channel…");
         clearError();
       }
       authorization = auth;
@@ -592,7 +571,7 @@
             if (bitsIntent?.intentId !== intentId) bitsIntent = { intentId, sku: "", promptPreview: null, identityEpoch };
             bitsPending = true;
             nodes.turbo.hidden = false;
-            setTurboStatus("Checking the status of your existing one-attempt purchase. Do not purchase again.");
+            setTurboStatus("Checking your existing Bits action.");
             void checkBitsIntent();
           }
         } catch { /* Storage is optional; Twitch and server receipts remain authoritative. */ }
@@ -621,7 +600,7 @@
         body: JSON.stringify({ intentId, transactionReceipt: receipt.transactionReceipt }),
       }).then(async (response) => {
         const result = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(result.message || "Twitch payment receipt could not be verified.");
+      if (!response.ok) throw new Error(result.message || "Bits receipt could not be verified.");
         if (requestEpoch !== identityEpoch || bitsIntent?.intentId !== intentId) return;
         const outcome = bitsOutcome(result.state || "receipt_seen");
         setTurboStatus(outcome.text);
@@ -634,7 +613,7 @@
       bitsTransactionEpoch = null;
       const intentId = bitsIntent.intentId;
       void fetch(`${API}/extension/bits/intents/${encodeURIComponent(intentId)}/cancel`, { method: "POST", headers: { "x-extension-jwt": authorization.token } });
-      setTurboStatus("The Bits purchase was cancelled. No render was started.");
+      setTurboStatus("Bits action cancelled. No render was started.");
       clearBitsIntent();
     });
   }
@@ -644,17 +623,17 @@
   nodes.promptToggle.addEventListener("click", togglePromptForm);
   nodes.promptSubmit.addEventListener("click", submitPrompt);
   nodes.turboLink.addEventListener("click", () => {
-    try { window.Twitch?.ext?.actions?.requestIdShare(); setTurboStatus("Confirm Twitch identity sharing, then return to use Bits."); }
-    catch { setError("Twitch identity linking is not available right now."); }
+    try { window.Twitch?.ext?.actions?.requestIdShare(); setTurboStatus("Confirm identity sharing, then return to use Bits."); }
+    catch { setError("Identity linking is unavailable right now."); }
   });
   nodes.turboReconcile.addEventListener("click", () => { void retryBitsReconciliation(); });
   nodes.link.addEventListener("click", () => {
     try {
       window.Twitch?.ext?.actions?.requestIdShare();
-      message(nodes.status, "Confirm Twitch identity sharing, then return to vote.");
+      message(nodes.status, "Confirm identity sharing, then return to vote.");
       nodes.status.hidden = false;
     } catch {
-      setError("Twitch identity linking is not available right now.");
+      setError("Identity linking is unavailable right now.");
     }
   });
   window.addEventListener("pagehide", stopPolling, { once: true });

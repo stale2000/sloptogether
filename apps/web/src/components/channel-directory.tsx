@@ -35,15 +35,15 @@ export function ChannelDirectory() {
   return (
     <div className="directory-section" id="channels">
       <div className="directory-heading">
-        <div><span className="eyebrow">CHANNELS</span><h2>Stories in progress</h2><p>Drop into a channel, shape the next scene, and watch the story move.</p></div>
+        <div><span className="eyebrow">CHANNELS</span><h2>Channels</h2></div>
         {state === "ready" && channels.length > 0 ? (
           <label className="search-wrap"><span className="visually-hidden">Find a channel</span><span className="search-icon">⌕</span><input className="search-box" value={filter} onChange={(event) => setFilter(event.currentTarget.value)} placeholder="Find a channel" /></label>
         ) : null}
       </div>
       {state === "loading" ? <div className="directory-grid" aria-label="Loading channels">{[0, 1, 2].map((i) => <div className="channel-discovery-card discovery-loading" key={i}><div className="loading-pulse"/><div className="loading-pulse short"/><div className="loading-pulse"/></div>)}</div> : null}
-      {state === "error" ? <div className="empty-state directory-empty"><span className="empty-glyph">⌁</span><strong>Channels aren&apos;t available yet.</strong><p>{error}</p><a className="button secondary small" href="#how-it-works">See how it works</a></div> : null}
+      {state === "error" ? <div className="empty-state directory-empty"><strong>Channels unavailable.</strong><p>{error}</p><button className="button secondary small" type="button" onClick={() => window.location.reload()}>Retry</button></div> : null}
       {state === "ready" && channels.length === 0 ? <section className="empty-state directory-empty channel-welcome">
-        <div><span className="channel-welcome-label">YOUR CHANNEL LOBBY</span><strong>No channels in the room yet.</strong><p>Connect your channel to open it to the community, or watch the sample story loop.</p></div>
+        <div><strong>No channels yet.</strong></div>
         <div className="channel-welcome-actions">
           {demoEnabled?<Link className="button secondary small" href="/channels/localdemo/output"><span className="play-glyph" aria-hidden="true">▶</span> Watch the 4-clip demo</Link>:null}
           <Link className="button small" href="/control">Connect Twitch <span aria-hidden="true">↗</span></Link>

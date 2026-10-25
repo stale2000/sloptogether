@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="./extension.css" />
     <!-- Twitch requires its Extension Helper before every other script. -->
     <script src="https://extension-files.twitch.tv/helper/v1/twitch-ext.min.js"></script>
-    <script defer src="./extension.js"></script>
+    <script type="module" src="./panel.js"></script>
   </head>
   <body>
     <main class="card" aria-labelledby="heading">
@@ -23,30 +23,27 @@
         <p id="turbo-prompt" class="helper"></p>
         <div id="turbo-products" class="turbo-products"></div>
         <p id="turbo-status" class="note" role="status" aria-live="polite" hidden></p>
-        <button id="turbo-link" class="secondary" type="button" hidden>Link Twitch account to use Bits</button>
+        <button id="turbo-link" class="secondary" type="button" hidden>Link account to use Bits</button>
         <button id="turbo-reconcile" class="secondary" type="button" hidden>Retry transaction check</button>
       </section>
       <section id="ballot" class="ballot" aria-label="Current scene vote" hidden>
         <div class="section-row"><h2 id="question">What happens next?</h2><span id="countdown" class="countdown"></span></div>
-        <p id="helper" class="helper">Vote for one cleared scene. You can change your vote before this round closes.</p>
+        <p id="helper" class="helper">Choose one scene.</p>
         <div id="choices" class="choices"></div>
         <button id="submit-vote" class="primary" type="button" disabled>Cast vote</button>
-        <p id="vote-note" class="note">Votes are free. Chat and this Extension share one vote per linked Twitch account.</p>
       </section>
       <section id="prompt-section" class="prompt-section" aria-label="Suggest a scene" hidden>
         <button id="prompt-toggle" class="prompt-toggle" type="button" aria-expanded="false" aria-controls="prompt-form">Suggest a scene</button>
         <div id="prompt-form" class="prompt-form" hidden>
           <label for="prompt-input">Prompt idea</label>
-          <textarea id="prompt-input" maxlength="1000" rows="3" placeholder="Describe one clear 15-second scene." aria-describedby="prompt-help"></textarea>
-          <p id="prompt-help" class="helper">Screened before review or voting.</p>
+          <textarea id="prompt-input" maxlength="1000" rows="3" placeholder="Scene prompt" aria-label="Scene prompt"></textarea>
           <button id="submit-prompt" class="primary" type="button" disabled>Submit prompt</button>
         </div>
       </section>
       <section id="subscriber-card" class="subscriber-card" aria-label="Subscriber scene update" hidden></section>
-      <section id="empty" class="empty" hidden><span aria-hidden="true">✦</span><p>Nothing to vote on yet.</p><small>Check back when this channel opens a new scene round.</small></section>
-      <button id="link-account" class="secondary" type="button" hidden>Link Twitch account to vote</button>
+      <section id="empty" class="empty" hidden><span aria-hidden="true">✦</span><p>Nothing to vote on yet.</p></section>
+      <button id="link-account" class="secondary" type="button" hidden>Link account to vote</button>
       <p id="error" class="error" role="alert" hidden></p>
-      <footer><span class="live-dot" aria-hidden="true"></span> Your vote updates the same channel poll as chat.</footer>
     </main>
   </body>
 </html>

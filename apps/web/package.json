@@ -2,8 +2,11 @@
   "name": "@sloptogether/web",
   "private": true,
   "scripts": {
+    "predev": "node ../../extension/build.mjs",
     "dev": "next dev -H 0.0.0.0",
+    "prebuild": "node ../../extension/build.mjs",
     "build": "next build",
+    "prestart": "node ../../extension/build.mjs",
     "start": "next start -H 0.0.0.0",
     "lint": "eslint src --max-warnings=0",
     "typecheck": "tsc --noEmit",
