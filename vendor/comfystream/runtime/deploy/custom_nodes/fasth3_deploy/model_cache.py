@@ -111,9 +111,17 @@ def comfyui_core_revision(comfyui_module_file: str | Path | None = None, *, runn
 
     core_root = Path(comfyui_module_file).resolve().parent.parent
     run = subprocess.run if runner is None else runner
+    git = ["git"]
+    # The Fal image checks out this pinned repository as root, then runs
+    # ComfyUI as an unprivileged user. Git's ownership guard otherwise rejects
+    # the trusted, root-owned checkout. Keep the exception pinned to that
+    # exact image path; local and user-controlled repositories remain guarded.
+    if core_root == Path("/opt/ComfyUI"):
+        git.extend(["-c", "safe.directory=/opt/ComfyUI"])
+    git.extend(["-C", str(core_root)])
     try:
         status = run(
-            ["git", "-C", str(core_root), "status", "--porcelain", "-z",
+            [*git, "status", "--porcelain", "-z",
              "--untracked-files=all", "--ignored=traditional", "--", ".",
              *[f":(exclude){directory}" for directory in (
                  "models", "output", "input", "temp", "user", "custom_nodes",
@@ -132,7 +140,7 @@ def comfyui_core_revision(comfyui_module_file: str | Path | None = None, *, runn
             if entry[:2] not in ("??", "!!") or Path(entry[3:]).suffix == ".py":
                 raise RuntimeError("ComfyUI core source is modified")
         result = run(
-            ["git", "-C", str(core_root), "rev-parse", "HEAD"],
+            [*git, "rev-parse", "HEAD"],
             capture_output=True, text=True, check=False, timeout=3,
         )
     except RuntimeError:

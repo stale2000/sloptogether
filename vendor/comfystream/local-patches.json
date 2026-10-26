@@ -78,6 +78,20 @@
         "output_quality": "not-measured",
         "latency": "not-measured"
       }
+    },
+    {
+      "id": "sloptogether-comfy-root-owned-git-identity-v1",
+      "purpose": "Allow the pinned root-owned Fal ComfyUI checkout to be inspected by its non-root runtime user without broadening Git trust for other repositories.",
+      "files": [
+        {
+          "path": "runtime/deploy/custom_nodes/fasth3_deploy/model_cache.py",
+          "upstream_sha256": "da79935baa55e0f6c3993f7ebbbcdbc6b38390a83795772fde36a9bddb7e0053",
+          "patched_sha256": "c8f07bba901741387ce158e3144e1a07fb88a00c3ef04fac600169b33ae999f8"
+        }
+      ],
+      "qualification": {
+        "fal_generation": "pending-live-retest"
+      }
     }
   ]
 }
