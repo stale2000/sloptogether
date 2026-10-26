@@ -24,7 +24,9 @@ function configuration(){
 function r2(){
   const c=configuration();
   client??=new S3Client({region:c.localEndpoint?"us-east-1":"auto",endpoint:c.localEndpoint??`https://${c.account}.r2.cloudflarestorage.com`,
-    forcePathStyle:Boolean(c.localEndpoint),credentials:{accessKeyId:c.keyId,secretAccessKey:c.secret}});
+    // R2's S3 API is hosted at the account endpoint. Keep the bucket in the
+    // request path so signed URLs stay on the allowed account hostname.
+    forcePathStyle:true,credentials:{accessKeyId:c.keyId,secretAccessKey:c.secret}});
   return client;
 }
 

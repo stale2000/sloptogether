@@ -12,14 +12,16 @@ afterEach(() => {
 });
 
 describe("signedDirectUploadUrl", () => {
-  it("binds the private video PUT to the reserved byte size", async () => {
-    process.env.R2_ACCOUNT_ID = "local-dev";
+  it("uses the R2 account endpoint and binds PUTs to the reserved byte size", async () => {
+    process.env.R2_ACCOUNT_ID = "test-account";
     process.env.R2_ACCESS_KEY_ID = "test-access-key";
     process.env.R2_SECRET_ACCESS_KEY = "test-secret-key";
-    process.env.R2_BUCKET_NAME = "sloptogether";
-    process.env.SLOPTOGETHER_LOCAL_S3_ENDPOINT = "http://127.0.0.1:9000";
+    process.env.R2_BUCKET_NAME = "sloptogether-media";
+    delete process.env.SLOPTOGETHER_LOCAL_S3_ENDPOINT;
 
     const signed = new URL(await signedDirectUploadUrl("incoming/123/attempt/output.mp4", "video/mp4", 1234));
+    expect(signed.hostname).toBe("test-account.r2.cloudflarestorage.com");
+    expect(signed.pathname).toBe("/sloptogether-media/incoming/123/attempt/output.mp4");
     expect(signed.searchParams.get("X-Amz-SignedHeaders")).toContain("content-length");
   });
 
