@@ -4,11 +4,12 @@ import { transaction } from "./db";
 import { ApiError, assertSameOrigin, readJson } from "./http";
 import { findChannel, isBanned, requireStreamerController } from "./channels";
 import { requestPrincipal, type RequestPrincipal } from "./principals";
+import { signedPrivateReadUrl } from "./storage";
 
 type Packet = {
   item_id:string; item_kind:"story"|"subscriber_interrupt"; segment_id:string|null; interrupt_id:string|null;
   interrupt_state:string|null;
-  source_pts_start:string|null; item_order:string; media_asset_id:string; duration_seconds:string;
+  source_pts_start:string|null; item_order:string; media_asset_id:string; media_storage_key:string; duration_seconds:string;
   discontinuity_before:boolean; item_discontinuity:boolean; media_sequence:number;
 };
 type Snapshot = {epoch:number;revision:number;packets:Packet[]};
@@ -31,7 +32,7 @@ async function snapshot(channelId:string):Promise<Snapshot>{
     // a future schema version can bind each packet to its immutable init map.
     const packets=await client.query<Packet>(
       `SELECT pi.id AS item_id,pi.item_kind,pi.segment_id,pi.interrupt_id,ir.program_state AS interrupt_state,pi.source_pts_start,
-          pi.item_order,ms.media_asset_id,ms.duration_seconds,ms.discontinuity_before,
+          pi.item_order,ms.media_asset_id,media.storage_key AS media_storage_key,ms.duration_seconds,ms.discontinuity_before,
           pi.discontinuity_before AS item_discontinuity,ms.media_sequence
        FROM sloptogether.program_items pi
        LEFT JOIN sloptogether.interrupt_requests ir ON ir.id=pi.interrupt_id
@@ -106,10 +107,16 @@ export async function getProgramPlaylist(locator:string,expectedEpoch?:number){
   if(!program.packets.length)throw new ApiError(404,"continuous_program_not_ready","The continuous program is waiting for validated HLS media.");
   const target=Math.max(1,...program.packets.map(packet=>Math.ceil(Number(packet.duration_seconds))));
   const lines=["#EXTM3U","#EXT-X-VERSION:3",`#EXT-X-TARGETDURATION:${target}`,"#EXT-X-MEDIA-SEQUENCE:0","#EXT-X-PLAYLIST-TYPE:EVENT"];
+  const segmentUrls=new Map<string,string>();
   let previousItem:string|undefined;
   for(const packet of program.packets){
     if(packet.discontinuity_before||(previousItem!==undefined&&packet.item_id!==previousItem)||packet.item_discontinuity&&packet.item_id!==previousItem)lines.push("#EXT-X-DISCONTINUITY");
-    lines.push(`#EXTINF:${Number(packet.duration_seconds).toFixed(6)},`,`/sloptogether/api/v1/media/${encodeURIComponent(packet.media_asset_id)}`);
+    let segmentUrl=segmentUrls.get(packet.media_asset_id);
+    if(!segmentUrl){segmentUrl=await signedPrivateReadUrl(packet.media_storage_key,600);segmentUrls.set(packet.media_asset_id,segmentUrl);}
+    // Point HLS directly at R2 so the browser's cross-origin request carries
+    // its Origin header. A same-origin 302 redirect can strip it before R2's
+    // bucket CORS policy is evaluated.
+    lines.push(`#EXTINF:${Number(packet.duration_seconds).toFixed(6)},`,segmentUrl);
     previousItem=packet.item_id;
   }
   return {body:lines.join("\n")+"\n",epoch:program.epoch,manifestRevision:program.revision};
