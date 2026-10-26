@@ -3,6 +3,22 @@ import { createHmac } from "node:crypto";
 import test from "node:test";
 import gateway from "../src/index.ts";
 
+globalThis.FixedLengthStream ??= class extends TransformStream {
+  constructor(length) {
+    let written = 0;
+    super({
+      transform(chunk, controller) {
+        written += chunk.byteLength;
+        if (written > length) throw new Error("fixed_length_stream_too_long");
+        controller.enqueue(chunk);
+      },
+      flush() {
+        if (written !== length) throw new Error("fixed_length_stream_length_mismatch");
+      },
+    });
+  }
+};
+
 const secret="upload-ticket-secret-longer-than-32-characters";
 const uploadId="123e4567-e89b-42d3-a456-426614174000";
 
@@ -17,12 +33,13 @@ test("native uploads need a valid ticket and accept a missing Content-Length",as
   const ticket=signedTicket(payload);
   let written=0;
   const originalFetch=globalThis.fetch;
-  globalThis.fetch=async (_url,options)=>{
+  globalThis.fetch=async (url,options)=>{
+    assert.equal(String(url),`https://sloptogether.vercel.app/sloptogether/api/v1/internal/uploads/${uploadId}/authorize`);
     assert.equal(options.headers["x-upload-gateway-secret"],"gateway-secret");
     return Response.json({authorized:true,...payload});
   };
   try{
-    const env={APP_ORIGIN:"https://www.clips.gg",UPLOAD_TICKET_KEY:secret,UPLOAD_GATEWAY_SECRET:"gateway-secret",MEDIA_BUCKET:{head:async()=>null,delete:async()=>assert.fail("valid streamed upload must stay stored"),put:async(_key,body)=>{for await(const chunk of body)written+=chunk.length;return {}}}};
+    const env={APP_ORIGIN:"https://sloptogether.vercel.app",UPLOAD_TICKET_KEY:secret,UPLOAD_GATEWAY_SECRET:"gateway-secret",MEDIA_BUCKET:{head:async()=>null,delete:async()=>assert.fail("valid streamed upload must stay stored"),put:async(_key,body)=>{for await(const chunk of body)written+=chunk.length;return {}}}};
     const request=new Request(`https://uploads.example/uploads/${uploadId}?ticket=${encodeURIComponent(ticket)}`,{method:"PUT",headers:{"Content-Type":"video/mp4"},body:bytes});
     assert.equal(request.headers.get("origin"),null);
     assert.equal(request.headers.get("content-length"),null);
@@ -43,4 +60,41 @@ test("browser upload CORS uses Clips.gg's canonical www origin",async()=>{
   assert.equal(allowed.headers.get("access-control-allow-origin"),"https://www.clips.gg");
   const apex=await gateway.fetch(new Request(`https://uploads.example/uploads/${uploadId}`,{method:"PUT",headers:{Origin:"https://clips.gg"}}),{});
   assert.equal(apex.status,403);
+});
+
+test("worker media tickets stream only the exact channel-scoped R2 object",async()=>{
+  const bytes=new Uint8Array([1,2,3,4]);
+  const payload={version:1,purpose:"worker_asset_read",channelId:"123",leaseId:uploadId,assetId:"423e4567-e89b-42d3-a456-426614174000",fence:7,
+    storageKey:"private/123/images/asset/frame.png",contentType:"image/png",byteSize:bytes.length,expiresAt:new Date(Date.now()+60000).toISOString()};
+  let requestedKey="";
+  const env={UPLOAD_TICKET_KEY:secret,MEDIA_BUCKET:{get:async key=>{requestedKey=key;return {body:new Response(bytes).body,size:bytes.length,etag:"frame-etag"}}}};
+  const response=await gateway.fetch(new Request("https://uploads.clips.gg/worker-media",{headers:{"X-Worker-Artifact-Ticket":signedTicket(payload)}}),env);
+  assert.equal(response.status,200);
+  assert.equal(requestedKey,payload.storageKey);
+  assert.equal(response.headers.get("content-type"),"image/png");
+  assert.equal(response.headers.get("content-length"),String(bytes.length));
+  assert.equal(response.headers.get("cache-control"),"private, no-store");
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()),bytes);
+});
+
+test("worker media reads reject expired, altered and cross-channel tickets before R2",async()=>{
+  let reads=0;
+  const env={UPLOAD_TICKET_KEY:secret,MEDIA_BUCKET:{get:async()=>{reads++;return null}}};
+  const base={version:1,purpose:"worker_asset_read",channelId:"123",leaseId:uploadId,assetId:"423e4567-e89b-42d3-a456-426614174000",fence:7,
+    storageKey:"private/123/images/asset/frame.png",contentType:"image/png",byteSize:4,expiresAt:new Date(Date.now()+60000).toISOString()};
+  const expired=await gateway.fetch(new Request("https://uploads.clips.gg/worker-media",{headers:{"X-Worker-Artifact-Ticket":signedTicket({...base,expiresAt:new Date(Date.now()-1000).toISOString()})}}),env);
+  const crossChannel=await gateway.fetch(new Request("https://uploads.clips.gg/worker-media",{headers:{"X-Worker-Artifact-Ticket":signedTicket({...base,storageKey:"private/456/images/asset/frame.png"})}}),env);
+  const tampered=signedTicket(base).replace(/.$/,"x");
+  const altered=await gateway.fetch(new Request("https://uploads.clips.gg/worker-media",{headers:{"X-Worker-Artifact-Ticket":tampered}}),env);
+  assert.deepEqual([expired.status,crossChannel.status,altered.status],[403,403,403]);
+  assert.equal(reads,0);
+});
+
+test("worker media reads fail closed when the stored object size changed",async()=>{
+  const payload={version:1,purpose:"worker_asset_read",channelId:"123",leaseId:uploadId,assetId:"423e4567-e89b-42d3-a456-426614174000",fence:7,
+    storageKey:"incoming/123/attempt/output.mp4",contentType:"video/mp4",byteSize:4,expiresAt:new Date(Date.now()+60000).toISOString()};
+  const env={UPLOAD_TICKET_KEY:secret,MEDIA_BUCKET:{get:async()=>({body:new Response(new Uint8Array([1,2,3,4,5])).body,size:5,etag:"unexpected"})}};
+  const response=await gateway.fetch(new Request("https://uploads.clips.gg/worker-media",{headers:{"X-Worker-Artifact-Ticket":signedTicket(payload)}}),env);
+  assert.equal(response.status,409);
+  assert.deepEqual(await response.json(),{error:"worker_media_size_changed"});
 });

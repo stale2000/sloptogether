@@ -2,19 +2,19 @@ import { createHash } from "node:crypto";
 import { compileH3StoryPrompt } from "@sloptogether/contracts";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
-const mocks=vi.hoisted(()=>({transaction:vi.fn(),query:vi.fn(),findChannel:vi.fn(),isBanned:vi.fn(),canContribute:vi.fn(),requestPrincipal:vi.fn(),signedPrivateReadUrl:vi.fn(),screenPromptAndImages:vi.fn(),hmacKeySecret:vi.fn(),randomSecret:vi.fn()}));
+const mocks=vi.hoisted(()=>({transaction:vi.fn(),query:vi.fn(),findChannel:vi.fn(),isBanned:vi.fn(),canContribute:vi.fn(),requestPrincipal:vi.fn(),signedPrivateReadUrl:vi.fn(),screenPromptAndImages:vi.fn(),hmacKeySecret:vi.fn(),randomSecret:vi.fn(),signUploadTicket:vi.fn()}));
 vi.mock("server-only",()=>({}));
 vi.mock("./db",()=>({transaction:mocks.transaction,query:mocks.query}));
 vi.mock("./channels",()=>({findChannel:mocks.findChannel,isBanned:mocks.isBanned,canContribute:mocks.canContribute,requireStreamerController:vi.fn()}));
 vi.mock("./principals",()=>({requestPrincipal:mocks.requestPrincipal,requireKeyScope:(grant:{scopes:string[]},scope:string)=>{if(!grant.scopes.includes(scope))throw new Error("scope_denied")}}));
 vi.mock("./session",()=>({currentSession:vi.fn(),sessionOverview:vi.fn()}));
 vi.mock("./twitch-subs",()=>({getModeratedChannelIds:vi.fn()}));
-vi.mock("./crypto",()=>({hmacKeySecret:mocks.hmacKeySecret,randomSecret:mocks.randomSecret}));
+vi.mock("./crypto",()=>({hmacKeySecret:mocks.hmacKeySecret,randomSecret:mocks.randomSecret,signUploadTicket:mocks.signUploadTicket}));
 vi.mock("./storage",()=>({signedPrivateReadUrl:mocks.signedPrivateReadUrl}));
 vi.mock("./preflight",()=>({screenPromptAndImages:mocks.screenPromptAndImages}));
 vi.mock("./proxy-client-ip",()=>({trustedProxyClientIp:vi.fn()}));
 
-import { claimStoryProducer,claimWorkerLease,createPairing,submitStoryProposal } from "./worker-service";
+import { claimStoryProducer,claimWorkerLease,createPairing,downloadWorkerAsset,submitStoryProposal } from "./worker-service";
 
 const channel={twitch_channel_id:"123",owner_twitch_user_id:"42",policy_revision:7};
 const grant={keyId:"producer-key",issuingTwitchUserId:"42",channelId:"123",scopes:["story:write_future"],roles:["story-producer"],recipes:[],paired:false,platform:null};
@@ -134,6 +134,36 @@ describe("worker render lease claims",()=>{
 
     await expect(claimWorkerLease(new Request("https://clips.gg/sloptogether/api/v1/workers/leases?role=upscale",{method:"POST"})))
       .resolves.toMatchObject({status:"leased",job:{stage:"upscale",requireAudio:true}});
+  });
+});
+
+describe("worker private media grants",()=>{
+  it("issues a short signed ticket only after checking the live lease and channel-scoped asset",async()=>{
+    const leaseId="00000000-0000-4000-8000-000000000071";
+    const assetId="00000000-0000-4000-8000-000000000072";
+    const now=Date.now();
+    mocks.requestPrincipal.mockResolvedValue({kind:"worker-key",worker:{keyId:"generation-key",issuingTwitchUserId:"42",channelId:"123",scopes:["worker:generation"],roles:["generation"],recipes:[],paired:false}});
+    mocks.query.mockResolvedValue({rows:[{fence:"7",attempt_state:"running",lease_expires_at:new Date(now+60_000),deadline:new Date(now+120_000),channel_id:"123",stage:"video_base",key_id:"generation-key",binding_role:"generation",binding_revoked_at:null,requested_by:"42",interrupt_actor_id:null,parent_asset_id:null,start_asset_id:assetId,end_asset_id:null,asset_id:assetId,storage_key:"private/123/images/asset/frame.png",content_type:"image/png",byte_size:"141261",status:"approved",screen_clear:true}],rowCount:1});
+    mocks.isBanned.mockResolvedValue(false);
+    mocks.signUploadTicket.mockReturnValue("signed-short-lived-ticket");
+    vi.stubEnv("SLOPTOGETHER_UPLOAD_WORKER_ORIGIN","https://uploads.clips.gg");
+
+    const response=await downloadWorkerAsset(leaseId,assetId,new Request(`https://www.clips.gg/sloptogether/api/v1/workers/leases/${leaseId}/asset/${assetId}`,{headers:{Authorization:"SlopWorker test", "x-lease-fence":"7"}}));
+
+    expect(response).toEqual({url:"https://uploads.clips.gg/worker-media",ticket:"signed-short-lived-ticket"});
+    expect(mocks.signUploadTicket).toHaveBeenCalledWith(expect.objectContaining({version:1,purpose:"worker_asset_read",channelId:"123",leaseId,assetId,fence:7,
+      storageKey:"private/123/images/asset/frame.png",contentType:"image/png",byteSize:141261}));
+    const ticket=mocks.signUploadTicket.mock.calls[0]![0] as {expiresAt:string};
+    expect(Date.parse(ticket.expiresAt)).toBeGreaterThan(Date.now());
+    expect(Date.parse(ticket.expiresAt)).toBeLessThanOrEqual(Date.now()+60_000);
+  });
+
+  it("rejects a gateway override outside the pinned upload host",async()=>{
+    vi.stubEnv("SLOPTOGETHER_UPLOAD_WORKER_ORIGIN","https://attacker.example");
+    await expect(downloadWorkerAsset("00000000-0000-4000-8000-000000000071","00000000-0000-4000-8000-000000000072",
+      new Request("https://www.clips.gg/sloptogether/api/v1/workers/leases/lease/asset/asset",{headers:{Authorization:"SlopWorker test", "x-lease-fence":"7"}})))
+      .rejects.toMatchObject({code:"upload_gateway_not_configured"});
+    expect(mocks.signUploadTicket).not.toHaveBeenCalled();
   });
 });
 

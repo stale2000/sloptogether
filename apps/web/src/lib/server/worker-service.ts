@@ -6,7 +6,7 @@ import { currentSession } from "./session";
 import { requestPrincipal, requireKeyScope, type WorkerGrant } from "./principals";
 import { canContribute, findChannel, isBanned, requireStreamerController, type ChannelRow } from "./channels";
 import { getModeratedChannelIds } from "./twitch-subs";
-import { hmacKeySecret, randomSecret } from "./crypto";
+import { hmacKeySecret, randomSecret, signUploadTicket } from "./crypto";
 import { signedPrivateReadUrl } from "./storage";
 import { screenPromptAndImages, type InputPreflightResult } from "./preflight";
 import { trustedProxyClientIp } from "./proxy-client-ip";
@@ -379,16 +379,25 @@ async function reopenFailedRevision(client:import("pg").PoolClient,revisionId:st
       AND NOT EXISTS(SELECT 1 FROM sloptogether.program_items pi WHERE pi.segment_id=s.id AND pi.committed_at IS NOT NULL)`,[revisionId]);
 }
 
+function workerMediaGatewayUrl(){
+  const configured=process.env.SLOPTOGETHER_UPLOAD_WORKER_ORIGIN??process.env.R2_UPLOAD_WORKER_ORIGIN;
+  if(!configured)throw new ApiError(503,"upload_gateway_not_configured");
+  let origin:URL;try{origin=new URL(configured)}catch{throw new ApiError(503,"upload_gateway_not_configured");}
+  if(origin.protocol!=="https:"||origin.hostname!=="uploads.clips.gg"||origin.username||origin.password
+    ||origin.pathname!=="/"&&origin.pathname!==""||origin.search||origin.hash)throw new ApiError(503,"upload_gateway_not_configured");
+  return `${origin.origin}/worker-media`;
+}
+
 export async function downloadWorkerAsset(leaseId:string,assetId:string,request:Request){
   const principal=await requestPrincipal(request);if(!principal||principal.kind!=="worker-key")throw new ApiError(401,"worker_key_required");
   const grant=principal.worker;
   const fenceRaw=request.headers.get("x-lease-fence");const fence=Number(fenceRaw);
   if(!fenceRaw||!Number.isSafeInteger(fence)||fence<1)throw new ApiError(400,"lease_fence_required");
-  const result=await query<{fence:string;attempt_state:string;lease_expires_at:Date|null;deadline:Date|null;channel_id:string;stage:string;key_id:string|null;binding_role:string|null;binding_revoked_at:Date|null;requested_by:string;interrupt_actor_id:string|null;parent_asset_id:string|null;start_asset_id:string|null;end_asset_id:string|null;asset_id:string;storage_key:string;content_type:string;status:string;screen_clear:boolean}>(
+  const result=await query<{fence:string;attempt_state:string;lease_expires_at:Date|null;deadline:Date|null;channel_id:string;stage:string;key_id:string|null;binding_role:string|null;binding_revoked_at:Date|null;requested_by:string;interrupt_actor_id:string|null;parent_asset_id:string|null;start_asset_id:string|null;end_asset_id:string|null;asset_id:string;storage_key:string;content_type:string;byte_size:string;status:string;screen_clear:boolean}>(
     `SELECT a.fence,a.state AS attempt_state,a.lease_expires_at,a.attempt_deadline_at AS deadline,j.twitch_channel_id AS channel_id,j.stage,
       te.key_id,te.execution_role AS binding_role,te.revoked_at AS binding_revoked_at,j.requested_by,j.parent_asset_id,
       (SELECT se.twitch_actor_id FROM sloptogether.interrupt_requests ir JOIN sloptogether.subscription_events se ON se.id=ir.trigger_event_id WHERE ir.id=j.interrupt_id) AS interrupt_actor_id,
-      start_b.asset_id AS start_asset_id,end_b.asset_id AS end_asset_id,asset.id AS asset_id,asset.storage_key,asset.content_type,asset.status,
+      start_b.asset_id AS start_asset_id,end_b.asset_id AS end_asset_id,asset.id AS asset_id,asset.storage_key,asset.content_type,asset.byte_size,asset.status,
       EXISTS(SELECT 1 FROM sloptogether.input_screens i WHERE i.twitch_channel_id=j.twitch_channel_id AND i.effective_state='clear'
         AND (i.expires_at IS NULL OR i.expires_at>now()) AND (i.id::text=j.planning_payload->>'inputScreenId'
           OR EXISTS(SELECT 1 FROM sloptogether.proposals p WHERE p.segment_revision_id=j.segment_revision_id AND p.input_screen_id=i.id))) AS screen_clear
@@ -406,9 +415,12 @@ export async function downloadWorkerAsset(leaseId:string,assetId:string,request:
   if(await isBanned(row.channel_id,grant.issuingTwitchUserId)||await isBanned(row.channel_id,row.requested_by)||(row.interrupt_actor_id&&await isBanned(row.channel_id,row.interrupt_actor_id)))throw new ApiError(403,"channel_ban_active");
   if(!row.screen_clear)throw new ApiError(409,"worker_input_not_cleared");
   const allowed=row.stage==="video_base"?(assetId===row.start_asset_id||assetId===row.end_asset_id):assetId===row.parent_asset_id;
-  if(!allowed||!row.content_type||!['approved','published'].includes(row.status))throw new ApiError(403,"worker_asset_not_in_attempt");
+  if(!allowed||!row.content_type||!['image/png','image/jpeg','image/webp','video/mp4'].includes(row.content_type)||!['approved','published'].includes(row.status))throw new ApiError(403,"worker_asset_not_in_attempt");
   if(principal.worker.paired&&!await canContribute(await findChannel(row.channel_id),principal))throw new ApiError(403,"contribution_not_allowed");
-  return {url:await signedPrivateReadUrl(row.storage_key,60),contentType:row.content_type};
+  const byteSize=Number(row.byte_size);if(!Number.isSafeInteger(byteSize)||byteSize<1||byteSize>128*1024*1024)throw new ApiError(413,"worker_asset_size_invalid");
+  const ticket=signUploadTicket({version:1,purpose:"worker_asset_read",channelId:row.channel_id,leaseId,assetId,fence,storageKey:row.storage_key,
+    contentType:row.content_type,byteSize,expiresAt:new Date(Date.now()+60_000).toISOString()});
+  return {url:workerMediaGatewayUrl(),ticket};
 }
 
 export async function failWorkerLease(leaseId:string,request:Request){

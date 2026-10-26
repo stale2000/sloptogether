@@ -122,7 +122,7 @@ async function dispatch(request:NextRequest,path:string[]){
   if(p[0]==="workers"&&p[1]==="leases"&&p[2]&&p[3]==="heartbeat"&&method==="POST")return jsonOk(await import("@/lib/server/worker-service").then(m=>m.heartbeatWorkerLease(p[2]!,request)));
   if(p[0]==="workers"&&p[1]==="leases"&&p[2]&&p[3]==="asset"&&p[4]&&p.length===5&&method==="GET"){
     const asset=await downloadWorkerAsset(p[2]!,p[4]!,request);
-    return NextResponse.redirect(asset.url,302);
+    return jsonOk(asset);
   }
   if(p[0]==="workers"&&p[1]==="leases"&&p[2]&&p[3]==="fail"&&p.length===4&&method==="POST")return jsonOk(await failWorkerLease(p[2]!,request));
   if(p[0]==="workers"&&p[1]==="leases"&&p[2]&&p[3]==="uploads"&&method==="POST")return jsonOk(await issueAssetUpload(p[2]!,request),{status:201});

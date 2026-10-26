@@ -6,12 +6,17 @@ interface Env {
 }
 
 interface R2Bucket {
+  get(key: string): Promise<{ body: ReadableStream<Uint8Array>; size: number; etag: string } | null>;
   head(key: string): Promise<unknown | null>;
   delete(key: string): Promise<void>;
   put(key: string, value: ReadableStream<Uint8Array>, options: {
     onlyIf: { etagDoesNotMatch: string };
     httpMetadata: { contentType: string };
   }): Promise<unknown | null>;
+}
+
+declare class FixedLengthStream extends TransformStream<Uint8Array, Uint8Array> {
+  constructor(length: number);
 }
 
 interface UploadTicket {
@@ -21,6 +26,19 @@ interface UploadTicket {
   storageKey: string;
   contentType: string;
   maxBytes: number;
+  expiresAt: string;
+}
+
+interface WorkerMediaTicket {
+  version: 1;
+  purpose: "worker_asset_read";
+  channelId: string;
+  leaseId: string;
+  assetId: string;
+  fence: number;
+  storageKey: string;
+  contentType: "image/png" | "image/jpeg" | "image/webp" | "video/mp4";
+  byteSize: number;
   expiresAt: string;
 }
 
@@ -48,7 +66,7 @@ function decodeBase64url(value: string): Uint8Array {
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
-async function verifyTicket(value: string, secret: string): Promise<UploadTicket> {
+async function verifySignedPayload(value: string, secret: string): Promise<Record<string, unknown>> {
   if (value.length > MAX_TICKET_CHARS || !secret || secret.length < 32) throw new Error("ticket_invalid");
   const separator = value.indexOf(".");
   if (separator < 1 || separator !== value.lastIndexOf(".")) throw new Error("ticket_invalid");
@@ -59,7 +77,13 @@ async function verifyTicket(value: string, secret: string): Promise<UploadTicket
   new Uint8Array(signatureBuffer).set(supplied);
   if (!await crypto.subtle.verify("HMAC", key, signatureBuffer, encoder.encode(encoded))) throw new Error("ticket_invalid");
   const bytes = decodeBase64url(encoded);
-  const ticket = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as UploadTicket;
+  const ticket = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
+  if (!ticket || typeof ticket !== "object" || Array.isArray(ticket)) throw new Error("ticket_invalid");
+  return ticket as Record<string, unknown>;
+}
+
+async function verifyTicket(value: string, secret: string): Promise<UploadTicket> {
+  const ticket = await verifySignedPayload(value, secret) as unknown as UploadTicket;
   if (!ticket || ticket.version !== 1 || !/^[0-9a-f-]{36}$/i.test(ticket.uploadId)
     || !/^[0-9]{1,32}$/.test(ticket.channelId) || !ticket.storageKey.startsWith(`incoming/${ticket.channelId}/`)
     || !Number.isSafeInteger(ticket.maxBytes) || ticket.maxBytes < 1 || ticket.maxBytes > 128 * 1024 * 1024
@@ -70,16 +94,72 @@ async function verifyTicket(value: string, secret: string): Promise<UploadTicket
   return ticket;
 }
 
+async function verifyWorkerMediaTicket(value: string, secret: string): Promise<WorkerMediaTicket> {
+  const ticket = await verifySignedPayload(value, secret) as unknown as WorkerMediaTicket;
+  const prefix = `private/${ticket.channelId}/`;
+  const incomingPrefix = `incoming/${ticket.channelId}/`;
+  const validKey = typeof ticket.storageKey === "string" && ticket.storageKey.length <= 1024
+    && (ticket.storageKey.startsWith(prefix) || ticket.storageKey.startsWith(incomingPrefix))
+    && !ticket.storageKey.includes("..") && !ticket.storageKey.includes("\\") && !/[\0-\x1f\x7f]/.test(ticket.storageKey);
+  const expiresAt = Date.parse(ticket.expiresAt);
+  if (ticket.version !== 1 || ticket.purpose !== "worker_asset_read"
+    || !/^[0-9]{1,32}$/.test(ticket.channelId)
+    || !/^[0-9a-f-]{36}$/i.test(ticket.leaseId) || !/^[0-9a-f-]{36}$/i.test(ticket.assetId)
+    || !Number.isSafeInteger(ticket.fence) || ticket.fence < 1 || !validKey
+    || !["image/png", "image/jpeg", "image/webp", "video/mp4"].includes(ticket.contentType)
+    || !Number.isSafeInteger(ticket.byteSize) || ticket.byteSize < 1 || ticket.byteSize > 128 * 1024 * 1024
+    || !Number.isFinite(expiresAt) || expiresAt <= Date.now() || expiresAt > Date.now() + 2 * 60 * 1000) {
+    throw new Error("worker_media_ticket_invalid");
+  }
+  return ticket;
+}
+
+async function serveWorkerMedia(request: Request, env: Env): Promise<Response> {
+  if (request.headers.has("origin") || new URL(request.url).search) return response(400, { error: "worker_media_request_invalid" }, null);
+  const value = request.headers.get("x-worker-artifact-ticket") ?? "";
+  let ticket: WorkerMediaTicket;
+  try { ticket = await verifyWorkerMediaTicket(value, env.UPLOAD_TICKET_KEY); }
+  catch { return response(403, { error: "worker_media_ticket_invalid" }, null); }
+  let object: Awaited<ReturnType<R2Bucket["get"]>>;
+  try { object = await env.MEDIA_BUCKET.get(ticket.storageKey); }
+  catch { return response(502, { error: "worker_media_read_failed" }, null); }
+  if (!object) return response(404, { error: "worker_media_not_found" }, null);
+  if (object.size !== ticket.byteSize) return response(409, { error: "worker_media_size_changed" }, null);
+  const headers = new Headers({
+    "Cache-Control": "private, no-store",
+    "Content-Length": String(object.size),
+    "Content-Type": ticket.contentType,
+    "X-Content-Type-Options": "nosniff",
+  });
+  return new Response(object.body, { status: 200, headers });
+}
+
 async function authorizeUpload(env: Env, uploadId: string): Promise<{ storageKey: string; maxBytes: number; contentType: string; expiresAt: string }> {
   const origin = new URL(env.APP_ORIGIN);
   if (origin.protocol !== "https:" || origin.username || origin.password || !["", "/"].includes(origin.pathname) || origin.search || origin.hash) throw new Error("app_origin_invalid");
-  const response = await fetch(`${origin.origin}/sloptogether/api/v1/internal/uploads/${encodeURIComponent(uploadId)}/authorize`, {
-    method: "POST",
-    headers: { "x-upload-gateway-secret": env.UPLOAD_GATEWAY_SECRET, Accept: "application/json" },
-    signal: AbortSignal.timeout(5000),
-    redirect: "error",
-  });
-  if (!response.ok) throw new Error("upload_capability_inactive");
+  let response: Response;
+  try {
+    response = await fetch(`${origin.origin}/sloptogether/api/v1/internal/uploads/${encodeURIComponent(uploadId)}/authorize`, {
+      method: "POST",
+      headers: { "x-upload-gateway-secret": env.UPLOAD_GATEWAY_SECRET, Accept: "application/json" },
+      signal: AbortSignal.timeout(5000),
+      redirect: "manual",
+    });
+  } catch (error) {
+    const cause = error instanceof Error && error.cause instanceof Error ? error.cause : null;
+    console.error(
+      "upload_authorization_fetch_failed",
+      error instanceof Error ? error.name : "unknown",
+      error instanceof Error ? error.message : "",
+      cause?.name ?? "",
+      cause?.message ?? "",
+    );
+    throw error;
+  }
+  if (!response.ok) {
+    console.error("upload_authorization_http_status", response.status);
+    throw new Error("upload_capability_inactive");
+  }
   const result = await response.json() as { authorized?: boolean; storageKey?: string; maxBytes?: number; contentType?: string; expiresAt?: string };
   if (result.authorized !== true || typeof result.storageKey !== "string" || !Number.isSafeInteger(result.maxBytes)
     || typeof result.contentType !== "string" || typeof result.expiresAt !== "string") throw new Error("upload_authorization_invalid");
@@ -91,8 +171,9 @@ export default {
     const origin = request.headers.get("origin");
     if (request.method === "OPTIONS") return response(204, null, origin);
     if (origin !== null && origin !== "https://www.clips.gg") return response(403, { error: "origin_not_allowed" }, null);
-    if (request.method !== "PUT") return response(405, { error: "method_not_allowed" }, origin);
     const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/worker-media") return serveWorkerMedia(request, env);
+    if (request.method !== "PUT") return response(405, { error: "method_not_allowed" }, origin);
     const match = /^\/uploads\/([0-9a-f-]{36})$/i.exec(url.pathname);
     const ticketValue = url.searchParams.get("ticket");
     if (!match || !ticketValue || url.searchParams.size !== 1) return response(400, { error: "upload_ticket_required" }, origin);
@@ -116,13 +197,14 @@ export default {
     if (await env.MEDIA_BUCKET.head(grant.storageKey)) return response(409, { error: "upload_already_written" }, origin);
 
     let total = 0;
-    const bounded = request.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    const counted = request.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
         total += chunk.byteLength;
         if (total > grant.maxBytes) throw new Error("upload_too_large");
         controller.enqueue(chunk);
       },
     }));
+    const bounded = counted.pipeThrough(new FixedLengthStream(grant.maxBytes));
     try {
       const stored = await env.MEDIA_BUCKET.put(grant.storageKey, bounded, {
         onlyIf: { etagDoesNotMatch: "*" },
@@ -140,6 +222,7 @@ export default {
       return response(201, { uploadId: ticket.uploadId, bytes: total }, origin);
     } catch (error) {
       const tooLarge = error instanceof Error && error.message === "upload_too_large";
+      if (!tooLarge) console.error("upload_store_failed", error instanceof Error ? error.name : "unknown", error instanceof Error ? error.message : "");
       return response(tooLarge ? 413 : 502, { error: tooLarge ? "upload_too_large" : "upload_store_failed" }, origin);
     }
   },

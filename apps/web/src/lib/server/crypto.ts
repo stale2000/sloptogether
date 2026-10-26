@@ -36,7 +36,7 @@ export function hmacKeySecret(value:string){
 
 export function signUploadTicket(payload:Record<string,unknown>):string{
   const secret=process.env.SLOPTOGETHER_UPLOAD_TICKET_KEY;
-  if(!secret||secret.length<32)throw new ApiError(503,"upload_gateway_not_configured","Direct worker uploads are not configured.");
+  if(!secret||secret.length<32)throw new ApiError(503,"upload_gateway_not_configured","Private media gateway is not configured.");
   const encoded=Buffer.from(JSON.stringify(payload)).toString("base64url");
   const signature=createHmac("sha256",secret).update(encoded).digest("base64url");
   return `${encoded}.${signature}`;
