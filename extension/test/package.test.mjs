@@ -17,14 +17,21 @@ test("packages exactly the Twitch Extension assets with CDN-safe paths", () => {
     const files = JSON.parse(execFileSync("python3.12", ["-c", [
       "import json,zipfile,sys",
       "with zipfile.ZipFile(sys.argv[1]) as z:",
-      " files={name:z.read(name).decode('utf-8') for name in ('panel.html','config.html','extension.css','panel.js','config.js','bits-state.mjs')}",
+      " files={name:z.read(name).decode('utf-8') for name in ('panel.html','mobile.html','video_component.html','video_overlay.html','config.html','extension.css','panel.js','config.js','bits-state.mjs')}",
       " files['fontBytes']=len(z.read('figtree-latin.woff2'))",
       " print(json.dumps(files))",
     ].join("\n"), output], { encoding: "utf8" }));
     assert.match(files["panel.html"], /id="prompt-form"/);
     assert.match(files["panel.html"], /data-theme="dark"/);
+    assert.match(files["mobile.html"], /data-surface="mobile"/);
+    assert.match(files["video_component.html"], /data-surface="video-component"/);
+    assert.match(files["video_overlay.html"], /data-surface="video-overlay"/);
     assert.match(files["config.html"], /twitch-ext\.min\.js/);
     assert.ok(files["config.html"].indexOf("twitch-ext.min.js")<files["config.html"].indexOf("config.js"));
+    for (const view of ["panel.html","mobile.html","video_component.html","video_overlay.html"]) {
+      assert.ok(files[view].indexOf("twitch-ext.min.js")<files[view].indexOf("panel.js"));
+      assert.match(files[view], /id="submit-vote"/);
+    }
     assert.match(files["extension.css"], /width: min\(100%, 318px\)/);
     assert.match(files["extension.css"], /font-family: Figtree/);
     assert.ok(files.fontBytes > 10_000);

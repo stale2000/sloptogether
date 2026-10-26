@@ -1,4 +1,4 @@
-import { copyFileSync, lstatSync, mkdirSync, rmSync } from "node:fs";
+import { copyFileSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,6 +7,17 @@ const repositoryRoot = path.resolve(extensionRoot, "..");
 const outputDirectory = path.join(repositoryRoot, "apps", "web", "public", "extension");
 const publicAssets = ["panel.html", "config.html", "extension.css", "figtree-latin.woff2"];
 const sourceScripts = ["panel.js", "config.js", "bits-state.mjs"];
+const surfaceViews = [
+  ["mobile.html", "mobile", "mobile panel"],
+  ["video_component.html", "video-component", "video component"],
+  ["video_overlay.html", "video-overlay", "video overlay"],
+];
+
+function renderSurfaceView(panelHtml, surface, title) {
+  return panelHtml
+    .replace('data-theme="dark"', `data-theme="dark" data-surface="${surface}"`)
+    .replace("<title>SlopTogether scene vote</title>", `<title>SlopTogether ${title}</title>`);
+}
 
 export function syncExtensionAssets() {
   const sourceFiles = [
@@ -22,6 +33,10 @@ export function syncExtensionAssets() {
   mkdirSync(outputDirectory, { recursive: true });
   for (const name of publicAssets) copyFileSync(path.join(extensionRoot, "public", name), path.join(outputDirectory, name));
   for (const name of sourceScripts) copyFileSync(path.join(extensionRoot, "src", name), path.join(outputDirectory, name));
+  const panelHtml = readFileSync(path.join(extensionRoot, "public", "panel.html"), "utf8");
+  for (const [name, surface, title] of surfaceViews) {
+    writeFileSync(path.join(outputDirectory, name), renderSurfaceView(panelHtml, surface, title));
+  }
   return outputDirectory;
 }
 

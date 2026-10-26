@@ -40,6 +40,25 @@
   --live: #c00;
 }
 
+:root[data-surface="video-overlay"] {
+  --page: transparent;
+}
+
+:root[data-surface="video-overlay"] body {
+  display: flex;
+  min-height: 100vh;
+  align-items: flex-end;
+  justify-content: flex-start;
+  background: transparent;
+}
+
+:root[data-surface="video-overlay"] .card {
+  border: 1px solid rgb(255 255 255 / 18%);
+  background: rgb(38 34 50 / 94%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+  backdrop-filter: blur(8px);
+}
+
 * { box-sizing: border-box; }
 body { width: 100%; min-width: 0; margin: 0; padding: 10px; background: var(--page); color: var(--ink); }
 button,input,textarea { font: inherit; }

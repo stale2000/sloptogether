@@ -3,8 +3,13 @@ from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSETS = ("panel.html", "config.html", "extension.css", "panel.js", "config.js", "bits-state.mjs", "figtree-latin.woff2")
+ASSETS = ("panel.html", "mobile.html", "video_component.html", "video_overlay.html", "config.html", "extension.css", "panel.js", "config.js", "bits-state.mjs", "figtree-latin.woff2")
 HELPER = "https://extension-files.twitch.tv/helper/v1/twitch-ext.min.js"
+SURFACE_VIEWS = (
+    ("mobile.html", "mobile", "mobile panel"),
+    ("video_component.html", "video-component", "video component"),
+    ("video_overlay.html", "video-overlay", "video overlay"),
+)
 
 SOURCE_FILES = {
     "panel.html": ROOT / "extension" / "public" / "panel.html",
@@ -20,13 +25,25 @@ SOURCE_FILES = {
 def package(output: Path) -> Path:
     source = ROOT / "extension"
     files = {}
-    for name in ASSETS:
+    source_assets = tuple(name for name in ASSETS if name not in {view[0] for view in SURFACE_VIEWS})
+    for name in source_assets:
         path = SOURCE_FILES[name]
         if path.is_symlink() or not path.is_file():
             raise ValueError(f"extension_asset_invalid:{name}")
         files[name] = path.read_bytes()
 
-    for page, script in (("panel.html", "./panel.js"), ("config.html", "./config.js")):
+    panel_html = files["panel.html"].decode("utf-8")
+    for name, surface, title in SURFACE_VIEWS:
+        files[name] = panel_html.replace(
+            'data-theme="dark"', f'data-theme="dark" data-surface="{surface}"'
+        ).replace(
+            "<title>SlopTogether scene vote</title>", f"<title>SlopTogether {title}</title>"
+        ).encode("utf-8")
+
+    pages = (("panel.html", "./panel.js"), ("config.html", "./config.js")) + tuple(
+        (name, "./panel.js") for name, _, _ in SURFACE_VIEWS
+    )
+    for page, script in pages:
         html = files[page].decode("utf-8")
         if "./extension.css" not in html or script not in html:
             raise ValueError(f"extension_assets_must_use_sibling_paths:{page}")
