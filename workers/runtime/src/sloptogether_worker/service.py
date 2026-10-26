@@ -121,8 +121,10 @@ class WorkerService:
                 if once:
                     return 0
             except ApiError as error:
-                if error.status in {401, 403}:
+                if error.status == 401:
                     raise WorkerError("worker_key_invalid", "The Twitch-linked worker key is invalid, expired or revoked.") from None
+                if error.status == 403 and error.code in {"worker_key_scope_denied", "worker_attempt_owner_required", "worker_authority_revoked"}:
+                    raise WorkerError("worker_key_unauthorized", "The Twitch-linked worker key is not authorized for this work.") from None
                 failures += 1
                 if once:
                     raise

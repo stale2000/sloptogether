@@ -8,7 +8,9 @@ import tempfile
 import threading
 import unittest
 import urllib.error
-from io import BytesIO
+from contextlib import redirect_stdout
+from email.message import Message
+from io import BytesIO, StringIO
 
 from sloptogether_worker import cli
 from sloptogether_worker.client import PairingInstructions
@@ -47,6 +49,31 @@ class WorkerLifecycleTest(unittest.TestCase):
         with self.assertRaises(ApiError) as raised:
             api._request("POST","/channels/localdemo/story-proposals",body={})
         self.assertEqual((raised.exception.status,raised.exception.code),(409,"owner_generation_budget_unavailable"))
+
+    def test_worker_asset_storage_403_is_not_misreported_as_worker_auth(self) -> None:
+        config=SimpleNamespace(api_base_url="https://www.clips.gg/sloptogether/api/v1",request_timeout_seconds=3,worker_key=None,allowed_upload_hosts=("sloptogether-media.example.r2.cloudflarestorage.com",))
+        api=WorkerApi(config);api.token="slw_123e4567-e89b-42d3-a456-426614174000."+"a"*32
+        headers=Message();headers["Content-Type"]="text/html";headers["Server"]="cloudflare";headers["cf-ray"]="ray-123"
+        response=urllib.error.HTTPError("https://sloptogether-media.example.r2.cloudflarestorage.com/bucket/object?X-Amz-Signature=secret",403,"Forbidden",headers,BytesIO(b"<html>Access denied</html>"))
+        api.opener=SimpleNamespace(open=Mock(side_effect=response))
+        lease=SimpleNamespace(lease_id="lease",fence=1)
+        output=StringIO()
+        with self.assertRaises(WorkerError) as raised:
+            with redirect_stdout(output):
+                api.download_asset(lease,"asset","/tmp/not-created",1024)
+        self.assertEqual(raised.exception.code,"asset_storage_forbidden")
+        self.assertNotIsInstance(raised.exception,ApiError)
+        self.assertIn("cf_ray=ray-123",output.getvalue())
+        self.assertNotIn("X-Amz-Signature",output.getvalue())
+
+    def test_claim_403_for_asset_download_does_not_report_invalid_worker_key(self) -> None:
+        config=SimpleNamespace(role="generation",poll_interval_seconds=0,worker_key=None)
+        api=SimpleNamespace(token="worker-key",claim=Mock(side_effect=ApiError(403,"asset_download_failed")))
+        service=WorkerService(config,api=api,comfy=Mock(),report=lambda _message:None)
+        service.check=Mock(return_value=[])
+        with self.assertRaises(ApiError) as raised:
+            service.run(once=True)
+        self.assertEqual(raised.exception.code,"asset_download_failed")
 
     def test_pairing_body_matches_the_server_contract(self) -> None:
         with tempfile.TemporaryDirectory() as folder:

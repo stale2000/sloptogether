@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import ssl
 import urllib.error
 import urllib.parse
@@ -42,8 +44,10 @@ class _ScopedRedirect(urllib.request.HTTPRedirectHandler):
         same_api_origin = old.scheme == new.scheme and old.hostname and new.hostname and old.hostname.lower() == new.hostname.lower() and old.port == new.port
         permitted_host = bool(new.hostname and new.hostname.lower() in self.allowed_hosts)
         if new.scheme != "https" and new.hostname not in {"localhost", "127.0.0.1", "::1"}:
+            print(f"asset_redirect_blocked scheme={new.scheme} host={new.hostname or 'unknown'}", flush=True)
             return None
         if not same_api_origin and not permitted_host:
+            print(f"asset_redirect_blocked scheme={new.scheme} host={new.hostname or 'unknown'}", flush=True)
             return None
         copied = dict(request.headers)
         copied_unredirected = dict(request.unredirected_hdrs)
@@ -295,13 +299,44 @@ class WorkerApi:
                             raise WorkerError("asset_size_out_of_range", "Source asset exceeds its authorized size bound.")
                         output.write(chunk)
         except urllib.error.HTTPError as error:
-            raise ApiError(error.code, "asset_download_failed") from None
+            host = urllib.parse.urlsplit(error.geturl()).hostname or "unknown"
+            body = error.read(2048)
+            provider_code = re.search(rb"<Code>([^<]{1,80})</Code>", body)
+            code = _safe_error_code(provider_code.group(1).decode("ascii", "replace")) if provider_code else "unknown"
+            content_type = error.headers.get_content_type() if error.headers else "unknown"
+            response_headers = error.headers or {}
+            api = urllib.parse.urlsplit(self.config.api_base_url)
+            response_url = urllib.parse.urlsplit(error.geturl())
+            api_response = host.lower() == (api.hostname or "").lower() and response_url.scheme.lower() == api.scheme.lower()
+            if api_response:
+                try:
+                    parsed = json.loads(body.decode("utf-8"))
+                    value = parsed.get("code", parsed.get("error")) if isinstance(parsed, dict) else None
+                    if isinstance(value, str) and value:
+                        code = _safe_error_code(value)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    pass
+            markers = [marker for marker, needle in (("html", b"<html"), ("access_denied", b"access denied"), ("forbidden", b"forbidden"), ("signature", b"signature"), ("expired", b"expired"), ("cloudflare_challenge", b"challenge")) if needle in body.lower()]
+            cf_ray = re.sub(r"[^A-Za-z0-9-]", "", response_headers.get("cf-ray", ""))[:80]
+            server = re.sub(r"[^A-Za-z0-9 ._-]", "", response_headers.get("server", ""))[:80]
+            request_id = re.sub(r"[^A-Za-z0-9._-]", "", response_headers.get("x-amz-request-id", ""))[:80]
+            body_hash = hashlib.sha256(body).hexdigest()[:16]
+            print(f"asset_download_http_error status={error.code} response_host={host} api_response={str(api_response).lower()} provider_code={code} content_type={content_type} body_bytes={len(body)} body_sha256_prefix={body_hash} body_markers={','.join(markers) or 'none'} server={server or 'none'} cf_ray={cf_ray or 'none'} storage_request_id={request_id or 'none'}", flush=True)
+            if api_response:
+                raise ApiError(error.code, code if code != "unknown" else "asset_download_failed") from None
+            category = "asset_storage_forbidden" if error.code == 403 else "asset_storage_unauthorized" if error.code == 401 else "asset_storage_http_error"
+            raise WorkerError(category, f"Private source asset storage rejected the worker request ({error.code}).") from None
         except urllib.error.URLError as error:
+            print(f"asset_download_transport_error reason={type(error.reason).__name__}", flush=True)
             raise WorkerError("asset_download_failed", f"Source asset download failed ({type(error.reason).__name__}).") from None
         if total == 0:
             from pathlib import Path
             Path(destination).unlink(missing_ok=True)
             raise WorkerError("asset_size_out_of_range", "Source asset is empty or exceeds its configured size bound.")
+
+
+def _safe_error_code(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.:-]", "_", value)[:100] or "unknown"
 
 
 def _text(value: dict[str, Any], key: str) -> str:
