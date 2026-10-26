@@ -138,7 +138,7 @@ export function OutputSource({ channel }: { channel: string }) {
               <span>{formatProgramTime(programDuration)}</span></div>
             <div className="output-clip-jumps">{programSpans.map((span,index)=><button type="button" key={span.itemId} aria-label={`Jump to clip ${index+1}`} title={`Clip ${index+1} · ${formatProgramTime(span.outputStartSeconds)}`} onClick={()=>seekTo(span.outputStartSeconds)}>{String(index+1).padStart(2,"0")}</button>)}</div>
           </div>:null}
-          {!hasStarted && (programReady || current) ? <div className="output-start-gate"><button type="button" className="output-center-toggle" aria-label="Start program" onClick={async () => { await tryClaimOutput(); const video = document.querySelector(".output-player video") as HTMLVideoElement | null; if (video) await video.play().then(() => setHasStarted(true)).catch(() => setError("Playback is unavailable.")); }}>▶</button></div> : null}
+          {!hasStarted && (programReady || current) ? <div className="output-start-gate"><button type="button" className="output-center-toggle" aria-label="Start program" onClick={() => { const video = document.querySelector(".output-player video") as HTMLVideoElement | null; if (video) void video.play().then(() => setHasStarted(true)).catch(() => setError("Playback is unavailable.")); void tryClaimOutput(); }}>▶</button></div> : null}
           {data.state === "ready" && !current && !programReady ? <div className="output-awaiting" aria-label="Waiting for media"/> : null}
         </div>
       </section>
