@@ -6,8 +6,8 @@ interface Env {
 }
 
 interface R2Bucket {
-  get(key: string): Promise<{ body: ReadableStream<Uint8Array>; size: number; etag: string } | null>;
-  head(key: string): Promise<unknown | null>;
+  get(key: string): Promise<{ body: ReadableStream<Uint8Array>; size: number; etag: string; httpMetadata?: { contentType?: string } } | null>;
+  head(key: string): Promise<{ size: number } | null>;
   delete(key: string): Promise<void>;
   put(key: string, value: ReadableStream<Uint8Array>, options: {
     onlyIf: { etagDoesNotMatch: string };
@@ -38,6 +38,17 @@ interface WorkerMediaTicket {
   fence: number;
   storageKey: string;
   contentType: "image/png" | "image/jpeg" | "image/webp" | "video/mp4";
+  byteSize: number;
+  expiresAt: string;
+}
+
+interface PublisherMediaTicket {
+  version: 1;
+  purpose: "media_publisher";
+  operation: "get" | "put" | "delete";
+  channelId: string;
+  storageKey: string;
+  contentType: string;
   byteSize: number;
   expiresAt: string;
 }
@@ -114,12 +125,100 @@ async function verifyWorkerMediaTicket(value: string, secret: string): Promise<W
   return ticket;
 }
 
+async function verifyPublisherMediaTicket(value: string, secret: string): Promise<PublisherMediaTicket> {
+  const ticket = await verifySignedPayload(value, secret) as unknown as PublisherMediaTicket;
+  const prefix = `private/${ticket.channelId}/`;
+  const incomingPrefix = `incoming/${ticket.channelId}/`;
+  const validKey = typeof ticket.storageKey === "string" && ticket.storageKey.length <= 1024
+    && (ticket.storageKey.startsWith(prefix) || ticket.storageKey.startsWith(incomingPrefix))
+    && !ticket.storageKey.includes("..") && !ticket.storageKey.includes("\\") && !/[\0-\x1f\x7f]/.test(ticket.storageKey);
+  const expiresAt = Date.parse(ticket.expiresAt);
+  const validByteSize = Number.isSafeInteger(ticket.byteSize)
+    && (ticket.operation === "delete" ? ticket.byteSize === 0 : ticket.byteSize >= 1 && ticket.byteSize <= 128 * 1024 * 1024);
+  if (ticket.version !== 1 || ticket.purpose !== "media_publisher" || !["get", "put", "delete"].includes(ticket.operation)
+    || !/^[0-9]{1,32}$/.test(ticket.channelId) || !validKey || !validByteSize
+    || !["application/octet-stream", "image/jpeg", "image/png", "image/webp", "video/mp4", "video/mp2t"].includes(ticket.contentType)
+    || !Number.isFinite(expiresAt) || expiresAt <= Date.now() || expiresAt > Date.now() + 2 * 60 * 1000) {
+    throw new Error("publisher_media_ticket_invalid");
+  }
+  return ticket;
+}
+
+async function servePublisherMedia(request: Request, env: Env, ticket: PublisherMediaTicket): Promise<Response> {
+  const expectedMethod = { get: "GET", put: "PUT", delete: "DELETE" }[ticket.operation];
+  if (request.method !== expectedMethod) return response(405, { error: "worker_media_method_invalid" }, null);
+  if (ticket.operation === "get") {
+    let object: Awaited<ReturnType<R2Bucket["get"]>>;
+    try { object = await env.MEDIA_BUCKET.get(ticket.storageKey); }
+    catch { return response(502, { error: "worker_media_read_failed" }, null); }
+    if (!object) return response(404, { error: "worker_media_not_found" }, null);
+    if (object.size > ticket.byteSize) return response(413, { error: "worker_media_size_exceeded" }, null);
+    const headers = new Headers({
+      "Cache-Control": "private, no-store",
+      "Content-Length": String(object.size),
+      "Content-Type": object.httpMetadata?.contentType ?? ticket.contentType,
+      "X-Content-Type-Options": "nosniff",
+    });
+    return new Response(object.body, { status: 200, headers });
+  }
+  if (ticket.operation === "delete") {
+    try { await env.MEDIA_BUCKET.delete(ticket.storageKey); }
+    catch { return response(502, { error: "worker_media_delete_failed" }, null); }
+    return response(204, null, null);
+  }
+
+  const contentType = (request.headers.get("content-type") ?? "").split(";", 1)[0]!.trim().toLowerCase();
+  if (contentType !== ticket.contentType) return response(415, { error: "worker_media_content_type_invalid" }, null);
+  const length = request.headers.get("content-length");
+  if (length !== null && (!/^\d+$/.test(length) || Number(length) !== ticket.byteSize)) return response(400, { error: "worker_media_length_invalid" }, null);
+  if (!request.body) return response(400, { error: "worker_media_body_required" }, null);
+  const existing = await env.MEDIA_BUCKET.head(ticket.storageKey);
+  if (existing) return existing.size === ticket.byteSize
+    ? response(201, { bytes: existing.size, existing: true }, null)
+    : response(409, { error: "worker_media_size_changed" }, null);
+
+  let total = 0;
+  const counted = request.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      total += chunk.byteLength;
+      if (total > ticket.byteSize) throw new Error("worker_media_size_exceeded");
+      controller.enqueue(chunk);
+    },
+  }));
+  try {
+    const stored = await env.MEDIA_BUCKET.put(ticket.storageKey, counted.pipeThrough(new FixedLengthStream(ticket.byteSize)), {
+      onlyIf: { etagDoesNotMatch: "*" },
+      httpMetadata: { contentType: ticket.contentType },
+    });
+    if (!stored) {
+      const raced = await env.MEDIA_BUCKET.head(ticket.storageKey);
+      return raced?.size === ticket.byteSize
+        ? response(201, { bytes: raced.size, existing: true }, null)
+        : response(409, { error: "worker_media_write_conflict" }, null);
+    }
+    if (total !== ticket.byteSize) {
+      await env.MEDIA_BUCKET.delete(ticket.storageKey);
+      return response(400, { error: "worker_media_length_invalid" }, null);
+    }
+    return response(201, { bytes: total, existing: false }, null);
+  } catch {
+    return response(502, { error: "worker_media_write_failed" }, null);
+  }
+}
+
 async function serveWorkerMedia(request: Request, env: Env): Promise<Response> {
   if (request.headers.has("origin") || new URL(request.url).search) return response(400, { error: "worker_media_request_invalid" }, null);
   const value = request.headers.get("x-worker-artifact-ticket") ?? "";
-  let ticket: WorkerMediaTicket;
-  try { ticket = await verifyWorkerMediaTicket(value, env.UPLOAD_TICKET_KEY); }
+  let ticket: WorkerMediaTicket | PublisherMediaTicket;
+  try {
+    const payload = await verifySignedPayload(value, env.UPLOAD_TICKET_KEY);
+    ticket = payload.purpose === "media_publisher"
+      ? await verifyPublisherMediaTicket(value, env.UPLOAD_TICKET_KEY)
+      : await verifyWorkerMediaTicket(value, env.UPLOAD_TICKET_KEY);
+  }
   catch { return response(403, { error: "worker_media_ticket_invalid" }, null); }
+  if (ticket.purpose === "media_publisher") return servePublisherMedia(request, env, ticket);
+  if (request.method !== "GET") return response(405, { error: "worker_media_method_invalid" }, null);
   let object: Awaited<ReturnType<R2Bucket["get"]>>;
   try { object = await env.MEDIA_BUCKET.get(ticket.storageKey); }
   catch { return response(502, { error: "worker_media_read_failed" }, null); }
@@ -172,7 +271,7 @@ export default {
     if (request.method === "OPTIONS") return response(204, null, origin);
     if (origin !== null && origin !== "https://www.clips.gg") return response(403, { error: "origin_not_allowed" }, null);
     const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname === "/worker-media") return serveWorkerMedia(request, env);
+    if (url.pathname === "/worker-media") return serveWorkerMedia(request, env);
     if (request.method !== "PUT") return response(405, { error: "method_not_allowed" }, origin);
     const match = /^\/uploads\/([0-9a-f-]{36})$/i.exec(url.pathname);
     const ticketValue = url.searchParams.get("ticket");

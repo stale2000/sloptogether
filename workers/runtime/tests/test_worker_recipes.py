@@ -116,7 +116,7 @@ class PinnedRecipeTest(unittest.TestCase):
         _, graph = build_workflow(job, RECIPES[TRIM_FIVE_STEP_ID], {"20": "start-abc.png"})
         self.assertEqual(graph["5"]["inputs"]["prompt"], job.prompt)
         self.assertEqual(graph["8"]["inputs"]["run_nonce"], f"slop-{job.job_id}-{job.attempt_id}-{job.fence}")
-        self.assertEqual(graph["12"]["inputs"]["filename_prefix"],f"sloptogether/{job.job_id}/{job.attempt_id}")
+        self.assertEqual(graph["12"]["inputs"]["filename_prefix"],f"sloptogether/{job.job_id}/{job.attempt_id}/clip")
 
     def test_required_audio_rejects_a_soundtrack_dropped_by_upscale(self):
         metadata={"streams":[{"codec_type":"video","width":1920,"height":1080,"avg_frame_rate":"24/1"}],"format":{"duration":"15.0"}}
@@ -144,7 +144,7 @@ class PinnedRecipeTest(unittest.TestCase):
         self.assertEqual((graph["2"]["inputs"]["width"], graph["2"]["inputs"]["height"]), (1920, 1080))
         self.assertEqual(graph["2"]["inputs"]["transformer_precision"], "auto")
         self.assertEqual(graph["2"]["inputs"]["sloptogether_scope"],f"sloptogether/{job.job_id}/{job.attempt_id}")
-        self.assertEqual(graph["3"]["inputs"]["filename_prefix"],f"sloptogether/{job.job_id}/{job.attempt_id}")
+        self.assertEqual(graph["3"]["inputs"]["filename_prefix"],f"sloptogether/{job.job_id}/{job.attempt_id}/clip")
 
     def test_sol_intermediates_use_the_current_job_attempt_output_scope(self):
         path=Path(__file__).parents[3]/"vendor/comfystream/runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/sloptogether_scope.py"

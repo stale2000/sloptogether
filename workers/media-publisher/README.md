@@ -10,7 +10,8 @@ The worker publishes approved base clips into the HLS timeline. For continuation
 
 - Node.js 20.9 or newer, installed from the repository root lockfile.
 - A dedicated SlopTogether `DATABASE_URL` with access to the `sloptogether` schema.
-- R2 credentials limited to the SlopTogether media bucket: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_BUCKET_NAME`.
+- Either R2 credentials limited to the SlopTogether media bucket (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`) or gateway mode with `R2_BUCKET_NAME`, `SLOPTOGETHER_MEDIA_GATEWAY_URL=https://uploads.clips.gg/worker-media`, and the shared `SLOPTOGETHER_UPLOAD_TICKET_KEY`. Gateway tickets are short-lived, channel-prefix scoped and restricted to media validation, publication and staging cleanup; paid Turbo dispatch stays disabled in this mode. Gateway mode does not give this process R2 credentials.
+- When the shared Clips.gg Postgres project is used, set `SLOPTOGETHER_USE_CLIPSGG_DATABASE=true` and provide the verified Supabase CA as `SLOPTOGETHER_DATABASE_SSL_CA`; the worker rejects unverified TLS.
 - `ffprobe` and `ffmpeg` available on `PATH`, or executable paths in `FFPROBE_PATH` and `FFMPEG_PATH`.
 - `SLOPTOGETHER_OPENAI_MODERATION_KEY` for free automated final-frame screening. When the key is missing or the API is unavailable, the clip can still publish but its endpoint waits for streamer review. This key is used only for moderation; keep paid story-generation `OPENAI_API_KEY` in the owner story worker.
 - Database migrations `001` through `017` already applied.
@@ -35,7 +36,7 @@ npm run media-worker
 
 For a local checkout with `workers/media-publisher/.env.local`, start it with `npm run media-worker:local`. That file is ignored by Git and should remain restricted to the worker; the local launcher loads its values into the worker process. Production should continue to inject secrets through the hosting platform and use `npm run media-worker`.
 
-The worker logs only outbox IDs, state, and error codes. It handles `SIGINT` and `SIGTERM`, holds outbox leases while validating, and retries infrastructure failures. Run one or more supervised instances; database row locking and artifact/fence checks make duplicate delivery safe.
+The worker logs only outbox IDs, state, and error codes. It handles `SIGINT` and `SIGTERM`, holds outbox leases while validating, and retries infrastructure failures. Gateway mode claims only media validation/publication and cleanup events; it leaves paid Bits and Turbo events untouched. Run one or more supervised instances; database row locking and artifact/fence checks make duplicate delivery safe.
 
 Run the metadata checks with:
 

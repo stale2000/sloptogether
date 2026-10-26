@@ -240,7 +240,7 @@ def build_workflow(
             inputs["stream_fps"] = 24
         elif kind == "FastH3BenchmarkOutput":
             inputs["fps"] = 24
-            inputs["filename_prefix"] = f"sloptogether/{job.job_id}/{job.attempt_id}"
+            inputs["filename_prefix"] = f"sloptogether/{job.job_id}/{job.attempt_id}/clip"
         elif kind == "LoadVideo":
             inputs["file"] = comfy_filenames.get("source_video", "")
         elif kind == "ComfyStreamMiniMaxH3SoLUpscaler":
@@ -250,6 +250,6 @@ def build_workflow(
             inputs["transformer_precision"] = "auto"
             inputs["sloptogether_scope"] = f"sloptogether/{job.job_id}/{job.attempt_id}"
         elif kind == "SaveVideo":
-            inputs["filename_prefix"] = f"sloptogether/{job.job_id}/{job.attempt_id}"
+            inputs["filename_prefix"] = f"sloptogether/{job.job_id}/{job.attempt_id}/clip"
     return recipe.output_node_id, rendered
 

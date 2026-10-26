@@ -1,15 +1,15 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { Transform } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import pg from "pg";
-import { DeleteObjectCommand, GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { InvalidMediaError, parseProbeJson, trustedSystemApprovalCandidate, trustedUploaderApprovalPath, validateMediaMetadata } from "./metadata.mjs";
 import { moderationKeyFrom } from "./endpoint.mjs";
 import { processPublishRequested } from "./publish.mjs";
@@ -24,17 +24,25 @@ const PROBE_TIMEOUT_MS = 30_000;
 const DECODE_TIMEOUT_MS = 90_000;
 const MAX_OUTBOX_BYTES = 128 * 1024 * 1024;
 
-function requiredEnvironment(env) {
-  const required = ["DATABASE_URL", "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET_NAME"];
+export function requiredEnvironment(env) {
+  const mediaGatewayUrl = env.SLOPTOGETHER_MEDIA_GATEWAY_URL || null;
+  const required = ["DATABASE_URL", "R2_BUCKET_NAME", ...(mediaGatewayUrl ? ["SLOPTOGETHER_UPLOAD_TICKET_KEY"] : ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"])];
   for (const name of required) if (!env[name]) throw new Error(`${name}_required`);
+  if(mediaGatewayUrl){
+    let endpoint;try{endpoint=new URL(mediaGatewayUrl);}catch{throw new Error("SLOPTOGETHER_MEDIA_GATEWAY_URL_invalid");}
+    if(endpoint.protocol!=="https:"||endpoint.hostname!=="uploads.clips.gg"||endpoint.pathname!=="/worker-media"||endpoint.username||endpoint.password||endpoint.search||endpoint.hash)
+      throw new Error("SLOPTOGETHER_MEDIA_GATEWAY_URL_invalid");
+  }
   return {
     databaseUrl: env.DATABASE_URL,
     publicAppUrl: env.PUBLIC_APP_URL || null,
-    accountId: env.R2_ACCOUNT_ID,
+    accountId: env.R2_ACCOUNT_ID || null,
     localS3Endpoint: env.SLOPTOGETHER_LOCAL_S3_ENDPOINT || null,
-    accessKeyId: env.R2_ACCESS_KEY_ID,
-    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+    accessKeyId: env.R2_ACCESS_KEY_ID || null,
+    secretAccessKey: env.R2_SECRET_ACCESS_KEY || null,
     bucket: env.R2_BUCKET_NAME,
+    mediaGatewayUrl,
+    uploadTicketKey: env.SLOPTOGETHER_UPLOAD_TICKET_KEY || null,
     ffmpeg: env.FFMPEG_PATH || "ffmpeg",
     ffprobe: env.FFPROBE_PATH || "ffprobe",
     pollMs: positiveInteger(env.MEDIA_VALIDATOR_POLL_MS, 1500, 100, 60_000),
@@ -101,6 +109,7 @@ function makePool(databaseUrl) {
 }
 
 function makeStorageClient(config) {
+  if(config.mediaGatewayUrl)return createMediaGatewayStorage(config);
   return new S3Client({
     region: config.localS3Endpoint ? "us-east-1" : "auto",
     endpoint: config.localS3Endpoint || `https://${config.accountId}.r2.cloudflarestorage.com`,
@@ -108,6 +117,60 @@ function makeStorageClient(config) {
     credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
     maxAttempts: 3,
   });
+}
+
+function mediaChannelId(key){
+  const match=/^(?:private|incoming)\/([0-9]{1,32})\//.exec(key);
+  if(!match||key.length>1024||key.split("/").includes("..")||key.includes("\\")||/[\0-\x1f\x7f]/.test(key))throw new Error("media_gateway_key_invalid");
+  return match[1];
+}
+
+export function createMediaGatewayStorage(config){
+  const secret=config.uploadTicketKey;
+  if(typeof secret!=="string"||secret.length<32||!config.mediaGatewayUrl)throw new Error("media_gateway_not_configured");
+  async function send(command,options={}){
+    if(command.input?.Bucket!==config.bucket)throw new Error("media_gateway_bucket_invalid");
+    const key=command.input?.Key;
+    if(typeof key!=="string")throw new Error("media_gateway_key_invalid");
+    const channelId=mediaChannelId(key);
+    const put=command instanceof PutObjectCommand;
+    const get=command instanceof GetObjectCommand;
+    const del=command instanceof DeleteObjectCommand;
+    if(!put&&!get&&!del)throw new Error("media_gateway_operation_unsupported");
+    const body=put?command.input.Body:null;
+    let byteSize=128*1024*1024;
+    let contentType="application/octet-stream";
+    if(put){
+      if(!Buffer.isBuffer(body)&&!(body instanceof Uint8Array))throw new Error("media_gateway_body_unsupported");
+      byteSize=body.byteLength;
+      contentType=String(command.input.ContentType??"").split(";",1)[0].trim().toLowerCase();
+      if(!["image/jpeg","image/png","video/mp4","video/mp2t"].includes(contentType))throw new Error("media_gateway_content_type_invalid");
+      if(!Number.isSafeInteger(byteSize)||byteSize<1||byteSize>128*1024*1024)throw new Error("media_gateway_size_invalid");
+    }
+    const operation=put?"put":get?"get":"delete";
+    if(del){byteSize=0;}
+    const payload={version:1,purpose:"media_publisher",operation,channelId,storageKey:key,contentType,byteSize,expiresAt:new Date(Date.now()+60_000).toISOString()};
+    const encoded=Buffer.from(JSON.stringify(payload)).toString("base64url");
+    const signature=createHmac("sha256",secret).update(encoded).digest("base64url");
+    const headers={"X-Worker-Artifact-Ticket":`${encoded}.${signature}`,"User-Agent":"SlopTogether-Worker/0.1"};
+    if(put)headers["Content-Type"]=contentType;
+    const init={method:put?"PUT":get?"GET":"DELETE",headers,...(put?{body}:{}),...(options.abortSignal?{signal:options.abortSignal}:{})};
+    const response=await fetch(config.mediaGatewayUrl,init);
+    if(!response.ok){
+      const data=await response.json().catch(()=>({}));
+      const error=new Error(`media_gateway_http_${response.status}`);
+      error.code=typeof data.error==="string"?data.error:`media_gateway_http_${response.status}`;
+      throw error;
+    }
+    if(get){
+      const length=Number(response.headers.get("content-length"));
+      if(!Number.isSafeInteger(length)||length<1||length>byteSize||!response.body)throw new Error("media_gateway_response_invalid");
+      return {Body:Readable.fromWeb(response.body),ContentLength:length,ContentType:response.headers.get("content-type")??undefined};
+    }
+    const result=await response.json().catch(()=>({}));
+    return {ETag:typeof result.etag==="string"?result.etag:undefined};
+  }
+  return {send,destroy:async()=>{}};
 }
 
 export function validateOutboxPayload(value) {
@@ -540,7 +603,8 @@ export function createMediaValidator(env = process.env) {
   const stop = () => { stopping = true; };
 
   async function runOnce() {
-    const message = await claimOutbox(pool);
+    const gatewayEvents=["media.validate","media.publish_requested","storage.delete_staging","storage.cleanup_snapshot_candidate","comfy.frame_generation.expire"];
+    const message = await claimOutbox(pool,config.mediaGatewayUrl?gatewayEvents:undefined);
     if (!message) return null;
     try {
       const result = message.eventKind==="storage.delete_staging"
