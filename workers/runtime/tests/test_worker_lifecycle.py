@@ -13,14 +13,138 @@ from email.message import Message
 from io import BytesIO, StringIO
 
 from sloptogether_worker import cli
-from sloptogether_worker.client import PairingInstructions
+from sloptogether_worker.client import Lease, PairingInstructions
 from sloptogether_worker.client import WorkerApi
 from sloptogether_worker.comfy import ComfyClient
 from sloptogether_worker.errors import ApiError, WorkerError
+from sloptogether_worker.runner import LeaseHeartbeat
 from sloptogether_worker.service import WorkerService
 
 
 class WorkerLifecycleTest(unittest.TestCase):
+    def test_claim_advertises_only_the_checked_recipe_list(self) -> None:
+        config = SimpleNamespace(role="upscale", channel_id="123", api_base_url="https://www.clips.gg/sloptogether/api/v1", worker_key="key", allowed_upload_hosts=())
+        api = WorkerApi(config)
+        api._request = Mock(return_value=({"status": "empty"}, {}))
+        self.assertIsNone(api.claim(["sol-h3-upscale-pruna-fast-1184-v1"]))
+        api._request.assert_called_once_with("POST", "/workers/leases", body={"supportedRecipes": ["sol-h3-upscale-pruna-fast-1184-v1"]}, query={"role": "upscale", "channelId": "123"})
+
+    def test_legacy_claim_omits_capabilities(self) -> None:
+        config = SimpleNamespace(role="upscale", channel_id=None, api_base_url="https://www.clips.gg/sloptogether/api/v1", worker_key="key", allowed_upload_hosts=())
+        api = WorkerApi(config)
+        api._request = Mock(return_value=({"status": "empty"}, {}))
+        self.assertIsNone(api.claim())
+        api._request.assert_called_once_with("POST", "/workers/leases", body={}, query={"role": "upscale"})
+
+    def test_service_passes_compatible_profiles_to_every_claim(self) -> None:
+        api = Mock(token="key")
+        api.claim.return_value = None
+        config = SimpleNamespace(role="upscale", poll_interval_seconds=1)
+        service = WorkerService(config, api=api, comfy=Mock(), report=lambda _message: None)
+        service.check = Mock(return_value=["sol-h3-upscale-pruna-fast", "sol-h3-upscale-pruna-fast-1184-v1"])
+        self.assertEqual(service.run(once=True), 0)
+        api.claim.assert_called_once_with(["sol-h3-upscale-pruna-fast", "sol-h3-upscale-pruna-fast-1184-v1"])
+
+    def test_slow_configured_heartbeat_refreshes_before_the_lease_expires(self) -> None:
+        api = Mock()
+        api.heartbeat.return_value = {"state": "running"}
+        heartbeat = LeaseHeartbeat(api, Lease("lease-1", 1, {}), interval_seconds=60)
+        heartbeat.stop = Mock()
+        heartbeat.stop.wait.side_effect = [False, True]
+        heartbeat._loop()
+
+        self.assertLess(heartbeat.stop.wait.call_args_list[0].args[0], 60)
+        api.heartbeat.assert_called_once()
+
+    def test_worker_refreshes_lease_before_requesting_upload_grant(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            config = SimpleNamespace(state_dir=Path(folder), heartbeat_interval_seconds=60, max_output_bytes=1024)
+            api = Mock()
+            api.heartbeat.return_value = {"state": "running"}
+            api.issue_upload.return_value = {"uploadId": "upload-1", "maxBytes": 1024}
+            api.complete_upload.return_value = {"accepted": True}
+            service = WorkerService(config, api=api, comfy=Mock(), report=lambda _message: None)
+            job = SimpleNamespace(lease_id="lease-1", fence=1, attempt_id="attempt-1", stage="upscale", channel_id="channel")
+            lease = Lease("lease-1", 1, {})
+
+            def execute(_job, _lease, _heartbeat, _api, workspace, **_kwargs):
+                output = workspace / "clip.mp4"
+                output.write_bytes(b"video")
+                return output, {"width": 1920, "height": 1080, "durationSeconds": 15.0}
+
+            service.runner.execute = execute
+            with patch("sloptogether_worker.service.WorkerJob.from_payload", return_value=job):
+                service._process(lease)
+
+            names = [call[0] for call in api.method_calls]
+            self.assertEqual(names, ["heartbeat", "issue_upload", "upload_file", "complete_upload"])
+            api.heartbeat.assert_called_once_with(lease, phase="uploading", progress=0.86)
+
+    def test_failed_upload_reports_storage_reason_without_the_signed_url(self) -> None:
+        config = SimpleNamespace(api_base_url="https://www.clips.gg/sloptogether/api/v1", request_timeout_seconds=3,
+                                 worker_key=None, allowed_upload_hosts=("storage.example",), local_s3_endpoint=None)
+        api = WorkerApi(config)
+        headers = Message()
+        headers["x-amz-request-id"] = "request-123"
+        error = urllib.error.HTTPError("https://storage.example/object?signature=secret", 403, "Forbidden", headers,
+                                       BytesIO(b"<Error><Code>ExpiredToken</Code></Error>"))
+        api.opener = SimpleNamespace(open=Mock(side_effect=error))
+        grant = {"uploadUrl": "https://storage.example/object?signature=secret", "method": "PUT",
+                 "expiresAt": "2030-01-01T00:00:00Z", "requiredHeaders": {"Content-Type": "video/mp4"}}
+        with tempfile.TemporaryDirectory() as folder:
+            output_file = Path(folder) / "clip.mp4"
+            output_file.write_bytes(b"video")
+            output = StringIO()
+            with redirect_stdout(output), self.assertRaises(ApiError) as raised:
+                api.upload_file(grant, str(output_file), max_bytes=1024)
+        self.assertEqual((raised.exception.status, raised.exception.code), (403, "cloud_upload_failed"))
+        self.assertIn("provider_code=ExpiredToken", output.getvalue())
+        self.assertNotIn("signature=secret", output.getvalue())
+
+    def test_failed_gateway_upload_reports_only_known_json_error(self) -> None:
+        config = SimpleNamespace(api_base_url="https://www.clips.gg/sloptogether/api/v1", request_timeout_seconds=3,
+                                 worker_key=None, allowed_upload_hosts=("uploads.clips.gg",), local_s3_endpoint=None)
+        api = WorkerApi(config)
+        headers = Message()
+        headers["Content-Type"] = "application/json; charset=utf-8"
+        error = urllib.error.HTTPError("https://uploads.clips.gg/uploads/id?ticket=secret", 403, "Forbidden", headers,
+                                       BytesIO(b'{"error":"upload_ticket_invalid","detail":"secret_body"}'))
+        api.opener = SimpleNamespace(open=Mock(side_effect=error))
+        grant = {"uploadUrl": "https://uploads.clips.gg/uploads/id?ticket=secret", "method": "PUT",
+                 "expiresAt": "2030-01-01T00:00:00Z", "requiredHeaders": {"Content-Type": "video/mp4"}}
+        with tempfile.TemporaryDirectory() as folder:
+            output_file = Path(folder) / "clip.mp4"
+            output_file.write_bytes(b"video")
+            output = StringIO()
+            with redirect_stdout(output), self.assertRaises(ApiError):
+                api.upload_file(grant, str(output_file), max_bytes=1024)
+        self.assertIn("host=uploads.clips.gg response_type=application/json gateway_error=upload_ticket_invalid", output.getvalue())
+        self.assertNotIn("secret", output.getvalue())
+        request = api.opener.open.call_args.args[0]
+        self.assertEqual(request.get_header("User-agent"), api.user_agent)
+        self.assertEqual(request.get_header("Content-type"), "video/mp4")
+
+    def test_worker_does_not_request_upload_after_lease_revocation(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            config = SimpleNamespace(state_dir=Path(folder), heartbeat_interval_seconds=60, max_output_bytes=1024)
+            api = Mock()
+            api.heartbeat.return_value = {"state": "revoked"}
+            service = WorkerService(config, api=api, comfy=Mock(), report=lambda _message: None)
+            job = SimpleNamespace(lease_id="lease-1", fence=1, attempt_id="attempt-1", stage="upscale", channel_id="channel")
+            lease = Lease("lease-1", 1, {})
+
+            def execute(_job, _lease, _heartbeat, _api, workspace, **_kwargs):
+                output = workspace / "clip.mp4"
+                output.write_bytes(b"video")
+                return output, {"width": 1920, "height": 1080, "durationSeconds": 15.0}
+
+            service.runner.execute = execute
+            with patch("sloptogether_worker.service.WorkerJob.from_payload", return_value=job):
+                with self.assertRaises(WorkerError) as error:
+                    service._process(lease)
+            self.assertEqual(error.exception.code, "attempt_revoked")
+            api.issue_upload.assert_not_called()
+
     def test_cli_exposes_the_wsl_platform_option(self) -> None:
         args=cli.parser().parse_args(["--platform","wsl","check"])
         self.assertEqual(args.platform,"wsl")
@@ -54,8 +178,9 @@ class WorkerLifecycleTest(unittest.TestCase):
         config=SimpleNamespace(api_base_url="https://www.clips.gg/sloptogether/api/v1",request_timeout_seconds=3,worker_key=None,allowed_upload_hosts=("sloptogether-media.example.r2.cloudflarestorage.com",))
         api=WorkerApi(config);api.token="slw_123e4567-e89b-42d3-a456-426614174000."+"a"*32
         headers=Message();headers["Content-Type"]="text/html";headers["Server"]="cloudflare";headers["cf-ray"]="ray-123"
-        response=urllib.error.HTTPError("https://sloptogether-media.example.r2.cloudflarestorage.com/bucket/object?X-Amz-Signature=secret",403,"Forbidden",headers,BytesIO(b"<html>Access denied</html>"))
-        api.opener=SimpleNamespace(open=Mock(side_effect=response))
+        response=urllib.error.HTTPError("https://uploads.clips.gg/worker-media",403,"Forbidden",headers,BytesIO(b"<html>Access denied</html>"))
+        api._request=Mock(return_value=({"url":"https://uploads.clips.gg/worker-media","ticket":"signed.ticket"},{}))
+        api.media_opener=SimpleNamespace(open=Mock(side_effect=response))
         lease=SimpleNamespace(lease_id="lease",fence=1)
         output=StringIO()
         with self.assertRaises(WorkerError) as raised:
@@ -64,7 +189,42 @@ class WorkerLifecycleTest(unittest.TestCase):
         self.assertEqual(raised.exception.code,"asset_storage_forbidden")
         self.assertNotIsInstance(raised.exception,ApiError)
         self.assertIn("cf_ray=ray-123",output.getvalue())
-        self.assertNotIn("X-Amz-Signature",output.getvalue())
+        self.assertNotIn("signed.ticket",output.getvalue())
+
+    def test_worker_media_download_rejects_untrusted_gateway_urls(self) -> None:
+        config=SimpleNamespace(api_base_url="https://www.clips.gg/sloptogether/api/v1",request_timeout_seconds=3,worker_key=None,allowed_upload_hosts=("uploads.clips.gg",))
+        api=WorkerApi(config);api.token="slw_123e4567-e89b-42d3-a456-426614174000."+"a"*32
+        api._request=Mock(return_value=({"url":"https://attacker.example/collect","ticket":"signed.ticket"},{}))
+        api.media_opener=SimpleNamespace(open=Mock())
+        with self.assertRaises(WorkerError) as raised:
+            api.download_asset(SimpleNamespace(lease_id="lease",fence=1),"asset","/tmp/not-created",1024)
+        self.assertEqual(raised.exception.code,"asset_download_url_invalid")
+        api.media_opener.open.assert_not_called()
+
+    def test_worker_media_download_streams_only_the_scoped_ticket(self) -> None:
+        payload=b"approved image"
+        class Response:
+            headers={"Content-Length":str(len(payload))}
+            def __enter__(self): return self
+            def __exit__(self,*_args): return None
+            def read(self,size):
+                nonlocal payload
+                chunk,payload=payload[:size],payload[size:]
+                return chunk
+        config=SimpleNamespace(api_base_url="https://www.clips.gg/sloptogether/api/v1",request_timeout_seconds=3,worker_key=None,allowed_upload_hosts=("uploads.clips.gg",))
+        api=WorkerApi(config);api.token="slw_123e4567-e89b-42d3-a456-426614174000."+"a"*32
+        api._request=Mock(return_value=({"url":"https://uploads.clips.gg/worker-media","ticket":"signed.ticket"},{}))
+        api.media_opener=SimpleNamespace(open=Mock(return_value=Response()))
+        lease=SimpleNamespace(lease_id="lease",fence=7)
+        with tempfile.TemporaryDirectory() as folder:
+            destination=str(Path(folder)/"frame.png")
+            api.download_asset(lease,"asset",destination,1024)
+            self.assertEqual(Path(destination).read_bytes(),b"approved image")
+        request=api.media_opener.open.call_args.args[0]
+        self.assertEqual(request.full_url,"https://uploads.clips.gg/worker-media")
+        self.assertEqual(request.get_header("X-worker-artifact-ticket"),"signed.ticket")
+        self.assertIsNone(request.get_header("Authorization"))
+        api._request.assert_called_once()
 
     def test_claim_403_for_asset_download_does_not_report_invalid_worker_key(self) -> None:
         config=SimpleNamespace(role="generation",poll_interval_seconds=0,worker_key=None)

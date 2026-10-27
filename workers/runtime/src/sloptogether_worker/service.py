@@ -110,7 +110,7 @@ class WorkerService:
         failures = 0
         while not self.stop.is_set():
             try:
-                lease = self.api.claim()
+                lease = self.api.claim(capabilities)
                 if lease is None:
                     if once:
                         return 0
@@ -153,6 +153,13 @@ class WorkerService:
                 raise WorkerError("attempt_revoked", "The server revoked this attempt before upload.")
             output_size = output.stat().st_size
             output_digest = _sha256_file(output, self.config.max_output_bytes)
+            # Upload grants expire no later than the current lease. Refresh it
+            # immediately before requesting a grant instead of relying on the
+            # next periodic heartbeat to leave enough time for the upload.
+            heartbeat.update("uploading", 0.86)
+            heartbeat.refresh_now()
+            if self.stop.is_set():
+                raise WorkerError("attempt_revoked", "The worker stopped before upload.")
             upload = self.api.issue_upload(
                 lease, content_type="video/mp4", file_name="worker-output.mp4",
                 byte_size=output_size, sha256=output_digest,
@@ -161,7 +168,6 @@ class WorkerService:
             upload_limit = _bounded_integer(upload, "maxBytes", 1, self.config.max_output_bytes)
             if output_size > upload_limit:
                 raise WorkerError("upload_limit_exceeded", "The upload grant is smaller than the generated result.")
-            heartbeat.update("uploading", 0.86)
             self.api.upload_file(upload, str(output), max_bytes=upload_limit)
             if heartbeat.cancelled.is_set() or self.stop.is_set():
                 raise WorkerError("attempt_revoked", "The server revoked this attempt during upload.")

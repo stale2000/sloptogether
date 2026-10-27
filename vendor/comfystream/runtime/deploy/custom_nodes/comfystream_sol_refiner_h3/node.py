@@ -15,6 +15,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 from types import ModuleType
@@ -50,6 +51,7 @@ from .media_export import (
     _write_gpu_frames,
     ffmpeg_export_command,
 )
+from .media_metadata import probe_source_metadata
 from .model_runtime import _RUNTIME as _MODEL_RUNTIME
 from .model_runtime import (
     CPU_PREPROCESS_OVERLAP_ENV,
@@ -69,13 +71,25 @@ from .protocol import WorkerRequest
 from .shared_vae_plan import shared_vae_topology, validate_chunk_settings
 from .sloptogether_scope import refiner_output_directory
 from .worker_client import WorkerClientRegistry, worker_environment_fingerprint
-from .hardware_profiles import configure_pipeline_device, select_transformer_precision
+from .hardware_profiles import configure_pipeline_device, resident_reuse_is_safe, select_transformer_precision
 
 DEFAULT_SIGMA = 0.9093750119
 DEFAULT_WORKER_RESPONSE_TIMEOUT_SECONDS = 1800.0
 TRANSFORMER_COMPILE_ENV = "COMFYSTREAM_SOL_H3_COMPILE_TRANSFORMER"
 _EXECUTION_LOCK = threading.RLock()
 _WORKER_REGISTRY = WorkerClientRegistry()
+
+
+@dataclass(frozen=True)
+class _ResidentProof:
+    token: object
+    signature: tuple[object, ...]
+    profile: tuple[object, ...]
+    frames: int
+    peak_reserved_bytes: int
+
+
+_RESIDENT_PROOF: _ResidentProof | None = None
 
 
 def _worker_response_timeout_seconds() -> float:
@@ -101,6 +115,8 @@ def _transformer_precision_mode(value: str = "nvfp4") -> Literal["auto", "bf16",
             torch.cuda.get_device_capability(),
             torch.cuda.get_device_properties(0).total_memory,
             torch.cuda.mem_get_info()[0],
+            release_resident_worker=_stop_worker if "single" in _WORKER_REGISTRY.keys() else None,
+            probe_free_memory=lambda: torch.cuda.mem_get_info()[0],
         ))
     if mode not in {"bf16", "fp8", "mxfp8", "nvfp4"}:
         raise ValueError("transformer_precision must be 'auto', 'bf16', 'fp8', 'mxfp8', or 'nvfp4'")
@@ -124,6 +140,8 @@ class VideoInput(Protocol):
 
 def _stop_worker() -> None:
     """Stop the single-GPU persistent child owned by the transport registry."""
+    global _RESIDENT_PROOF
+    _RESIDENT_PROOF = None
     _WORKER_REGISTRY.close("single")
 
 
@@ -134,16 +152,10 @@ def _stop_distributed_worker(device: str) -> None:
 def _worker_preparation(
     package_dir: Path, *, device: str | None = None,
 ) -> tuple[dict[str, str], tuple[tuple[str, int], ...], str]:
-    files = [package_dir / name for name in (
-        "node.py", "worker.py", "worker_client.py", "protocol.py", "distributed.py",
-        "media_export.py", "model_runtime.py", "decoder_optimizations.py",
-        "fast_decoder.py", "prompt_cache.py", "fixed_conditioning.py",
-        "fp8_optimizations.py", "media_metadata.py", "shared_vae.py", "runtime.json",
-    )]
-    if device is not None:
-        files.extend(path for path in (package_dir / name for name in (
-            "shared_vae_worker.py", "shared_vae_plan.py", "cuda_transfers.py",
-        )) if path.is_file())
+    # A reused process must reflect every local Python module, not only a
+    # hand-maintained subset of imports. Contents and credentials stay out of
+    # the signature and logs; modification timestamps trigger a cold reload.
+    files = sorted(package_dir.glob("*.py")) + [package_dir / "runtime.json"]
     files.extend(sorted((package_dir / "sol_refiner_h3").glob("*.py")))
     environment = dict(os.environ)
     # Comfy's allocator alias would override the child's canonical setting.
@@ -176,7 +188,7 @@ def _request_worker_on_device(
             os.environ.get(VIDEO_ONLY_REFINER_ENV, "0"),
         )
     log_path = target_dir.parent / f"worker-cuda-{slot}.log"
-    response, pid, log = _WORKER_REGISTRY.request(
+    response, pid, _ = _WORKER_REGISTRY.request(
         f"device:{device}", signature,
         [worker_python, str(package_dir / worker_script), "--serve"],
         environment, log_path, request,
@@ -192,8 +204,7 @@ def _request_worker_on_device(
                 != request["shared_vae"]["upscale_devices"]):
             _stop_distributed_worker(device)
             raise ValueError("Shared VAE worker response does not match its requested topology")
-    report.update({"worker_persistent": True, "worker_pid": pid,
-                   "worker_log": str(log), "cuda_device_slot": slot})
+    report.update({"worker_persistent": True, "worker_pid": pid, "cuda_device_slot": slot})
     return report
 
 
@@ -209,24 +220,67 @@ atexit.register(_stop_all_workers)
 
 
 def _request_worker(
-    worker_python: str, request: WorkerRequest, target_dir: Path
+    worker_python: str, request: WorkerRequest, target_dir: Path,
+    *, prepared: tuple[dict[str, str], tuple[object, ...]] | None = None,
+    required_token: object | None = None,
 ) -> dict[str, object]:
     """Reuse one isolated GPU worker for serialized Comfy node requests."""
     package_dir = Path(__file__).resolve().parent
-    environment, sources, environment_fingerprint = _worker_preparation(package_dir)
-    signature = (worker_python, sources, environment_fingerprint)
-    response, pid, log = _WORKER_REGISTRY.request(
+    if prepared is None:
+        environment, sources, environment_fingerprint = _worker_preparation(package_dir)
+        signature = (worker_python, sources, environment_fingerprint)
+    else:
+        environment, signature = prepared
+    response, pid, _ = _WORKER_REGISTRY.request(
         "single", signature,
         [worker_python, str(package_dir / "worker.py"), "--serve"],
         environment, target_dir / "worker.log", request,
         timeout=_worker_response_timeout_seconds(), label="SoL H3 worker",
+        required_token=required_token,
     )
     if response["status"] != "succeeded":
         raise RuntimeError(f"SoL H3 worker failed: {response['error']}")
     report = response["report"]
-    report.update({"worker_persistent": True, "worker_pid": pid,
-                   "worker_log": str(log)})
+    report.update({"worker_persistent": True, "worker_pid": pid})
     return report
+
+
+def _resident_profile(
+    source: str, *, source_width: int, source_height: int, fps: Fraction,
+    width: int, height: int, decoder_mode: str, output_backend: str,
+    prompt: str, cache_conditioning: bool,
+) -> tuple[tuple[object, ...], int] | None:
+    """Describe a source only when its measured geometry and timing agree."""
+    try:
+        info = probe_source_metadata(source)
+        frames = info["frames"]
+        if (type(frames) is not int or frames < 1 or info["width"] != source_width
+                or info["height"] != source_height or info["fps"] != fps):
+            return None
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError, OverflowError, ZeroDivisionError, subprocess.SubprocessError):
+        return None
+    return ((source_width, source_height, width, height, f"{fps.numerator}/{fps.denominator}", decoder_mode,
+             output_backend, prompt, cache_conditioning), frames)
+
+
+def _remember_resident_proof(
+    *, signature: tuple[object, ...], profile: tuple[object, ...], frames: int,
+    report: dict[str, object],
+) -> None:
+    global _RESIDENT_PROOF
+    _RESIDENT_PROOF = None
+    peak = report.get("peak_reserved_bytes")
+    pid = report.get("worker_pid")
+    if type(pid) is not int or pid <= 0:
+        return
+    token = _WORKER_REGISTRY.compatible_token("single", signature, expected_pid=pid)
+    if (token is not None and report.get("status") == "succeeded"
+            and report.get("transformer_precision") == "nvfp4"
+            and report.get("model_residency") == "cuda"
+            and report.get("frames") == frames and report.get("width") == profile[2]
+            and report.get("height") == profile[3] and report.get("fps") == profile[4]
+            and type(peak) is int and peak > 0):
+        _RESIDENT_PROOF = _ResidentProof(token, signature, profile, frames, peak)
 
 
 def padded_frame_count(frame_count: int, temporal_factor: int = 8) -> int:
@@ -461,13 +515,13 @@ class MiniMaxH3SoLUpscaler:
         transfer_mode: Literal["blocking", "peer_event"] = "blocking",
         sloptogether_scope: str = "",
     ) -> tuple[VideoInput, str]:
+        global _RESIDENT_PROOF
         if not str(prompt).strip():
             raise ValueError("Enter a scene or preservation prompt for the H3 upscaler")
         if type(cache_conditioning) is not bool:
             raise TypeError("cache_conditioning must be a boolean")
         if not isinstance(sloptogether_scope,str):
             raise TypeError("sloptogether_scope must be a string")
-        typed_transformer_precision = _transformer_precision_mode(transformer_precision)
         if output_backend not in {"nvenc", "libx264"}:
             raise ValueError("Unsupported output encoder")
         if decoder_mode not in {"diffusion", "pruna_fast"}:
@@ -507,21 +561,45 @@ class MiniMaxH3SoLUpscaler:
                 fps = _video_frame_rate(video)
                 comfy_models_unloaded = _release_comfy_models()
 
+                worker_python = os.environ.get(
+                    "COMFYSTREAM_SOL_H3_PYTHON",
+                    str(Path(__file__).resolve().parent / ".worker" / "bin" / "python"),
+                )
+                if not Path(worker_python).is_file():
+                    raise RuntimeError(
+                        "SoL H3 worker runtime is missing. Run this node's install_runtime.sh "
+                        "or set COMFYSTREAM_SOL_H3_PYTHON to a verified Torch 2.13/CUDA 13 worker."
+                    )
+                prepared: tuple[dict[str, str], tuple[object, ...]] | None = None
+                warm_token: object | None = None
+                if execution_mode == "single_gpu":
+                    environment, sources, fingerprint = _worker_preparation(Path(__file__).resolve().parent)
+                    signature = (worker_python, sources, fingerprint)
+                    prepared = (environment, signature)
+                    proof = _RESIDENT_PROOF
+                    if str(transformer_precision).strip().lower() == "auto" and proof is not None:
+                        profile = _resident_profile(source, source_width=source_width, source_height=source_height,
+                            fps=fps, width=int(width), height=int(height), decoder_mode=decoder_mode,
+                            output_backend=output_backend, prompt=str(prompt), cache_conditioning=cache_conditioning)
+                        if profile is not None:
+                            import torch
+                            capability = torch.cuda.get_device_capability()
+                            total_memory = torch.cuda.get_device_properties(0).total_memory
+                            free_memory = torch.cuda.mem_get_info()[0]
+                            token = _WORKER_REGISTRY.compatible_token("single", signature)
+                            if resident_reuse_is_safe(capability, total_memory, free_memory, proof.peak_reserved_bytes,
+                                    profile_matches=(proof.signature == signature and proof.profile == profile[0]
+                                                     and profile[1] <= proof.frames),
+                                    worker_matches=(token is proof.token)):
+                                warm_token = token
+                typed_transformer_precision = "nvfp4" if warm_token is not None else _transformer_precision_mode(transformer_precision)
+
                 output_dir = Path(folder_paths.get_output_directory())
                 target_dir = refiner_output_directory(output_dir,sloptogether_scope)
                 target_dir.mkdir(parents=True, exist_ok=False)
                 output = target_dir / "refined.mp4"
                 partial = target_dir / "refined.partial.mp4"
                 try:
-                    worker_python = os.environ.get(
-                        "COMFYSTREAM_SOL_H3_PYTHON",
-                        str(Path(__file__).resolve().parent / ".worker" / "bin" / "python"),
-                    )
-                    if not Path(worker_python).is_file():
-                        raise RuntimeError(
-                            "SoL H3 worker runtime is missing. Run this node's install_runtime.sh "
-                            "or set COMFYSTREAM_SOL_H3_PYTHON to a verified Torch 2.13/CUDA 13 worker."
-                        )
                     request: WorkerRequest = {
                         "source": source,
                         "output": str(partial),
@@ -541,7 +619,7 @@ class MiniMaxH3SoLUpscaler:
                     request_path.write_text(json.dumps(request, sort_keys=True))
                     if execution_mode == "single_gpu":
                         _stop_all_distributed_workers()
-                        report = _request_worker(worker_python, request, target_dir)
+                        report = _request_worker(worker_python, request, target_dir, prepared=prepared, required_token=warm_token)
                     elif execution_mode == "multi_gpu_benchmark":
                         _stop_worker()
                         report = self._refine_multi_gpu_benchmark(
@@ -564,7 +642,19 @@ class MiniMaxH3SoLUpscaler:
                     if report.get("status") != "succeeded" or not partial.is_file():
                         raise RuntimeError("SoL H3 worker returned without a complete output video")
                     os.replace(partial, output)
+                    if (prepared is not None and report.get("transformer_precision") == "nvfp4"
+                            and report.get("model_residency") == "cuda"):
+                        profile = _resident_profile(source, source_width=source_width, source_height=source_height,
+                            fps=fps, width=int(width), height=int(height), decoder_mode=decoder_mode,
+                            output_backend=output_backend, prompt=str(prompt), cache_conditioning=cache_conditioning)
+                        if profile is not None:
+                            _remember_resident_proof(signature=prepared[1], profile=profile[0], frames=profile[1], report=report)
+                        else:
+                            _RESIDENT_PROOF = None
+                    else:
+                        _RESIDENT_PROOF = None
                 except BaseException:
+                    _RESIDENT_PROOF = None
                     partial.unlink(missing_ok=True)
                     raise
                 gc.collect()

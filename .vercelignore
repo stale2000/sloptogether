@@ -1,0 +1,25 @@
+# This project deploys only the SlopTogether web child app. Keep the root
+# workspace manifest, packages/contracts, apps/web, and extension/ because the
+# web prebuild compiles the hosted Twitch Extension panel into its public tree.
+/.git
+/.vercel
+/.omx
+/.codegraph
+/.playwright-mcp
+/comfy-cloud-smoke
+/outputs
+/sloptogether-live-demo.png
+/vendor
+/workers
+/db
+/docs
+/scripts
+/extension/dist
+/node_modules
+/apps/web/node_modules
+/apps/web/.next
+**/*.tsbuildinfo
+**/__pycache__
+**/.pytest_cache
+**/.venv
+**/.venv-build

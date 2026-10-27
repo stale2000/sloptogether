@@ -12,7 +12,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from math import prod
-from typing import NotRequired, Protocol, TypedDict, cast
+from typing import Protocol, cast
 
 import torch
 import torch.nn.functional as F
@@ -33,14 +33,6 @@ except ImportError:  # Standalone benchmark and contract-test imports.
         scatter_active_rows,
         scatter_selected_rows_,
     )
-
-class RouterTrainingRecord(TypedDict):
-    step: int
-    token_ids: torch.Tensor
-    features: torch.Tensor
-    exit_prediction: torch.Tensor
-    exit_steps: NotRequired[torch.Tensor]
-
 
 class _ForwardOwner(Protocol):
     forward: object
@@ -64,12 +56,6 @@ class _BlockForward(Protocol):
         self, x: torch.Tensor, t_emb: torch.Tensor, mod_segments: object, rope_freqs: object,
         transformer_options: dict[str, object] | None = None, attention: object = None,
     ) -> torch.Tensor: ...
-
-
-class _RouterHead(Protocol):
-    input_dim: int
-
-    def __call__(self, features: torch.Tensor) -> torch.Tensor: ...
 
 
 _ACTIVE_FREEZE: ContextVar[TokenFreezeController | None] = ContextVar(
@@ -184,10 +170,6 @@ class TokenFreezeController:
         stability_mode: str = "legacy_relative",
         freeze_granularity: str = "token",
         seed_mode: str = "activation",
-        router_head: _RouterHead | None = None,
-        router_threshold: float = 0.5,
-        router_capture_step: int | None = None,
-        router_capture_only: bool = False,
         prescribed_exit_steps: torch.Tensor | None = None,
         dense_reference: bool = False,
     ) -> None:
@@ -216,20 +198,7 @@ class TokenFreezeController:
             )
         if seed_mode not in {"activation", "previous_forward"}:
             raise ValueError("seed_mode must be 'activation' or 'previous_forward'")
-        if router_head is not None and seed_mode != "activation":
-            raise ValueError("the learned router requires clean activation-state cache seeding")
-        if router_head is not None and not 0.0 <= float(router_threshold) <= 1.0:
-            raise ValueError("router_threshold must be in [0, 1]")
-        if router_capture_step is not None and (
-            type(router_capture_step) is not int
-            or not 1 <= router_capture_step < total_steps
-        ):
-            raise ValueError("router_capture_step must be between 1 and total_steps - 1")
-        if type(router_capture_only) is not bool:
-            raise TypeError("router_capture_only must be a boolean")
         if prescribed_exit_steps is not None:
-            if router_head is not None or router_capture_only:
-                raise ValueError("prescribed exits cannot be combined with router inference or capture")
             if prescribed_exit_steps.ndim != 1 or prescribed_exit_steps.dtype not in (torch.int32, torch.int64):
                 raise ValueError("prescribed exit steps must be a one-dimensional integer tensor")
             if torch.any((prescribed_exit_steps < 1) | (prescribed_exit_steps > total_steps)):
@@ -248,19 +217,10 @@ class TokenFreezeController:
             } else None
         )
         self.seed_mode = seed_mode
-        self.router_head = router_head
-        self.router_threshold = float(router_threshold)
-        self.router_capture_step = router_capture_step
-        self.router_capture_only = router_capture_only
         self.prescribed_exit_steps = (
             prescribed_exit_steps.detach().to(dtype=torch.long).clone()
             if prescribed_exit_steps is not None else None
         )
-        self.router_exit_steps: torch.Tensor | None = None
-        self.router_training_record: RouterTrainingRecord | None = None
-        self._router_features: torch.Tensor | None = None
-        self._router_token_ids: torch.Tensor | None = None
-        self._router_forward_count = 0
         self.debug_block_trace: Callable[[int, str, torch.Tensor], None] | None = None
         self.debug_linear_trace: Callable[[int, str, torch.Tensor, torch.Tensor], None] | None = None
         self.debug_qkv_trace: Callable[[int, torch.Tensor, torch.Tensor], None] | None = None
@@ -372,53 +332,6 @@ class TokenFreezeController:
     def token_count(self) -> int:
         return 0 if self.frozen_tokens is None else int(self.frozen_tokens.numel())
 
-    def capture_router_features(
-        self, block_index: int, output: torch.Tensor, video_span: tuple[int, int],
-    ) -> None:
-        """Retain only live video tokens from the final transformer block."""
-        if not self.router_capture_only and self.router_head is None:
-            return
-        if block_index != self.transformer_blocks - 1:
-            return
-        start, end = (int(video_span[0]), int(video_span[1]))
-        if self.active_rows is None:
-            token_ids = torch.arange(end - start, device=output.device, dtype=torch.long)
-            rows = output[start:end]
-        else:
-            live = self.active_rows[(self.active_rows >= start) & (self.active_rows < end)]
-            token_ids = live - start
-            rows = output.index_select(0, live)
-        self._router_features = rows.detach()
-        self._router_token_ids = token_ids.detach()
-
-    @staticmethod
-    def _ordinary_cpu_copy(value: torch.Tensor) -> torch.Tensor:
-        # A feature captured while Comfy's inference_mode is active cannot be
-        # saved for the router's weight-gradient calculation later.
-        with torch.inference_mode(False):
-            return value.detach().to(device="cpu", dtype=torch.float16, copy=True).clone()
-
-    @staticmethod
-    def _ordinary_cpu_index_copy(value: torch.Tensor) -> torch.Tensor:
-        """Copy patch indices without float16 rounding at video-grid sizes."""
-        with torch.inference_mode(False):
-            return value.detach().to(device="cpu", dtype=torch.long, copy=True).clone()
-
-    @staticmethod
-    def _ordinary_cpu_feature_copy(value: torch.Tensor) -> torch.Tensor:
-        """Keep full activation range and precision for the trainable router."""
-        with torch.inference_mode(False):
-            return value.detach().to(device="cpu", dtype=torch.float32, copy=True).clone()
-
-    def finish_router_training_record(self) -> RouterTrainingRecord | None:
-        if self.router_training_record is None:
-            return None
-        if self.router_exit_steps is None:
-            raise RuntimeError("router training rollout did not produce an exit map")
-        record = cast(RouterTrainingRecord, dict(self.router_training_record))
-        record["exit_steps"] = self._ordinary_cpu_index_copy(self.router_exit_steps)
-        return record
-
     def observe(self, step: int, denoised_video: torch.Tensor, sample_video: torch.Tensor) -> None:
         """Record exits from x0; projection happens at the next model boundary."""
         tokens = _video_tokens(denoised_video).detach()
@@ -436,83 +349,22 @@ class TokenFreezeController:
             )
             self.committed_video = torch.zeros_like(denoised_video)
             self._empty_indices = torch.empty(0, dtype=torch.long, device=tokens.device)
-            if self.router_head is not None or self.router_capture_only or self.prescribed_exit_steps is not None:
-                self.router_exit_steps = torch.full(
-                    (tokens.shape[0],), self.total_steps,
-                    device=tokens.device, dtype=torch.long,
-                )
         elif tokens.shape[0] != self.frozen_tokens.numel():
             raise ValueError("video latent token geometry changed during sampling")
         assert self._empty_indices is not None
 
-        # Learned routing can stop after its first denoiser call. The
-        # stability-only controller waits for a second x0 before scoring.
         if self.prescribed_exit_steps is not None:
             if self.prescribed_exit_steps.numel() != tokens.shape[0]:
                 raise ValueError("prescribed exit map does not match the video token geometry")
             if step < self.total_steps:
-                assert self.router_exit_steps is not None
                 active = ~self.frozen_tokens
                 newly_frozen = ((self.prescribed_exit_steps.to(tokens.device) == step) & active).nonzero(
                     as_tuple=False
                 ).flatten()
-                self.router_exit_steps[newly_frozen] = int(step)
             else:
                 newly_frozen = self._empty_indices
             early_accepted = self._empty_indices
-        elif self.router_head is not None:
-            if step < self.total_steps:
-                if self._router_features is None or self._router_token_ids is None:
-                    raise RuntimeError("the learned router did not receive final-block features")
-                feature_ids = self._router_token_ids.to(device=tokens.device, dtype=torch.long)
-                features = self._router_features.to(device=tokens.device, dtype=torch.float32)
-                if features.shape != (feature_ids.numel(), self.router_head.input_dim):
-                    raise RuntimeError("router feature rows and token IDs differ")
-                with torch.no_grad():
-                    logits = self.router_head(features)
-                    stop = logits.sigmoid() > self.router_threshold
-                active_mask = ~self.frozen_tokens.index_select(0, feature_ids)
-                stop &= active_mask
-                accepted = torch.zeros_like(self.frozen_tokens)
-                accepted[feature_ids] = stop
-                if step == self.router_capture_step:
-                    all_prediction_rows = _video_tokens(denoised_video)
-                    candidate_ids = feature_ids[active_mask]
-                    self.router_training_record = {
-                        "step": int(step),
-                        "token_ids": self._ordinary_cpu_index_copy(candidate_ids),
-                        "features": self._ordinary_cpu_feature_copy(features[active_mask]),
-                        "exit_prediction": self._ordinary_cpu_copy(
-                            all_prediction_rows.index_select(0, candidate_ids)
-                        ),
-                    }
-                if self.router_exit_steps is None:
-                    raise RuntimeError("learned router exit map was not initialized")
-                self.router_exit_steps[feature_ids[stop]] = int(step)
-            else:
-                # The terminal prediction belongs to the native sampler. It is
-                # not an early exit and must retain native terminal arithmetic.
-                accepted = torch.zeros_like(self.frozen_tokens)
-                if self.router_exit_steps is None:
-                    raise RuntimeError("learned router exit map was not initialized")
-            newly_frozen = accepted.nonzero(as_tuple=False).flatten()
-            early_accepted = self._empty_indices
-        elif self.router_capture_only:
-            # A feature/trajectory recording pass must remain exactly dense.
-            accepted = torch.zeros_like(self.frozen_tokens)
-            if step == self.router_capture_step:
-                if self._router_features is None or self._router_token_ids is None:
-                    raise RuntimeError("router capture did not receive final-block features")
-                self.router_training_record = {
-                    "step": int(step),
-                    "token_ids": self._ordinary_cpu_index_copy(self._router_token_ids),
-                    "features": self._ordinary_cpu_feature_copy(self._router_features),
-                    "exit_prediction": self._ordinary_cpu_copy(tokens),
-                }
-            newly_frozen = self._empty_indices
-            early_accepted = self._empty_indices
-        # No first-step stability score exists. The final step forces survivors
-        # only in the training-free heuristic path.
+        # No first-step stability score exists. The final step forces survivors.
         elif self.previous_tokens is not None and step < self.total_steps - 1:
             stability = (tokens.float() - self.previous_tokens.float()).norm(dim=-1)
             if self.stability_mode == "legacy_relative":
@@ -590,8 +442,6 @@ class TokenFreezeController:
                 dtype=torch.long,
             )
             self.slot_by_token[newly_frozen] = slots
-            if self.router_exit_steps is not None:
-                self.router_exit_steps[newly_frozen] = int(step)
             self.cache_count += newly_frozen_count
             self.frozen_tokens[newly_frozen] = True
             assert self.committed_video is not None
@@ -640,8 +490,6 @@ class TokenFreezeController:
         else:
             self._clear_pending_previous_forward()
         self._clear_pending_qkv()
-        self._router_features = None
-        self._router_token_ids = None
 
     @property
     def should_capture_previous_hidden(self) -> bool:
@@ -1243,7 +1091,6 @@ class TokenFreezeController:
         self._refresh_pending_qkv_sequence_layout()
 
     def begin_forward(self) -> None:
-        self._router_forward_count += 1
         if self.seed_mode == "previous_forward":
             self.begin_previous_forward_capture()
         self._prepare_pending_qkv_capture()
@@ -2124,7 +1971,6 @@ def install_token_freezing(
                             x, t_emb, mod_segments, rope_freqs,
                             transformer_options=transformer_options, attention=attention,
                         )
-                        state.capture_router_features(_index, result, video_span)
                         return result
                     state.configure_layout(x.shape[0], video_span)
                     start, end = video_span
@@ -2134,7 +1980,6 @@ def install_token_freezing(
                         transformer_options=transformer_options, attention=attention,
                     )
                     state.capture_previous_forward_block_output(_index, result[start:end])
-                    state.capture_router_features(_index, result, video_span)
                     return result
                 state.configure_layout(x.shape[0], video_span)
                 assert state.video_span is not None
@@ -2167,7 +2012,6 @@ def install_token_freezing(
                 if callable(trace_callback) and state.cache_count > 0 and state.ready_count > 0:
                     trace_callback(_index, "output", result)
                 state.capture_previous_forward_block_output(_index, result[start:end])
-                state.capture_router_features(_index, result, video_span)
                 return result
 
             replace(block, "forward", block_forward, f"{block_path}.forward")

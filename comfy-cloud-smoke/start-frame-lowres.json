@@ -1,0 +1,27 @@
+{
+  "25": {
+    "class_type": "OpenAIGPTImageNodeV2",
+    "_meta": {"title": "GPT Image 2.5 Flare · 848×480"},
+    "inputs": {
+      "prompt": "A tiny white cartoon robot beside a luminous blue crystal in a moonlit garden. A distant observatory sits below a bright constellation. Hand-painted 2D storybook illustration, wide 16:9 composition, clear silhouette, navy and teal palette, family-friendly, no text or logos.",
+      "model": "gpt-image-2.5-flare",
+      "model.size": "Custom",
+      "model.custom_width": 848,
+      "model.custom_height": 480,
+      "model.quality": "low",
+      "model.background": "opaque",
+      "n": 1,
+      "seed": 31825889
+    }
+  },
+  "26": {
+    "class_type": "ImageScale",
+    "_meta": {"title": "Fit start frame to TrimH3"},
+    "inputs": {"image": ["25", 0], "upscale_method": "lanczos", "width": 448, "height": 256, "crop": "center"}
+  },
+  "28": {
+    "class_type": "SaveImage",
+    "_meta": {"title": "Generated start frame"},
+    "inputs": {"filename_prefix": "sloptogether/start-frame", "images": ["26", 0]}
+  }
+}

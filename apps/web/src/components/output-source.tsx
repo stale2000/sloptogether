@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError,apiFetch, displayProblem, type SessionSummary } from "./api";
 import { isLocalDemoFallbackEnabled,useChannelProgram,useChannelTimeline } from "./channel-data";
-import { ProgramPlayer } from "./program-player";
+import { ProgramPlayer,type ProgramPlayerHandle } from "./program-player";
 
 interface ControllerSession { controllerEpoch: number; leaseId?: string; canControl: boolean }
 
@@ -11,12 +11,14 @@ export function shouldRetryControllerClaim(status:number|null){
   return status!==401&&status!==403;
 }
 
-export function OutputSource({ channel }: { channel: string }) {
-  const data = useChannelTimeline(channel);
-  const program = useChannelProgram(channel);
+export function OutputSource({ channel,streamSlug="main" }: { channel: string;streamSlug?:string }) {
+  const data = useChannelTimeline(channel,streamSlug);
+  const program = useChannelProgram(channel,streamSlug);
+  const streamApi=`/channels/${encodeURIComponent(channel)}/streams/${encodeURIComponent(streamSlug)}`;
   const programReady = program.state === "ready" && !!program.value.playlistUrl;
   const [hasStarted, setHasStarted] = useState(false);
   const [controller, setController] = useState<ControllerSession | null>(null);
+  const [controllerClaimPending,setControllerClaimPending]=useState(false);
   const [error, setError] = useState<string | null>(null);
   const [playheadSeconds,setPlayheadSeconds]=useState(0);
   const [scrubSeconds,setScrubSeconds]=useState(0);
@@ -28,10 +30,12 @@ export function OutputSource({ channel }: { channel: string }) {
   const lastAcceptedPosition=useRef<{itemId:string;seconds:number;manifestRevision:number}|null>(null);
   const latestPosition = useRef<{ itemId: string; seconds: number; manifestRevision: number } | null>(null);
   const timer = useRef<number | null>(null);
+  const playerRef=useRef<ProgramPlayerHandle>(null);
 
   const tryClaimOutput = useCallback(async () => {
     setError(null);
-    if (isLocalDemoFallbackEnabled(channel)) return;
+    if (isLocalDemoFallbackEnabled(channel,undefined,streamSlug)) return;
+    setControllerClaimPending(true);
     try {
       const session=await apiFetch<SessionSummary>("/auth/session");
       const canControl=session.authenticated&&session.channels?.some(item=>item.login.toLowerCase()===channel.toLowerCase());
@@ -39,15 +43,17 @@ export function OutputSource({ channel }: { channel: string }) {
         setController(null);
         return;
       }
-      const result = await apiFetch<ControllerSession>(`/channels/${encodeURIComponent(channel)}/playback/controller`, { method: "POST", body: JSON.stringify({ clientInstanceId: sessionInstanceId() }) });
+      const result = await apiFetch<ControllerSession>(`${streamApi}/playback/controller`, { method: "POST", body: JSON.stringify({ clientInstanceId: sessionInstanceId() }) });
       setController(result);
     } catch (problem) {
       const message = displayProblem(problem);
       const status=problem instanceof ApiError?problem.status:null;
       setController(null);
       if(shouldRetryControllerClaim(status))setError(message);
+    } finally {
+      setControllerClaimPending(false);
     }
-  }, [channel]);
+  }, [channel,streamApi,streamSlug]);
 
   const reportPosition = useCallback(async (position: { itemId: string; seconds: number; manifestRevision: number }) => {
     if (!controller?.canControl) return;
@@ -66,7 +72,7 @@ export function OutputSource({ channel }: { channel: string }) {
         latestPosition.current = null;
         return;
       }
-      await apiFetch(`/channels/${encodeURIComponent(channel)}/playback/position`, {
+      await apiFetch(`${streamApi}/playback/position`, {
         method: "POST",
         body: JSON.stringify({ itemId: position.itemId, offsetSeconds: position.seconds, controllerEpoch: controller.controllerEpoch, programEpoch: latestProgram.epoch, manifestRevision: position.manifestRevision, sequence: ++sequence.current }),
       });
@@ -79,7 +85,7 @@ export function OutputSource({ channel }: { channel: string }) {
       setError(displayProblem(problem));
       setController(null);
     }finally{requestInFlight.current=false;}
-  }, [channel, controller, program]);
+  }, [controller, program,streamApi]);
 
   useEffect(() => {
     if (timer.current !== null) window.clearInterval(timer.current);
@@ -93,17 +99,17 @@ export function OutputSource({ channel }: { channel: string }) {
   }, [controller, reportPosition]);
 
   useEffect(()=>{
-    if(!hasStarted||controller?.canControl||isLocalDemoFallbackEnabled(channel))return;
+    if(!hasStarted||controller?.canControl||isLocalDemoFallbackEnabled(channel,undefined,streamSlug))return;
     const id=window.setInterval(()=>void tryClaimOutput(),10_000);
     return()=>window.clearInterval(id);
-  },[channel,controller?.canControl,hasStarted,tryClaimOutput]);
+  },[channel,controller?.canControl,hasStarted,tryClaimOutput,streamSlug]);
 
   const current = data.state === "ready" ? data.value.currentProgramItem : null;
   const programSpans=program.state==="ready"?program.value.programSpans:[];
   const programDuration=programSpans.reduce((maximum,span)=>Math.max(maximum,span.outputEndSeconds),0);
   const scrubPercent=programDuration>0?Math.max(0,Math.min(100,((scrubbing?scrubSeconds:playheadSeconds)/programDuration)*100)):0;
   const programIdentity=program.state==="ready"?`${program.value.epoch}:${program.value.manifestRevision}`:"";
-  const localDemoPlaying=program.state==="ready"&&isLocalDemoFallbackEnabled(channel)&&program.value.playlistUrl==="/sloptogether/demo/localdemo/playlist.m3u8";
+  const localDemoPlaying=program.state==="ready"&&isLocalDemoFallbackEnabled(channel,undefined,streamSlug)&&program.value.playlistUrl==="/sloptogether/demo/localdemo/playlist.m3u8";
   useEffect(()=>{
     const video=document.querySelector(".output-player video") as HTMLVideoElement|null;
     if(!video)return;
@@ -115,7 +121,7 @@ export function OutputSource({ channel }: { channel: string }) {
     const video=document.querySelector(".output-player video") as HTMLVideoElement|null;
     if(!video||!Number.isFinite(seconds))return;
     const target=Math.max(0,Math.min(programDuration,seconds));
-    video.currentTime=target;setPlayheadSeconds(target);setScrubSeconds(target);setScrubbing(false);
+    playerRef.current?.seek(target);setPlayheadSeconds(target);setScrubSeconds(target);setScrubbing(false);
     void video.play().then(()=>setHasStarted(true)).catch(()=>setError("Press Start program to play the selected clip."));
   };
   useEffect(()=>{
@@ -128,6 +134,7 @@ export function OutputSource({ channel }: { channel: string }) {
       <section className="output-stage" aria-label="Channel program output">
         <div className={`output-player${hasStarted?" output-started":""}`}>
           <ProgramPlayer program={program.state === "ready" ? program.value : null} fallbackItem={current} clean autoPlayIntent={hasStarted}
+            seekRef={playerRef} controllerClaimPending={controllerClaimPending} ownedControllerEpoch={controller?.canControl?controller.controllerEpoch:null}
             autoInterruptId={data.state==="ready"&&data.value.subscriberInterrupts?.current?.state==="ready"?data.value.subscriberInterrupts.current.id:undefined}
             canAutoInterrupt={controller?.canControl===true}
             onStarted={()=>setHasStarted(true)} onNeedsUserStart={notifyPlaybackNeedsUserStart} onProgress={(event) => { latestPosition.current = event; void reportPosition(event); }} />

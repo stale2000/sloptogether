@@ -10,7 +10,6 @@ from .benchmark import (
 from .benchmark_clock import ComfyStreamerH3BenchmarkClock
 from .conditioning import ComfyStreamerH3ImageToVideo
 from .dmad_nodes import ComfyStreamerH3DmadLoader, ComfyStreamerH3DmadSampling
-from .forcingbooster_training import ComfyStreamerH3ForcingBoosterTrainer
 from .native_diagnostic import ComfyStreamerH3NativeAttentionDiagnostic
 from .nodes import ComfyStreamerH3OptimizedLoader
 
@@ -18,7 +17,6 @@ NODE_CLASS_MAPPINGS = {
     "ComfyStreamerH3ImageToVideo": ComfyStreamerH3ImageToVideo,
     "ComfyStreamerH3DmadLoader": ComfyStreamerH3DmadLoader,
     "ComfyStreamerH3DmadSampling": ComfyStreamerH3DmadSampling,
-    "ComfyStreamerH3ForcingBoosterTrainer": ComfyStreamerH3ForcingBoosterTrainer,
     "ComfyStreamerH3NativeAttentionDiagnostic": ComfyStreamerH3NativeAttentionDiagnostic,
     "ComfyStreamerH3OptimizedLoader": ComfyStreamerH3OptimizedLoader,
     "ComfyStreamerH3BenchmarkClock": ComfyStreamerH3BenchmarkClock,
@@ -45,7 +43,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
         "ComfyStreamerH3ImageToVideo": "ComfyStreamerH3 Image to Video",
         "ComfyStreamerH3DmadLoader": "ComfyStreamerH3 DMAD Model",
         "ComfyStreamerH3DmadSampling": "ComfyStreamerH3 DMAD Sampler",
-        "ComfyStreamerH3ForcingBoosterTrainer": "FastH3 ForcingBooster Router Trainer",
         "ComfyStreamerH3NativeAttentionDiagnostic": "ComfyStreamerH3 Native Attention Diagnostic",
         "ComfyStreamerH3BenchmarkSampler": "ComfyStreamerH3 Sampler",
         "ComfyStreamerH3BenchmarkClock": "ComfyStreamerH3 Benchmark Clock (experiment)",

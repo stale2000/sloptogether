@@ -20,6 +20,16 @@ function reject(code, message) {
   throw new InvalidMediaError(code, message);
 }
 
+/** Use the job's target; legacy upscales predate target fields and were 1080p. */
+export function expectedArtifactDimensions(current) {
+  const planned=current?.planning_payload??{};
+  const fallbackWidth=current?.stage==="video_upscale"?1920:Number(current?.output_width);
+  const fallbackHeight=current?.stage==="video_upscale"?1080:Number(current?.output_height);
+  const width=planned.outputWidth==null||planned.outputWidth===""?fallbackWidth:Number(planned.outputWidth);
+  const height=planned.outputHeight==null||planned.outputHeight===""?fallbackHeight:Number(planned.outputHeight);
+  return {width,height};
+}
+
 /** Validate decoded container metadata against a channel's pinned output profile. */
 export function validateMediaMetadata(probe, expected, byteSize, options = {}) {
   const maxBytes = options.maxBytes ?? 128 * 1024 * 1024;

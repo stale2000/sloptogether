@@ -17,12 +17,12 @@ and preserves per-file source/current SHA256 records in
 The existing stdlib assembler's combined `vast` profile is the smallest
 existing maintained profile containing both generation and upscaling. Its
 name describes the upstream profile, not a SlopTogether hosting decision.
-The byte-preserved upstream artifact is in `vendor/comfystream/runtime/`; its
-original manifest digest is `9a2d5d19fb22b7e55d29c8e6048c4c421c5b73b044b7cc010188efe7df9ccaef`.
-The provenance manifest records 295 imported source/derived files and two
-SlopTogether-managed additions: the Ada FP8 profile and the SoL attempt-scope
-helper. Seven imported SoL files carry both their original source hashes and
-patched hashes; the output-scope patch chain is recorded separately. See
+The curated worker artifact is in `vendor/comfystream/runtime/`. Its provenance
+manifest records 282 packaged files, including imported source, generated
+workflow references, and local runtime additions. The local patch manifest
+records the Ada FP8 profile and SoL attempt-scope changes. Seven imported SoL
+files carry both their original source hashes and patched hashes; the
+output-scope patch chain is recorded separately. See
 `vendor/comfystream/local-patches.json` for the patch boundary and qualification
 status. No dependencies were installed or added to the SlopTogether app.
 
@@ -53,9 +53,9 @@ suffix allowlist otherwise omits.
 The original OBS integration, desktop UI, coordinator, old playback service,
 frontend, project assets, generated videos, benchmark results, models,
 environments, credentials, and cached deployment contexts were excluded.
-Internal production node dependencies and node mappings remain unchanged;
-unused optional mappings can be removed in a separate regression-protected
-pass after the new worker adapter's supported profile is fixed.
+The trainer node, learned-router code and unreferenced helper modules were
+removed from the release package. Generation and upscaling dependencies and
+node mappings used by the worker recipes remain.
 
 ## Existing generation contract
 
@@ -189,8 +189,8 @@ not install dependencies, load CUDA, download weights or start providers.
   deterministic assembly, artifact drift/content/permission/symlink checks,
   source dependency closure, model/code identities, compatibility metadata,
   identity route registration and the five-step sigma contract.
-- All 295 manifest file hashes matched.
-- 181 runtime Python modules parsed under Python 3.12; 367 relative imports
+- All 282 manifest file hashes matched.
+- 173 runtime Python modules parsed under Python 3.12; 341 relative imports
   resolved within the copied source closure.
 - Both generated workflow reference graphs have valid node links: 13 nodes
   for initial generation and 3 for upscale.
@@ -274,8 +274,8 @@ Its recorded output was:
 ```text
 Workflow links valid: trim-five-step-first-last-frame.api.json 13 nodes
 Workflow links valid: sol-upscale-standard.api.json 3 nodes
-Manifest SHA256 valid: 295 files
-Python AST valid: 181 modules; relative imports resolved: 367
+Manifest SHA256 valid: 282 files
+Python AST valid: 173 modules; relative imports resolved: 341
 ```
 
 For a portable equivalent, substitute an existing Python 3.12 interpreter
@@ -285,8 +285,9 @@ integrity command use the standard library only. This documents the actual
 offline evidence; it does not establish CUDA/runtime import compatibility.
 
 The copied five-step test changes only its repository-root lookup to point
-to `runtime/`. Generation kernels, node export mappings, dependency pins and
-sampler settings remain byte-preserved; the SoL Ada profile change is recorded
+to `runtime/`. Generation kernels, remaining node mappings, dependency pins and
+sampler settings remain; the removed trainer and unused modules are recorded
+in the curated import manifest. The SoL Ada profile change is recorded
 separately in the local-patch manifest. GPU inference, Fal image builds, live
 endpoint identity, decoder quality, boundary fidelity, executable installation,
 4090 memory and throughput were not tested and are not claimed.

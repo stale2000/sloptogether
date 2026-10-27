@@ -14,7 +14,13 @@
     "Import manifest covers vendored source and derived workflow files; README is import documentation.",
     "Imported source files retain their upstream digests; local source edits are identified by local-patches.json. The SlopTogether H3 Ada FP8 profile patch is not represented as upstream code.",
     "The SoL upscale attempt-output scope patch is identified in local-patches.json; worker cleanup removes the exact attempt directory after download.",
-    "SoL intermediate outputs and sidecars are scoped to the server-issued job attempt and removed after download."
+    "SoL intermediate outputs and sidecars are scoped to the server-issued job attempt and removed after download.",
+    "Omitted five internal research, historical benchmark, and upstream-only quickstart documents from the release worker package; they are not needed to run the worker.",
+    "Worker manifest and identity metadata were regenerated from the curated worker package.",
+    "Removed four unreferenced custom-node helper modules from the release package.",
+    "Removed the FastH3 router trainer, its router model utilities, and training-only rollout capture hooks; inference uses the existing training-free token-freezing heuristic.",
+    "Removed the unreferenced decoder layout helper.",
+    "Removed three unreferenced internal diagnostic/benchmark modules from the runtime package."
   ],
   "files": [
     {
@@ -99,11 +105,12 @@
     },
     {
       "path": "reference/deploy/GPU-ENVIRONMENTS.md",
-      "sha256": "2f9e97c811764ae5ec441182d8eb9b29dd21bba4123e4973ca1bad24ea761df9",
-      "bytes": 5443,
+      "sha256": "2a831a416b836d464cf7b29deb8d37f1b1596d3e95d0d4a189ff90f84a75cf5e",
+      "bytes": 5287,
       "source_path": "deploy/GPU-ENVIRONMENTS.md",
       "source_sha256": "2f9e97c811764ae5ec441182d8eb9b29dd21bba4123e4973ca1bad24ea761df9",
-      "byte_preserved": true
+      "byte_preserved": false,
+      "local_patch_id": "sloptogether-remove-model-training-v1"
     },
     {
       "path": "reference/deploy/fal/fasth3-b1/Dockerfile",
@@ -234,21 +241,13 @@
       "byte_preserved": true
     },
     {
-      "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/PERFORMANCE.md",
-      "sha256": "9ec40f07711371c982d4bd7af7e8322b73c4ea82084d807a3353cfb5a96843c8",
-      "bytes": 41768,
-      "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/PERFORMANCE.md",
-      "source_sha256": "9ec40f07711371c982d4bd7af7e8322b73c4ea82084d807a3353cfb5a96843c8",
-      "byte_preserved": true
-    },
-    {
       "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/README.md",
-      "sha256": "a80e495020ab304eaf8b8421b18858614ac430637d0dedae7201a7054892990f",
-      "bytes": 19482,
+      "sha256": "f12e0e037db46c8c504bf65dc3daae751df5e223fe373861d8be2c8cec6f0859",
+      "bytes": 4794,
       "source_path": "deploy/custom_nodes/comfystream_sol_refiner_h3/README.md",
       "source_sha256": "56491c7fa4bc2d4e6d9877ea73792a640c9c7edfbe725eb81c6df9f2dab4a8a8",
       "byte_preserved": false,
-      "local_patch_id": "sloptogether-h3-ada-fp8-v1"
+      "local_patch_id": "sloptogether-release-readme-cleanup-v1"
     },
     {
       "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/__init__.py",
@@ -559,35 +558,11 @@
     },
     {
       "path": "runtime/deploy/custom_nodes/comfystream_worker_identity/artifact.json",
-      "sha256": "a7ab253b401cfea71d41287ce734d00360491f67d33da18e52b9a69bb979b87b",
+      "sha256": "897c3c42494ad2b6cfed55bcf8c948ed45eb424fef795097413e16a08f814a50",
       "bytes": 4075,
       "source_path": "deploy/custom_nodes/comfystream_worker_identity/artifact.json",
       "source_sha256": null,
       "byte_preserved": null
-    },
-    {
-      "path": "runtime/deploy/custom_nodes/fasth3_deploy/ADAPTIVE_ATTENTION_PLAN.md",
-      "sha256": "a7130969454a4a7b37937ac626d19b09dcd879acb0237573bff7bad3b2a6570f",
-      "bytes": 5374,
-      "source_path": "deploy/custom_nodes/fasth3_deploy/ADAPTIVE_ATTENTION_PLAN.md",
-      "source_sha256": "a7130969454a4a7b37937ac626d19b09dcd879acb0237573bff7bad3b2a6570f",
-      "byte_preserved": true
-    },
-    {
-      "path": "runtime/deploy/custom_nodes/fasth3_deploy/ADAPTIVE_ATTENTION_RESEARCH.md",
-      "sha256": "93abcfa802a5b24dc6e6b70b70d3ef0581db8db9e6f80a527b236da07dbaedf9",
-      "bytes": 3867,
-      "source_path": "deploy/custom_nodes/fasth3_deploy/ADAPTIVE_ATTENTION_RESEARCH.md",
-      "source_sha256": "93abcfa802a5b24dc6e6b70b70d3ef0581db8db9e6f80a527b236da07dbaedf9",
-      "byte_preserved": true
-    },
-    {
-      "path": "runtime/deploy/custom_nodes/fasth3_deploy/DMAD_BENCHMARK.md",
-      "sha256": "bf36187ea9c36a903bb7848a8d19262e5f6869ad8c58572a4df609cb4b2e4b44",
-      "bytes": 4311,
-      "source_path": "deploy/custom_nodes/fasth3_deploy/DMAD_BENCHMARK.md",
-      "source_sha256": "bf36187ea9c36a903bb7848a8d19262e5f6869ad8c58572a4df609cb4b2e4b44",
-      "byte_preserved": true
     },
     {
       "path": "runtime/deploy/custom_nodes/fasth3_deploy/LICENSE",
@@ -598,28 +573,22 @@
       "byte_preserved": true
     },
     {
-      "path": "runtime/deploy/custom_nodes/fasth3_deploy/QUICKSTART.md",
-      "sha256": "3421ebddba01c9c9a2b86e6121049255f32af5ce58429fee66f722f764936bbf",
-      "bytes": 868,
-      "source_path": "deploy/custom_nodes/fasth3_deploy/QUICKSTART.md",
-      "source_sha256": "3421ebddba01c9c9a2b86e6121049255f32af5ce58429fee66f722f764936bbf",
-      "byte_preserved": true
-    },
-    {
       "path": "runtime/deploy/custom_nodes/fasth3_deploy/README.md",
-      "sha256": "926a623b6add49c45ce008c70d187dca118a145a199a2755d02c91c37a9ffaa4",
-      "bytes": 4206,
+      "sha256": "065e8b71220cf60a7b20fe6363e06db093080896d53cfd39ef26b69053dae40b",
+      "bytes": 2886,
       "source_path": "deploy/custom_nodes/fasth3_deploy/README.md",
       "source_sha256": "926a623b6add49c45ce008c70d187dca118a145a199a2755d02c91c37a9ffaa4",
-      "byte_preserved": true
+      "byte_preserved": false,
+      "local_patch_id": "sloptogether-release-readme-cleanup-v1"
     },
     {
       "path": "runtime/deploy/custom_nodes/fasth3_deploy/__init__.py",
-      "sha256": "16f9fc40bfe29bd06db1bb942adf7e96e4c8cfbbd7a8f95bded2c0f5dc762c7c",
-      "bytes": 3366,
+      "sha256": "a52e40c8e21327278f31d16e972473c60d2778498f9093213849fdc5e7bad1ba",
+      "bytes": 3122,
       "source_path": "deploy/custom_nodes/fasth3_deploy/__init__.py",
       "source_sha256": "16f9fc40bfe29bd06db1bb942adf7e96e4c8cfbbd7a8f95bded2c0f5dc762c7c",
-      "byte_preserved": true
+      "byte_preserved": false,
+      "local_patch_id": "sloptogether-remove-model-training-v1"
     },
     {
       "path": "runtime/deploy/custom_nodes/fasth3_deploy/anemoi_native/README.md",
@@ -1046,14 +1015,6 @@
       "byte_preserved": true
     },
     {
-      "path": "runtime/deploy/custom_nodes/fasth3_deploy/decoder_cache.py",
-      "sha256": "3b319a36445565ab0057246e6c6edbba7c6e3ea924f319524b248fe4b95a2a59",
-      "bytes": 9559,
-      "source_path": "deploy/custom_nodes/fasth3_deploy/decoder_cache.py",
-      "source_sha256": "3b319a36445565ab0057246e6c6edbba7c6e3ea924f319524b248fe4b95a2a59",
-      "byte_preserved": true
-    },
-    {
       "path": "runtime/deploy/custom_nodes/fasth3_deploy/decoder_diagnostics.py",
       "sha256": "586b69761e510c95f131cb7f5d3efb0fa263145e5a4d8265d69c4888d5f72fc3",
       "bytes": 6950,
@@ -1067,14 +1028,6 @@
       "bytes": 7598,
       "source_path": "deploy/custom_nodes/fasth3_deploy/decoder_graph.py",
       "source_sha256": "761cbb656525a7966e4e27b64ed63ba8ea25a94ec9b5931915425c604033f156",
-      "byte_preserved": true
-    },
-    {
-      "path": "runtime/deploy/custom_nodes/fasth3_deploy/decoder_layout.py",
-      "sha256": "987724e9d947148113f431d2b4e8ffcdc94712d5beed4320aed2ef8e38023011",
-      "bytes": 969,
-      "source_path": "deploy/custom_nodes/fasth3_deploy/decoder_layout.py",
-      "source_sha256": "987724e9d947148113f431d2b4e8ffcdc94712d5beed4320aed2ef8e38023011",
       "byte_preserved": true
     },
     {
@@ -1134,22 +1087,6 @@
       "byte_preserved": true
     },
     {
-      "path": "runtime/deploy/custom_nodes/fasth3_deploy/forcingbooster_router.py",
-      "sha256": "530f00b94cbdfe89b46ed3fc71958f819a70e643f8ce2bc8346e89efe92ad41d",
-      "bytes": 15068,
-      "source_path": "deploy/custom_nodes/fasth3_deploy/forcingbooster_router.py",
-      "source_sha256": "530f00b94cbdfe89b46ed3fc71958f819a70e643f8ce2bc8346e89efe92ad41d",
-      "byte_preserved": true
-    },
-    {
-      "path": "runtime/deploy/custom_nodes/fasth3_deploy/forcingbooster_training.py",
-      "sha256": "7ee00b87c8141a3e369ea97f32b433b9e2ec55195f5c1921aa217201cb7adfc2",
-      "bytes": 76664,
-      "source_path": "deploy/custom_nodes/fasth3_deploy/forcingbooster_training.py",
-      "source_sha256": "7ee00b87c8141a3e369ea97f32b433b9e2ec55195f5c1921aa217201cb7adfc2",
-      "byte_preserved": true
-    },
-    {
       "path": "runtime/deploy/custom_nodes/fasth3_deploy/fp4_kernel_config.py",
       "sha256": "f00b2ac9d1a72403ada29275cd31601e99664941ad5ceecd99bdb2e9f6c34861",
       "bytes": 1029,
@@ -1182,27 +1119,11 @@
       "byte_preserved": true
     },
     {
-      "path": "runtime/deploy/custom_nodes/fasth3_deploy/inference_metrics.py",
-      "sha256": "366612ab8aee8677414dd6c60265835bb18d14122dc2cab224fd4b28f42f395a",
-      "bytes": 8756,
-      "source_path": "deploy/custom_nodes/fasth3_deploy/inference_metrics.py",
-      "source_sha256": "366612ab8aee8677414dd6c60265835bb18d14122dc2cab224fd4b28f42f395a",
-      "byte_preserved": true
-    },
-    {
       "path": "runtime/deploy/custom_nodes/fasth3_deploy/install.py",
       "sha256": "47561157abe2b5e6378c8ff57755e530f05d7ec7ebdcdfa31b1ba7cac9717355",
       "bytes": 2705,
       "source_path": "deploy/custom_nodes/fasth3_deploy/install.py",
       "source_sha256": "47561157abe2b5e6378c8ff57755e530f05d7ec7ebdcdfa31b1ba7cac9717355",
-      "byte_preserved": true
-    },
-    {
-      "path": "runtime/deploy/custom_nodes/fasth3_deploy/intermediate_capture.py",
-      "sha256": "0305ee5bd26db1d41f3ffa62bf5dbb6d49507349d01d5a54bf1abe7fa0df7a6d",
-      "bytes": 9181,
-      "source_path": "deploy/custom_nodes/fasth3_deploy/intermediate_capture.py",
-      "source_sha256": "0305ee5bd26db1d41f3ffa62bf5dbb6d49507349d01d5a54bf1abe7fa0df7a6d",
       "byte_preserved": true
     },
     {
@@ -1247,11 +1168,12 @@
     },
     {
       "path": "runtime/deploy/custom_nodes/fasth3_deploy/memory_features.py",
-      "sha256": "a6597f8143605f822f523d20e769c94a388344d70268778cfbcf1c02b264cf56",
-      "bytes": 7122,
+      "sha256": "bd77c91d2ecc9a89799e46c2e91a13717fe62b5392216ec7f6ff7435621643ec",
+      "bytes": 6519,
       "source_path": "deploy/custom_nodes/fasth3_deploy/memory_features.py",
       "source_sha256": "a6597f8143605f822f523d20e769c94a388344d70268778cfbcf1c02b264cf56",
-      "byte_preserved": true
+      "byte_preserved": false,
+      "local_patch_id": "sloptogether-prune-unreferenced-nodes-v1"
     },
     {
       "path": "runtime/deploy/custom_nodes/fasth3_deploy/migration_capture.py",
@@ -1462,14 +1384,6 @@
       "byte_preserved": true
     },
     {
-      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/diagnostics.py",
-      "sha256": "902558bf920cb46e3989b99b0dd2d07f0f09eef25ba4f90107df8edda33c0e09",
-      "bytes": 10225,
-      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/diagnostics.py",
-      "source_sha256": "902558bf920cb46e3989b99b0dd2d07f0f09eef25ba4f90107df8edda33c0e09",
-      "byte_preserved": true
-    },
-    {
       "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/grouped.py",
       "sha256": "05a59ae9950521c9ce8ccc9b991027ea22c7c011c1e2acd33f7b81f1e77ab35d",
       "bytes": 8050,
@@ -1499,14 +1413,6 @@
       "bytes": 3911,
       "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/oracle.py",
       "source_sha256": "9ef8ea92f3832e00e32d6818e05c0a4e0b895963cb2c2c5e5d71f9d68b2c343a",
-      "byte_preserved": true
-    },
-    {
-      "path": "runtime/deploy/custom_nodes/fasth3_deploy/native_attention/route_compaction.py",
-      "sha256": "cd94e0bc26371f3ba5af66ea64fba16fdb198135e0cfa3cae6c5aca0fce54086",
-      "bytes": 3274,
-      "source_path": "deploy/custom_nodes/fasth3_deploy/native_attention/route_compaction.py",
-      "source_sha256": "cd94e0bc26371f3ba5af66ea64fba16fdb198135e0cfa3cae6c5aca0fce54086",
       "byte_preserved": true
     },
     {
@@ -1606,14 +1512,6 @@
       "byte_preserved": true
     },
     {
-      "path": "runtime/deploy/custom_nodes/fasth3_deploy/sequence_parallel.py",
-      "sha256": "672fddb7c4b48f32aaddd599707a6d8f6ce555c085c950e5150b36d9730a6523",
-      "bytes": 8212,
-      "source_path": "deploy/custom_nodes/fasth3_deploy/sequence_parallel.py",
-      "source_sha256": "672fddb7c4b48f32aaddd599707a6d8f6ce555c085c950e5150b36d9730a6523",
-      "byte_preserved": true
-    },
-    {
       "path": "runtime/deploy/custom_nodes/fasth3_deploy/sol_attn_minimax_v5.py",
       "sha256": "ee612b195c83b44791d27b3415971462fed02fc5f33592bf48996094cf0f7ac4",
       "bytes": 62648,
@@ -1623,11 +1521,12 @@
     },
     {
       "path": "runtime/deploy/custom_nodes/fasth3_deploy/speculative_forcing_freeze.py",
-      "sha256": "2fa067d2af70e10ec2fc8b1c976673f94dc840789745fb9bad0a099f1262619a",
-      "bytes": 112610,
+      "sha256": "cd6c6759695ab0ab73383ebcb6050887cc68cc8a7c645515e246416810d4a4cb",
+      "bytes": 104127,
       "source_path": "deploy/custom_nodes/fasth3_deploy/speculative_forcing_freeze.py",
       "source_sha256": "2fa067d2af70e10ec2fc8b1c976673f94dc840789745fb9bad0a099f1262619a",
-      "byte_preserved": true
+      "byte_preserved": false,
+      "local_patch_id": "sloptogether-remove-model-training-v1"
     },
     {
       "path": "runtime/deploy/custom_nodes/fasth3_deploy/speculative_forcing_probe.py",
@@ -2191,19 +2090,12 @@
     },
     {
       "path": "runtime/deploy/custom_nodes/fasth3_deploy/vsa_sm120/layout.py",
-      "sha256": "7d4cc399e71b8bb5dd63a44639c4f1a085b49f320c6a8c4cc195bd07de8c477f",
-      "bytes": 4235,
+      "sha256": "838d9a67fe64e85dffb30080d74505af2a4f5130ff252bbb8c18066457d70825",
+      "bytes": 4216,
       "source_path": "deploy/custom_nodes/fasth3_deploy/vsa_sm120/layout.py",
       "source_sha256": "7d4cc399e71b8bb5dd63a44639c4f1a085b49f320c6a8c4cc195bd07de8c477f",
-      "byte_preserved": true
-    },
-    {
-      "path": "runtime/deploy/custom_nodes/fasth3_deploy/vsa_sm120/microbench.py",
-      "sha256": "40e830e3019a72702d6431ebf26e5d5a180b69658991d5bef43499c30a88cc4e",
-      "bytes": 7161,
-      "source_path": "deploy/custom_nodes/fasth3_deploy/vsa_sm120/microbench.py",
-      "source_sha256": "40e830e3019a72702d6431ebf26e5d5a180b69658991d5bef43499c30a88cc4e",
-      "byte_preserved": true
+      "byte_preserved": false,
+      "local_patch_id": "sloptogether-prune-unreferenced-nodes-v1"
     },
     {
       "path": "runtime/deploy/custom_nodes/fasth3_deploy/vsa_sm120/producer.py",
@@ -2375,11 +2267,12 @@
     },
     {
       "path": "runtime/scripts/assemble_worker_artifact.py",
-      "sha256": "8fd4ec8c2838ee0878557ab22832c9d0863af6ab58b8b99777b1b037feb03d21",
-      "bytes": 13382,
+      "sha256": "6f20832feaa583110e4471c2e7fc15bb6029ee468a2beec5f57c017c9e7f4b75",
+      "bytes": 13792,
       "source_path": "scripts/assemble_worker_artifact.py",
       "source_sha256": "8fd4ec8c2838ee0878557ab22832c9d0863af6ab58b8b99777b1b037feb03d21",
-      "byte_preserved": true
+      "byte_preserved": false,
+      "local_patch_id": "sloptogether-release-readme-cleanup-v1"
     },
     {
       "path": "runtime/scripts/download_fasth3_models.sh",
@@ -2399,8 +2292,8 @@
     },
     {
       "path": "runtime/worker-manifest.json",
-      "sha256": "fc4df65c29faada746a110b00f8c671be1444a28b0afd2e993a3f01b7dc220be",
-      "bytes": 55263,
+      "sha256": "dfbd862118278a9e10ed25264a25c9d8176f7c1f42478c9ad8f669691184b910",
+      "bytes": 52888,
       "source_path": "worker-manifest.json",
       "source_sha256": null,
       "byte_preserved": null

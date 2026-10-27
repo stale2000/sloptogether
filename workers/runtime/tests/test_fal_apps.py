@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +17,46 @@ _SPEC.loader.exec_module(_MODULE)
 
 
 class FalAppPreparationTests(unittest.TestCase):
+    def test_generated_generation_entrypoint_honors_cache_paths_and_defaults(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            generation = _MODULE.prepare_apps(root / "apps") / "generation"
+            dockerfile = (generation / "Dockerfile").read_text()
+            marker = "RUN python3 - <<'PY'\nfrom pathlib import Path\npath=Path('/opt/fasth3-entrypoint.sh')\n"
+            start = dockerfile.index(marker) + len("RUN python3 - <<'PY'\n")
+            end = dockerfile.index("\nPY\n", start)
+            patch_script = dockerfile[start:end]
+            script = root / "entrypoint.sh"
+            shutil.copyfile(generation / "context/comfystream/deploy/fal/fasth3-b1/entrypoint.sh", script)
+            patch_script = patch_script.replace("Path('/opt/fasth3-entrypoint.sh')", f"Path({str(script)!r})", 1)
+            subprocess.run([sys.executable, "-c", patch_script], check=True, capture_output=True, text=True)
+
+            patched = script.read_text()
+            self.assertIn("exec runuser --preserve-environment --user=sloptogether-comfy", patched)
+            # Execute the real patched initialization while substituting only
+            # mkdir, so no model, GPU, or account-wide filesystem is touched.
+            preamble = patched.split('if [[ "${FASTH3_BUILD_NATIVE_VC:-0}"', 1)[0]
+            binary_dir = root / "bin"
+            binary_dir.mkdir()
+            mkdir = binary_dir / "mkdir"
+            mkdir.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$MKDIR_CAPTURE"\n')
+            mkdir.chmod(0o755)
+            capture = root / "mkdir-args"
+            variables = ("HF_HOME", "TORCHINDUCTOR_CACHE_DIR", "TRITON_CACHE_DIR", "CUDA_CACHE_PATH")
+            base = os.environ.copy()
+            for name in variables:
+                base.pop(name, None)
+            base.update({"PATH": f"{binary_dir}:{os.defpath}", "MKDIR_CAPTURE": str(capture)})
+            command = preamble + '\nprintf "%s\\n" "$HF_HOME" "$TORCHINDUCTOR_CACHE_DIR" "$TRITON_CACHE_DIR" "$CUDA_CACHE_PATH"\n'
+            for overrides, expected in (
+                ({}, ["/data/.cache/huggingface", "/data/torchinductor", "/data/triton", "/data/cuda-cache"]),
+                ({name: str(root / f"scoped cache {index}") for index, name in enumerate(variables)},
+                 [str(root / f"scoped cache {index}") for index in range(4)]),
+            ):
+                result = subprocess.run(["bash", "-c", command], env=base | overrides, check=True, capture_output=True, text=True)
+                self.assertEqual(result.stdout.splitlines(), expected)
+                self.assertEqual(capture.read_text().splitlines(), ["-p", "/data/fasth3-models", *expected])
+
     def test_creates_isolated_private_role_apps_with_the_shared_worker(self):
         with tempfile.TemporaryDirectory() as temporary:
             output = _MODULE.prepare_apps(Path(temporary) / "apps")

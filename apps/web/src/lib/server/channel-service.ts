@@ -4,7 +4,7 @@ import { transaction,transactionOnClient,query } from "./db";
 import { ApiError,assertSameOrigin,readJson } from "./http";
 import { currentSession } from "./session";
 import { requestPrincipal } from "./principals";
-import { findChannel,listPublicChannels as publicChannelDirectory,requireChannelModerator,requireContentReviewer,requireStreamerController } from "./channels";
+import { findChannel,isBanned,listPublicChannels as publicChannelDirectory,requireChannelModerator,requireContentReviewer,requireStreamerController } from "./channels";
 import { getModeratedChannelIds } from "./twitch-subs";
 import { getPublicTimeline } from "./timeline";
 import { publicRuntimeStatus } from "./env";
@@ -12,6 +12,7 @@ import { reservationUsd } from "./reservation";
 import { hmacKeySecret,randomSecret } from "./crypto";
 import { z } from "zod";
 import { abandonStoryProducerPlans, lockRevokedWorkerSegments, retireRevokedWorkerJobs } from "./worker-revocation";
+import { carryForwardTrustedExecutions,isSafeTrustedPolicyAudit,nonAuthoritySettings } from "./trusted-policy";
 
 export async function sessionOverview(request:Request){
   const configured={twitchOAuth:publicRuntimeStatus().twitchOAuth};
@@ -69,9 +70,6 @@ export async function createOwnedChannel(request:Request){
   if(existing.rows[0])return {twitchChannelId:id,login:existing.rows[0].twitch_login,displayName:existing.rows[0].display_name,alreadyConnected:true};
   await transaction(async client=>{
     await client.query("INSERT INTO sloptogether.channels(twitch_channel_id,owner_twitch_user_id,twitch_login,display_name) VALUES($1,$1,$2,$3)",[id,session.twitchLogin,session.displayName]);
-    const branch=await client.query<{id:string}>("INSERT INTO sloptogether.branches(twitch_channel_id,name,is_selected,created_by) VALUES($1,'Main story',true,$2) RETURNING id",[id,id]);
-    await client.query("INSERT INTO sloptogether.segments(twitch_channel_id,branch_id,ordinal,state) VALUES($1,$2,0,'open')",[id,branch.rows[0]!.id]);
-    await client.query("INSERT INTO sloptogether.playback_sessions(twitch_channel_id) VALUES($1)",[id]);
     await client.query("INSERT INTO sloptogether.memberships(twitch_user_id,twitch_channel_id,role,status) VALUES($1,$1,'broadcaster','active') ON CONFLICT DO NOTHING",[id]);
     await client.query("INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,action,target_kind,target_id) VALUES($1,$1,'channel.create','channel',$1)",[id]);
   });
@@ -83,6 +81,8 @@ export async function readChannelSettings(locator:string,request:Request){
   await requireChannelModerator(channel,principal);
   const funding=await query<{committed:string}>(`SELECT coalesce(sum(greatest(reserved_usd,coalesce(actual_cost_usd,0))),0)::text AS committed
     FROM sloptogether.funding_authorizations WHERE twitch_channel_id=$1 AND source='owner_budget' AND state<>'released'`,[channel.twitch_channel_id]);
+  const subscriptionAuth=await query<{authorized:boolean}>(`SELECT EXISTS(SELECT 1 FROM sloptogether.sessions WHERE twitch_user_id=$1 AND revoked_at IS NULL
+    AND expires_at>now() AND granted_scopes @> ARRAY['channel:read:subscriptions']::text[]) AS authorized`,[channel.owner_twitch_user_id]);
   const budget=ownerBudgetSummary(channel.owner_budget_cap_usd,funding.rows[0]?.committed??"0",reservationUsd("SLOPTOGETHER_GENERATION_ATTEMPT_RESERVATION_USD"));
   return {
     twitchChannelId:channel.twitch_channel_id,login:channel.twitch_login,displayName:channel.display_name,
@@ -91,6 +91,9 @@ export async function readChannelSettings(locator:string,request:Request){
     roleBasedUploadBypass:channel.role_based_upload_bypass,subscriberInterrupts:channel.subscriber_interrupt_policy,
     storyWorldPrompt:channel.story_world_prompt,h3StyleProfile:channel.h3_style_profile,
     ownerBudgetCapUsd:Number(channel.owner_budget_cap_usd),...budget,policyRevision:channel.policy_revision,chatVotingEnabled:channel.chat_voting_enabled,
+    subscriberAttemptReservationUsd:reservationUsd("SLOPTOGETHER_SUBSCRIBER_ATTEMPT_RESERVATION_USD"),
+    subscriberEventSubAuthorized:Boolean(subscriptionAuth.rows[0]?.authorized),
+    preairUpscaleEnabled:channel.preair_upscale_enabled,preairUpscaleWaitSeconds:channel.preair_upscale_wait_seconds,
   };
 }
 
@@ -104,6 +107,8 @@ const channelSettingsPatch=z.object({
   h3StyleProfile:z.string().regex(/^[-a-zA-Z0-9_]{1,80}$/).optional(),
   ownerBudgetCapUsd:z.number().min(0).max(10000).optional(),
   chatVotingEnabled:z.boolean().optional(),
+  preairUpscaleEnabled:z.boolean().optional(),
+  preairUpscaleWaitSeconds:z.number().int().min(60).max(3600).optional(),
 }).strict();
 
 export async function updateChannelSettings(locator:string,request:Request){
@@ -120,13 +125,39 @@ export async function updateChannelSettings(locator:string,request:Request){
   if(patch.h3StyleProfile!==undefined)columns.h3_style_profile=patch.h3StyleProfile;
   if(patch.ownerBudgetCapUsd!==undefined)columns.owner_budget_cap_usd=patch.ownerBudgetCapUsd;
   if(patch.chatVotingEnabled!==undefined)columns.chat_voting_enabled=patch.chatVotingEnabled;
+  if(patch.preairUpscaleEnabled!==undefined)columns.preair_upscale_enabled=patch.preairUpscaleEnabled;
+  if(patch.preairUpscaleWaitSeconds!==undefined)columns.preair_upscale_wait_seconds=patch.preairUpscaleWaitSeconds;
   const names=Object.keys(columns);
   if(!names.length)return readChannelSettings(locator,request);
   const values=names.map(name=>columns[name]);values.push(channel.twitch_channel_id);
   const assignments=names.map((name,index)=>name+"=$"+(index+1)).join(",");
   const persist=async(client:import("pg").PoolClient)=>{
-    const updated=await client.query("UPDATE sloptogether.channels SET "+assignments+",policy_revision=policy_revision+1,updated_at=now() WHERE twitch_channel_id=$"+values.length+" RETURNING policy_revision",values);
+    const updated=await client.query<{policy_revision:number}>("UPDATE sloptogether.channels SET "+assignments+",policy_revision=policy_revision+1,updated_at=now() WHERE twitch_channel_id=$"+values.length+" RETURNING policy_revision",values);
     if(!updated.rowCount)throw new ApiError(404,"channel_not_found");
+    if(names.every(name=>nonAuthoritySettings.has(name))){
+      await carryForwardTrustedExecutions(client,channel.twitch_channel_id,updated.rows[0]!.policy_revision);
+    }
+    if(patch.preairUpscaleEnabled===false){
+      await client.query(`SELECT s.id FROM sloptogether.preair_upscale_requests p JOIN sloptogether.segment_revisions r ON r.id=p.segment_revision_id
+        JOIN sloptogether.segments s ON s.id=r.segment_id WHERE p.twitch_channel_id=$1 AND p.state='pending' ORDER BY s.id FOR UPDATE OF s`,[channel.twitch_channel_id]);
+      const pending=await client.query<{base_asset_id:string;verified_job_id:string|null}>(`SELECT p.base_asset_id,
+        CASE WHEN j.twitch_channel_id=p.twitch_channel_id AND j.parent_asset_id=p.base_asset_id AND j.segment_revision_id=p.segment_revision_id
+          AND j.stage='video_upscale' AND j.input_sha256=p.base_sha256 THEN j.id ELSE NULL END AS verified_job_id
+        FROM sloptogether.preair_upscale_requests p JOIN sloptogether.jobs j ON j.id=p.upscale_job_id
+        WHERE p.twitch_channel_id=$1 AND p.state='pending' ORDER BY p.base_asset_id FOR UPDATE OF p`,[channel.twitch_channel_id]);
+      const jobs=pending.rows.map(row=>row.verified_job_id).filter((id):id is string=>Boolean(id)),assets=pending.rows.map(row=>row.base_asset_id);
+      if(jobs.length){
+        await client.query(`UPDATE sloptogether.job_attempts SET state='cancelled',fence=fence+1,lease_expires_at=now(),finished_at=coalesce(finished_at,now()),error_code='preair_disabled'
+          WHERE job_id=ANY($1::uuid[]) AND state IN ('ready','leased','running','uncertain','uploaded','validating')`,[jobs]);
+        await client.query(`UPDATE sloptogether.upload_reservations SET state='expired',expires_at=now() WHERE attempt_id IN
+          (SELECT id FROM sloptogether.job_attempts WHERE job_id=ANY($1::uuid[])) AND state IN ('issued','uploaded')`,[jobs]);
+        await client.query("UPDATE sloptogether.jobs SET state='cancelled',cancelled_at=now() WHERE id=ANY($1::uuid[]) AND state NOT IN ('succeeded','failed','cancelled','expired')",[jobs]);
+      }
+      if(assets.length){
+        await client.query("UPDATE sloptogether.preair_upscale_requests SET state='fallback',fallback_reason='policy_disabled',resolved_at=now() WHERE base_asset_id=ANY($1::uuid[]) AND state='pending'",[assets]);
+        await client.query("UPDATE sloptogether.outbox SET available_at=now() WHERE aggregate_id=ANY($1::text[]) AND event_kind='media.publish_requested' AND delivered_at IS NULL",[assets]);
+      }
+    }
     await client.query("INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,action,target_kind,target_id,policy_revision,after_state) VALUES($1,$2,'channel.settings.update','channel',$1,$3,$4::jsonb)",[channel.twitch_channel_id,actor,updated.rows[0].policy_revision,JSON.stringify(patch)]);
   };
   if(patch.chatVotingEnabled!==undefined){
@@ -141,7 +172,7 @@ export async function updateChannelSettings(locator:string,request:Request){
   return readChannelSettings(locator,request);
 }
 
-export async function listReviewQueue(locator:string,request:Request){
+export async function listReviewQueue(locator:string,request:Request,streamId?:string){
   const channel=await findChannel(locator);const principal=await requestPrincipal(request);
   await requireContentReviewer(channel,principal);
   const result=await query<{id:string;author_twitch_user_id:string;prompt:string;state:string;created_at:Date;asset_id:string|null;end_asset_id:string|null;effective_state:string|null;automated_state:string|null}>(
@@ -153,8 +184,8 @@ export async function listReviewQueue(locator:string,request:Request){
     "LEFT JOIN sloptogether.boundary_revisions eb ON eb.id=p.end_boundary_revision_id "+
     "LEFT JOIN sloptogether.assets ea ON ea.id=eb.asset_id "+
     "LEFT JOIN sloptogether.input_screens sc ON sc.id=p.input_screen_id "+
-    "WHERE s.twitch_channel_id=$1 AND p.state='pending' ORDER BY p.created_at LIMIT 150",
-    [channel.twitch_channel_id]);
+    "WHERE s.twitch_channel_id=$1 AND ($2::uuid IS NULL OR EXISTS(SELECT 1 FROM sloptogether.branches b WHERE b.id=s.branch_id AND b.stream_id=$2)) AND p.state='pending' ORDER BY p.created_at LIMIT 150",
+    [channel.twitch_channel_id,streamId??null]);
   const proposalItems=result.rows.map(row=>({id:row.id,kind:row.asset_id&&row.end_asset_id?"anchor_pair":row.asset_id?"start_frame":row.end_asset_id?"end_frame":"prompt",contributor:row.author_twitch_user_id,prompt:row.prompt??"",state:row.state,inputHeld:row.effective_state!=="clear",automatedState:row.automated_state,submittedAt:row.created_at.toISOString(),thumbnailUrl:row.asset_id?"/sloptogether/api/v1/media/"+row.asset_id+"/preview":undefined,endThumbnailUrl:row.end_asset_id?"/sloptogether/api/v1/media/"+row.end_asset_id+"/preview":undefined}));
   const artifacts=await query<{id:string;uploaded_by_twitch_user_id:string|null;prompt:string|null;stage:string;created_at:Date;effective_state:string|null;automated_state:string|null;screen_expires_at:Date|null;duration_seconds:string|null}>(
     `SELECT a.id,a.uploaded_by_twitch_user_id,coalesce(nullif(j.planning_payload->>'prompt',''),sr.prompt) AS prompt,j.stage,a.created_at,i.effective_state,i.automated_state,i.expires_at AS screen_expires_at,a.duration_seconds
@@ -164,9 +195,9 @@ export async function listReviewQueue(locator:string,request:Request){
      LEFT JOIN sloptogether.input_screens i ON i.id=coalesce(NULLIF(j.planning_payload->>'inputScreenId','')::uuid,
        (SELECT p.input_screen_id FROM sloptogether.proposals p WHERE p.segment_revision_id=j.segment_revision_id AND p.input_screen_id IS NOT NULL ORDER BY p.created_at DESC LIMIT 1),
        (SELECT sp.screen_id FROM sloptogether.story_plan_attempts sp JOIN sloptogether.segment_revisions rs ON rs.segment_id=sp.resulting_segment_id WHERE rs.id=j.segment_revision_id AND sp.screen_id IS NOT NULL ORDER BY sp.created_at DESC LIMIT 1))
-     WHERE a.twitch_channel_id=$1 AND a.media_kind='video' AND a.status='validated' AND j.stage IN ('video_base','video_upscale')
+     WHERE a.twitch_channel_id=$1 AND ($2::uuid IS NULL OR j.stream_id=$2) AND a.media_kind='video' AND a.status='validated' AND j.stage IN ('video_base','video_upscale')
        AND ja.state='validating' AND NOT EXISTS(SELECT 1 FROM sloptogether.artifact_approvals aa WHERE aa.asset_id=a.id AND aa.sha256=a.sha256 AND aa.decision IN ('approved','rejected'))
-     ORDER BY a.created_at DESC LIMIT 100`,[channel.twitch_channel_id]);
+     ORDER BY a.created_at DESC LIMIT 100`,[channel.twitch_channel_id,streamId??null]);
   const artifactItems=artifacts.rows.map(row=>({id:row.id,kind:row.stage==="video_upscale"?"upscale":"base_video",contributor:row.uploaded_by_twitch_user_id??"trusted worker",prompt:row.prompt??"Generated clip",state:"validated",inputHeld:row.effective_state!=="clear",automatedState:row.automated_state,inputScreenExpired:Boolean(row.screen_expires_at&&row.screen_expires_at.getTime()<=Date.now()),submittedAt:row.created_at.toISOString(),videoUrl:"/sloptogether/api/v1/media/"+row.id+"/preview",durationSeconds:row.duration_seconds?Number(row.duration_seconds):undefined}));
   const endpoints=await query<{asset_id:string;boundary_id:string;input_screen_id:string;created_by:string;prompt:string;created_at:Date;effective_state:string;automated_state:string}>(
     "SELECT a.id AS asset_id,b.id AS boundary_id,i.id AS input_screen_id,b.created_by,sr.prompt,b.created_at,i.effective_state,i.automated_state "+
@@ -175,7 +206,8 @@ export async function listReviewQueue(locator:string,request:Request){
     "LEFT JOIN sloptogether.segment_revisions sr ON sr.id=b.source_revision_id "+
     "WHERE b.twitch_channel_id=$1 AND b.transformation->>'kind'='generated_endpoint_frame' AND a.status='quarantine' "+
     "AND i.effective_state IN ('held','pending') AND NOT EXISTS(SELECT 1 FROM sloptogether.endpoint_resolutions er WHERE er.resolved_end_boundary_revision_id=b.id AND er.retired_at IS NULL) "+
-    "ORDER BY b.created_at DESC LIMIT 50",[channel.twitch_channel_id]);
+    "AND ($2::uuid IS NULL OR EXISTS(SELECT 1 FROM sloptogether.segment_revisions sr JOIN sloptogether.segments s ON s.id=sr.segment_id JOIN sloptogether.branches br ON br.id=s.branch_id WHERE sr.id=b.source_revision_id AND br.stream_id=$2)) "+
+    "ORDER BY b.created_at DESC LIMIT 50",[channel.twitch_channel_id,streamId??null]);
   const endpointItems=endpoints.rows.map(row=>({id:row.asset_id,kind:"end_frame",contributor:row.created_by,prompt:row.prompt??"Generated ending frame",state:"pending",inputHeld:true,automatedState:row.automated_state,submittedAt:row.created_at.toISOString(),thumbnailUrl:"/sloptogether/api/v1/media/"+row.asset_id+"/preview",endpointScreenId:row.input_screen_id}));
   return {items:[...proposalItems,...artifactItems,...endpointItems].sort((a,b)=>Date.parse(b.submittedAt)-Date.parse(a.submittedAt)).slice(0,150)};
 }
@@ -308,9 +340,10 @@ export async function decideArtifactReview(locator:string,assetId:string,request
       JOIN sloptogether.segments s ON s.id=sr.segment_id
       WHERE a.id=$1 AND a.twitch_channel_id=$2 AND j.stage IN ('video_base','video_upscale') FOR UPDATE OF s`,[assetId,channel.twitch_channel_id]);
     const lockedSegment=segmentLock.rows[0];
-    const result=await client.query<{id:string;sha256:Buffer|null;status:string;uploaded_by_twitch_user_id:string|null;input_screen_id:string|null;effective_state:string|null;screen_expires_at:Date|null;stage:string;job_id:string;attempt_id:string;segment_revision_id:string|null;segment_id:string|null;interrupt_id:string|null;funding_id:string|null}>(
+    const result=await client.query<{id:string;sha256:Buffer|null;status:string;uploaded_by_twitch_user_id:string|null;input_screen_id:string|null;effective_state:string|null;screen_expires_at:Date|null;stage:string;job_id:string;attempt_id:string;segment_revision_id:string|null;segment_id:string|null;interrupt_id:string|null;funding_id:string|null;preair_pending:boolean}>(
       `SELECT a.id,a.sha256,a.status,a.uploaded_by_twitch_user_id,i.id AS input_screen_id,i.effective_state,i.expires_at AS screen_expires_at,
-        j.stage,j.id AS job_id,ja.id AS attempt_id,j.segment_revision_id,sr.segment_id,j.interrupt_id,coalesce(ja.funding_id,j.funding_id) AS funding_id
+        j.stage,j.id AS job_id,ja.id AS attempt_id,j.segment_revision_id,sr.segment_id,j.interrupt_id,coalesce(ja.funding_id,j.funding_id) AS funding_id,
+        EXISTS(SELECT 1 FROM sloptogether.preair_upscale_requests p WHERE p.upscale_job_id=j.id AND p.state='pending' AND p.deadline_at>now()) AS preair_pending
        FROM sloptogether.assets a JOIN sloptogether.job_attempts ja ON ja.output_asset_id=a.id
        JOIN sloptogether.jobs j ON j.id=ja.job_id LEFT JOIN sloptogether.segment_revisions sr ON sr.id=j.segment_revision_id
        LEFT JOIN sloptogether.input_screens i ON i.id=coalesce(NULLIF(j.planning_payload->>'inputScreenId','')::uuid,
@@ -364,11 +397,14 @@ export async function decideArtifactReview(locator:string,assetId:string,request
       }
     }
     const publicationPending=approved&&row.stage==="video_base";
-    if(publicationPending)await client.query(`INSERT INTO sloptogether.outbox(event_kind,aggregate_id,payload,idempotency_key)
-      VALUES('media.publish_requested',$1,$2::jsonb,$3) ON CONFLICT(idempotency_key) DO NOTHING`,[assetId,JSON.stringify({assetId,approvalPath:"human_review"}),"publish:"+assetId+":"+row.sha256.toString("hex")]);
+    if(publicationPending){
+      await client.query("SELECT sloptogether.schedule_preair_upscale($1)",[assetId]);
+      await client.query(`INSERT INTO sloptogether.outbox(event_kind,aggregate_id,payload,idempotency_key)
+        VALUES('media.publish_requested',$1,$2::jsonb,$3) ON CONFLICT(idempotency_key) DO NOTHING`,[assetId,JSON.stringify({assetId,approvalPath:"human_review"}),"publish:"+assetId+":"+row.sha256.toString("hex")]);
+    }
     await client.query("INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,action,target_kind,target_id,reason,after_state) VALUES($1,$2,$3,'asset',$4,$5,$6::jsonb)",[
       channel.twitch_channel_id,actor,approved?"artifact.approved":"artifact.rejected",assetId,body.reason,JSON.stringify({jobId:row.job_id,attemptId:row.attempt_id,stage:row.stage,sha256:row.sha256.toString("hex")})]);
-    return {assetId,state:approved?"approved":"rejected",publicationPending};
+    return {assetId,state:approved?"approved":"rejected",publicationPending,preairPending:approved&&row.stage==="video_upscale"&&row.preair_pending};
   });
 }
 
@@ -394,6 +430,57 @@ export async function issueWorkerKey(locator:string,request:Request){
     await client.query("INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,actor_key_id,action,target_kind,target_id,after_state) VALUES($1,$2,$3,'worker_key.issue','application_key',$5,$4::jsonb)",[channel.twitch_channel_id,issuer,id,JSON.stringify({displayName:body.displayName,scopes:body.scopes}),id]);
   });
   return {keyId:id,secret:value,displayName:body.displayName,scopes:body.scopes};
+}
+
+/** Reaffirm an existing trust scope only after audited, non-authority changes. */
+export async function reaffirmWorkerTrust(locator:string,keyId:string,request:Request){
+  assertSameOrigin(request);
+  if(!z.string().uuid().safeParse(keyId).success)throw new ApiError(400,"worker_key_invalid");
+  const channel=await findChannel(locator);const principal=await requestPrincipal(request);
+  if(principal?.kind!=="session"||principal.session.twitchUserId!==channel.owner_twitch_user_id)
+    throw new ApiError(403,"broadcaster_session_required");
+  const actor=principal.session.twitchUserId;
+  const body=await readJson(request,z.object({reason:z.string().trim().min(10).max(500)}).strict());
+  return transaction(async client=>{
+    const locked=await client.query<{owner_twitch_user_id:string;policy_revision:number}>(
+      "SELECT owner_twitch_user_id,policy_revision FROM sloptogether.channels WHERE twitch_channel_id=$1 AND is_enabled FOR UPDATE",[channel.twitch_channel_id]);
+    const current=locked.rows[0];
+    if(!current||current.owner_twitch_user_id!==actor)throw new ApiError(403,"broadcaster_session_required");
+    if(await isBanned(channel.twitch_channel_id,actor,client))throw new ApiError(403,"channel_ban_active");
+    const keys=await client.query<{issuing_twitch_user_id:string;scopes:string[]}>(`SELECT issuing_twitch_user_id,scopes
+      FROM sloptogether.application_keys WHERE key_id=$1 AND twitch_channel_id=$2 AND revoked_at IS NULL
+        AND (expires_at IS NULL OR expires_at>now()) FOR UPDATE`,[keyId,channel.twitch_channel_id]);
+    const key=keys.rows[0];
+    if(!key||!key.scopes.includes("artifact:system_approve"))throw new ApiError(404,"trusted_worker_key_not_found");
+    if(await isBanned(channel.twitch_channel_id,key.issuing_twitch_user_id,client))throw new ApiError(403,"channel_ban_active");
+    const bindings=await client.query<{id:string;execution_role:string;policy_revision:number;issuer_twitch_user_id:string}>(`SELECT id,execution_role,policy_revision,issuer_twitch_user_id
+      FROM sloptogether.trusted_executions WHERE key_id=$1 AND twitch_channel_id=$2 AND revoked_at IS NULL
+        AND execution_role IN ('generation','upscale') FOR UPDATE`,[keyId,channel.twitch_channel_id]);
+    if(!bindings.rows.length||bindings.rows.some(binding=>binding.issuer_twitch_user_id!==key.issuing_twitch_user_id
+      ||!key.scopes.includes(`worker:${binding.execution_role}`)||binding.policy_revision>current.policy_revision))
+      throw new ApiError(409,"trusted_worker_binding_invalid");
+    const stale=bindings.rows.filter(binding=>binding.policy_revision<current.policy_revision);
+    if(!stale.length)return {keyId,state:"current"};
+    const earliest=Math.min(...stale.map(binding=>binding.policy_revision));
+    if(current.policy_revision-earliest>100)throw new ApiError(409,"trusted_worker_reaffirmation_unavailable","Trust history is too old. Revoke and issue a new trusted worker key.");
+    const history=await client.query<{policy_revision:number;action:string;after_state:unknown}>(`SELECT policy_revision,action,after_state
+      FROM sloptogether.audit_log WHERE twitch_channel_id=$1 AND action IN ('channel.settings.update','subscriber_interrupt.settings','eventsub.revoked')
+        AND policy_revision>$2 AND policy_revision<=$3 ORDER BY policy_revision`,[channel.twitch_channel_id,earliest,current.policy_revision]);
+    const safe=new Set<number>();
+    for(const entry of history.rows){
+      if(safe.has(entry.policy_revision)||!isSafeTrustedPolicyAudit(entry.action,entry.after_state))
+        throw new ApiError(409,"trusted_worker_reaffirmation_unavailable","Trust cannot be reaffirmed after an authorization or access change. Revoke and issue a new trusted worker key.");
+      safe.add(entry.policy_revision);
+    }
+    for(let revision=earliest+1;revision<=current.policy_revision;revision++)if(!safe.has(revision))
+      throw new ApiError(409,"trusted_worker_reaffirmation_unavailable","Trust history is incomplete. Revoke and issue a new trusted worker key.");
+    const ids=stale.map(binding=>binding.id);
+    await client.query("UPDATE sloptogether.trusted_executions SET policy_revision=$2 WHERE id=ANY($1::uuid[]) AND revoked_at IS NULL",[ids,current.policy_revision]);
+    await client.query(`INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,action,target_kind,target_id,reason,policy_revision,after_state)
+      VALUES($1,$2,'worker_key.trust_reaffirmed','application_key',$3,$4,$5,$6::jsonb)`,
+      [channel.twitch_channel_id,actor,keyId,body.reason,current.policy_revision,JSON.stringify({bindingIds:ids,previousRevisions:stale.map(binding=>binding.policy_revision)})]);
+    return {keyId,state:"reaffirmed"};
+  });
 }
 
 export async function listWorkerKeys(locator:string,request:Request){

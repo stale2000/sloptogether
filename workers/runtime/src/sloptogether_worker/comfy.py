@@ -172,7 +172,10 @@ class ComfyClient:
             raise WorkerError("video_type_unsupported", "Upscale source is not a supported video file.")
         target = input_root / target_name
         flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
-        descriptor = os.open(target, flags, 0o600)
+        # Fal runs ComfyUI and the SlopTogether worker under separate users.
+        # The input directory is shared through a setgid media group, so the
+        # worker-created video must grant that group read access for ComfyUI.
+        descriptor = os.open(target, flags, 0o640)
         try:
             with os.fdopen(descriptor, "wb") as output, path.open("rb") as source:
                 total = 0

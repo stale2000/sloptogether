@@ -1,0 +1,21 @@
+output_prefix: outputs/style
+foreach:
+  - id: anime-cel
+    prompt: 'The paper crane glides upward from the telescope and unfolds into a small constellation. The astronaut slowly raises one hand. Gentle camera push-in. Preserve the exact character design and hand-drawn cel anime look from the input image. Single continuous shot, no text.'
+    start_frame: $asset.0ca2b9e6_000.png
+  - id: flat-cartoon
+    prompt: 'The paper crane glides upward from the telescope and unfolds into a small constellation. The astronaut slowly raises one hand. Gentle camera push-in. Preserve the exact character design and flat 2D cartoon look from the input image. Single continuous shot, no text.'
+    start_frame: $asset.94bfb673_000.png
+  - id: watercolor
+    prompt: 'The paper crane glides upward from the telescope and unfolds into a small constellation. The astronaut slowly raises one hand. Gentle camera push-in. Preserve the exact character design and watercolor storybook look from the input image. Single continuous shot, no text.'
+    start_frame: $asset.79272e58_000.png
+pipeline:
+  - fragment: fast_h3_i2v
+    alias: clip
+    params:
+      prompt: $item.prompt
+      width: 512
+      height: 288
+      duration: 15
+      first_frame: $item.start_frame
+      output_prefix: $item.id

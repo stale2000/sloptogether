@@ -70,6 +70,11 @@ class _ScopedRedirect(urllib.request.HTTPRedirectHandler):
         return redirected
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, file, code, message, headers, new_url):
+        return None
+
+
 class WorkerApi:
     def __init__(self, config: WorkerConfig) -> None:
         self.config = config
@@ -80,6 +85,10 @@ class WorkerApi:
         self.opener = urllib.request.build_opener(
             urllib.request.HTTPSHandler(context=self.context),
             _ScopedRedirect(set(config.allowed_upload_hosts) | ({api_host.lower()} if api_host else set())),
+        )
+        self.media_opener = urllib.request.build_opener(
+            urllib.request.HTTPSHandler(context=self.context),
+            _NoRedirect(),
         )
 
     def _url(self, path: str, query: dict[str, str] | None = None) -> str:
@@ -160,11 +169,12 @@ class WorkerApi:
             raise WorkerError("pairing_not_available", "Twitch device pairing expired or was denied.")
         return None
 
-    def claim(self) -> Lease | None:
+    def claim(self, supported_recipes: list[str] | None = None) -> Lease | None:
         query = {"role": self.config.role}
         if self.config.channel_id:
             query["channelId"] = self.config.channel_id
-        result, _ = self._request("POST", "/workers/leases", body={}, query=query)
+        body = {} if supported_recipes is None else {"supportedRecipes": supported_recipes}
+        result, _ = self._request("POST", "/workers/leases", body=body, query=query)
         if result.get("status") == "empty":
             return None
         raw_job = result.get("job")
@@ -213,7 +223,7 @@ class WorkerApi:
             body = source.read(max_bytes + 1)
         if not body or len(body) > max_bytes:
             raise WorkerError("upload_size_out_of_range", "Worker output exceeds its configured size bound.")
-        allowed_headers: dict[str, str] = {}
+        allowed_headers: dict[str, str] = {"User-Agent": self.user_agent}
         for name, value in allowed.items():
             if not isinstance(name, str) or not isinstance(value, str):
                 raise WorkerError("upload_headers_invalid", "Upload headers are invalid.")
@@ -227,6 +237,31 @@ class WorkerApi:
                 if response.status < 200 or response.status >= 300:
                     raise WorkerError("upload_failed", "Cloudflare upload was rejected.")
         except urllib.error.HTTPError as error:
+            # Keep the signed URL and response body out of logs while exposing
+            # known storage errors needed to distinguish expiry from bad keys.
+            body = error.read(2048)
+            match = re.search(rb"<Code>([A-Za-z0-9]{1,64})</Code>", body)
+            known_codes = {"AccessDenied", "ExpiredToken", "InvalidAccessKeyId", "InvalidToken", "RequestExpired", "RequestTimeTooSkewed", "SignatureDoesNotMatch"}
+            candidate = match.group(1).decode("ascii") if match else ""
+            provider_code = candidate if candidate in known_codes else "unknown"
+            headers = error.headers or {}
+            content_type = headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            response_type = content_type if content_type in {"application/json", "text/html", "application/xml", "text/xml"} else "other"
+            gateway_codes = {"origin_not_allowed", "upload_ticket_required", "upload_ticket_invalid", "upload_ticket_mismatch",
+                             "content_type_mismatch", "content_length_invalid", "upload_too_large", "upload_body_required",
+                             "upload_capability_inactive", "upload_capability_changed", "upload_already_written",
+                             "upload_empty", "content_length_mismatch", "upload_store_failed"}
+            gateway_error = "unknown"
+            if content_type == "application/json":
+                try:
+                    parsed_body = json.loads(body)
+                    if isinstance(parsed_body, dict) and parsed_body.get("error") in gateway_codes:
+                        gateway_error = parsed_body["error"]
+                except (ValueError, UnicodeDecodeError, TypeError):
+                    pass
+            request_id = re.sub(r"[^A-Za-z0-9._-]", "", headers.get("x-amz-request-id", ""))[:80]
+            cf_ray = re.sub(r"[^A-Za-z0-9-]", "", headers.get("cf-ray", ""))[:80]
+            print(f"cloud_upload_http_error status={error.code} host={parsed.hostname.lower()} response_type={response_type} gateway_error={gateway_error} provider_code={provider_code} storage_request_id={request_id or 'none'} cf_ray={cf_ray or 'none'}", flush=True)
             raise ApiError(error.code, "cloud_upload_failed") from None
         except urllib.error.URLError as error:
             raise WorkerError("upload_unreachable", f"Cloudflare upload failed ({type(error.reason).__name__}).") from None
@@ -257,12 +292,12 @@ class WorkerApi:
             if getattr(error, "status", None) not in {404, 405, 409}:
                 raise
 
-    def acquire_story_producer(self, channel_id: str) -> dict[str, Any] | None:
+    def acquire_story_producer(self, channel_id: str, stream_slug: str = "main") -> dict[str, Any] | None:
         if not channel_id or len(channel_id) > 32:
             raise WorkerError("story_channel_invalid", "Select the Twitch channel authorized for this story key.")
         result, _ = self._request(
             "POST",
-            f"/channels/{urllib.parse.quote(channel_id, safe='')}/story-producer/leases",
+            f"/channels/{urllib.parse.quote(channel_id, safe='')}/streams/{urllib.parse.quote(stream_slug, safe='')}/story-producer/leases",
             body={"clientId": self.user_agent},
         )
         if result.get("status") == "empty":
@@ -275,19 +310,27 @@ class WorkerApi:
             raise WorkerError("story_lease_invalid", "Story service returned an invalid producer lease.")
         return lease
 
-    def submit_story_proposal(self, channel_id: str, proposal: dict[str, Any]) -> dict[str, Any]:
+    def submit_story_proposal(self, channel_id: str, proposal: dict[str, Any], stream_slug: str = "main") -> dict[str, Any]:
         result, _ = self._request(
             "POST",
-            f"/channels/{urllib.parse.quote(channel_id, safe='')}/story-proposals",
+            f"/channels/{urllib.parse.quote(channel_id, safe='')}/streams/{urllib.parse.quote(stream_slug, safe='')}/story-proposals",
             body=proposal,
         )
         return result
 
     def download_asset(self, lease: Lease, asset_id: str, destination: str, max_bytes: int) -> None:
         path = f"/workers/leases/{urllib.parse.quote(lease.lease_id, safe='')}/asset/{urllib.parse.quote(asset_id, safe='')}"
-        request = urllib.request.Request(self._url(path), headers={"Authorization": f"Bearer {self.token}", "X-Lease-Fence": str(lease.fence), "User-Agent": self.user_agent})
+        grant, _ = self._request("GET", path, headers={"X-Lease-Fence": str(lease.fence)})
+        media_url = _text(grant, "url")
+        ticket = _text(grant, "ticket")
+        parsed = urllib.parse.urlsplit(media_url)
+        if parsed.scheme != "https" or parsed.hostname != "uploads.clips.gg" or parsed.port or parsed.username or parsed.password or parsed.path != "/worker-media" or parsed.query or parsed.fragment:
+            raise WorkerError("asset_download_url_invalid", "The server returned an invalid private media endpoint.")
+        if len(ticket) > 4096 or not re.fullmatch(r"[A-Za-z0-9._-]+", ticket):
+            raise WorkerError("asset_download_ticket_invalid", "The server returned an invalid private media grant.")
+        request = urllib.request.Request(media_url, headers={"Accept": "application/octet-stream", "X-Worker-Artifact-Ticket": ticket, "User-Agent": self.user_agent})
         try:
-            with self.opener.open(request, timeout=self.config.request_timeout_seconds) as response:
+            with self.media_opener.open(request, timeout=self.config.request_timeout_seconds) as response:
                 claimed_length = response.headers.get("Content-Length")
                 if claimed_length and (not claimed_length.isdigit() or int(claimed_length) > max_bytes):
                     raise WorkerError("asset_size_out_of_range", "Source asset exceeds its authorized size bound.")

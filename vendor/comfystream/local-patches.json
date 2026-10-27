@@ -80,6 +80,80 @@
       }
     },
     {
+      "id": "sloptogether-product-vision-docs-v1",
+      "purpose": "Document the product cost ambition while clearly distinguishing it from measured cost, market-comparison, and hardware qualification results.",
+      "files": [
+        {
+          "path": "runtime/deploy/custom_nodes/fasth3_deploy/README.md",
+          "upstream_sha256": "926a623b6add49c45ce008c70d187dca118a145a199a2755d02c91c37a9ffaa4",
+          "patched_sha256": "0547cf3d6de749936c984a38b6bdcae7e9e951f75148ab37e2739d2bce08b22c"
+        },
+        {
+          "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/README.md",
+          "upstream_sha256": "a80e495020ab304eaf8b8421b18858614ac430637d0dedae7201a7054892990f",
+          "patched_sha256": "60fbdaf628fef447b32ac095565d8d66eb8d4e3678cec511105a24d81e68ac7d"
+        }
+      ]
+    },
+    {
+      "id": "sloptogether-release-readme-cleanup-v1",
+      "purpose": "Remove stale deployment instructions and historical benchmark material; retain concise setup, runtime, cost-goal, and qualification guidance.",
+      "files": [
+        {
+          "path": "runtime/deploy/custom_nodes/fasth3_deploy/README.md",
+          "upstream_sha256": "0547cf3d6de749936c984a38b6bdcae7e9e951f75148ab37e2739d2bce08b22c",
+          "patched_sha256": "065e8b71220cf60a7b20fe6363e06db093080896d53cfd39ef26b69053dae40b"
+        },
+        {
+          "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/README.md",
+          "upstream_sha256": "60fbdaf628fef447b32ac095565d8d66eb8d4e3678cec511105a24d81e68ac7d",
+          "patched_sha256": "f12e0e037db46c8c504bf65dc3daae751df5e223fe373861d8be2c8cec6f0859"
+        },
+        {
+          "path": "runtime/scripts/assemble_worker_artifact.py",
+          "upstream_sha256": "8fd4ec8c2838ee0878557ab22832c9d0863af6ab58b8b99777b1b037feb03d21",
+          "patched_sha256": "6f20832feaa583110e4471c2e7fc15bb6029ee468a2beec5f57c017c9e7f4b75"
+        }
+      ]
+    },
+    {
+      "id": "sloptogether-prune-unreferenced-nodes-v1",
+      "purpose": "Remove unreferenced internal node helpers and their unreachable inference-tracing plumbing from the release package.",
+      "files": [
+        {
+          "path": "runtime/deploy/custom_nodes/fasth3_deploy/memory_features.py",
+          "upstream_sha256": "a6597f8143605f822f523d20e769c94a388344d70268778cfbcf1c02b264cf56",
+          "patched_sha256": "bd77c91d2ecc9a89799e46c2e91a13717fe62b5392216ec7f6ff7435621643ec"
+        },
+        {
+          "path": "runtime/deploy/custom_nodes/fasth3_deploy/vsa_sm120/layout.py",
+          "upstream_sha256": "7d4cc399e71b8bb5dd63a44639c4f1a085b49f320c6a8c4cc195bd07de8c477f",
+          "patched_sha256": "838d9a67fe64e85dffb30080d74505af2a4f5130ff252bbb8c18066457d70825"
+        }
+      ]
+    },
+    {
+      "id": "sloptogether-remove-model-training-v1",
+      "purpose": "Remove model-training and learned-router support while keeping training-free token freezing available to inference.",
+      "files": [
+        {
+          "path": "runtime/deploy/custom_nodes/fasth3_deploy/__init__.py",
+          "upstream_sha256": "16f9fc40bfe29bd06db1bb942adf7e96e4c8cfbbd7a8f95bded2c0f5dc762c7c",
+          "patched_sha256": "a52e40c8e21327278f31d16e972473c60d2778498f9093213849fdc5e7bad1ba"
+        },
+        {
+          "path": "runtime/deploy/custom_nodes/fasth3_deploy/speculative_forcing_freeze.py",
+          "upstream_sha256": "2fa067d2af70e10ec2fc8b1c976673f94dc840789745fb9bad0a099f1262619a",
+          "patched_sha256": "cd6c6759695ab0ab73383ebcb6050887cc68cc8a7c645515e246416810d4a4cb"
+        },
+        {
+          "path": "reference/deploy/GPU-ENVIRONMENTS.md",
+          "upstream_sha256": "2f9e97c811764ae5ec441182d8eb9b29dd21bba4123e4973ca1bad24ea761df9",
+          "patched_sha256": "2a831a416b836d464cf7b29deb8d37f1b1596d3e95d0d4a189ff90f84a75cf5e"
+        }
+      ]
+    },
+    {
       "id": "sloptogether-comfy-root-owned-git-identity-v1",
       "purpose": "Allow the pinned root-owned Fal ComfyUI checkout to be inspected by its non-root runtime user without broadening Git trust for other repositories.",
       "files": [
@@ -90,7 +164,7 @@
         }
       ],
       "qualification": {
-        "fal_generation": "pending-live-retest"
+        "fal_generation": "not-retested-after-patch"
       }
     }
   ]

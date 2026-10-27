@@ -32,12 +32,15 @@ class LeaseHeartbeat:
     def __init__(self, api: WorkerApi, lease: Lease, interval_seconds: int = 30) -> None:
         self.api = api
         self.lease = lease
-        self.interval_seconds = interval_seconds
+        # The server grants 60-second leases; leave time for network jitter
+        # even when a worker is configured with a longer heartbeat interval.
+        self.interval_seconds = min(interval_seconds, 30)
         self.cancelled = threading.Event()
         self.stop = threading.Event()
         self.phase = "starting"
         self.progress = 0.0
         self.thread: threading.Thread | None = None
+        self._refresh_lock = threading.Lock()
 
     def start(self) -> None:
         self.thread = threading.Thread(target=self._loop, name="sloptogether-lease", daemon=True)
@@ -46,13 +49,9 @@ class LeaseHeartbeat:
     def _loop(self) -> None:
         while not self.stop.wait(self.interval_seconds):
             try:
-                result = self.api.heartbeat(self.lease, phase=self.phase, progress=self.progress)
-                if result.get("state") in {"cancelled", "expired", "revoked", "fenced"} or result.get("accepted") is False:
-                    self.cancelled.set()
-                    return
-            except WorkerError as error:
-                if getattr(error, "status", None) in {401, 403, 404, 409}:
-                    self.cancelled.set()
+                self.refresh_now()
+            except WorkerError:
+                if self.cancelled.is_set():
                     return
                 # A transient heartbeat outage cannot authorize publishing after
                 # the local hard deadline. The render remains untrusted until
@@ -60,6 +59,21 @@ class LeaseHeartbeat:
                 if time.time() >= self.lease_deadline.timestamp():
                     self.cancelled.set()
                     return
+
+    def refresh_now(self) -> None:
+        """Confirm the fence and refresh the lease before time-sensitive work."""
+        with self._refresh_lock:
+            if self.cancelled.is_set():
+                raise WorkerError("attempt_revoked", "The server revoked this worker attempt.")
+            try:
+                result = self.api.heartbeat(self.lease, phase=self.phase, progress=self.progress)
+            except WorkerError as error:
+                if getattr(error, "status", None) in {401, 403, 404, 409}:
+                    self.cancelled.set()
+                raise
+            if result.get("state") in {"cancelled", "expired", "revoked", "fenced"} or result.get("accepted") is False:
+                self.cancelled.set()
+                raise WorkerError("attempt_revoked", "The server revoked this worker attempt.")
 
     @property
     def lease_deadline(self) -> datetime:

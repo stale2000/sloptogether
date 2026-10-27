@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { InvalidMediaError, parseProbeJson, trustedSystemApprovalCandidate, trustedUploaderApprovalPath, validateMediaMetadata } from "../src/metadata.mjs";
+import { expectedArtifactDimensions, InvalidMediaError, parseProbeJson, trustedSystemApprovalCandidate, trustedUploaderApprovalPath, validateMediaMetadata } from "../src/metadata.mjs";
 
 const expected={width:1280,height:720,fpsNum:24,fpsDen:1};
 const validProbe={
@@ -15,6 +15,31 @@ test("accepts one MP4 video stream matching the channel output profile",()=>{
   assert.deepEqual(validateMediaMetadata(validProbe,expected,8_000_000),{
     width:1280,height:720,fpsNum:24,fpsDen:1,frameCount:360,durationSeconds:15,
   });
+});
+
+test("accepts native ten-second subscriber clips while retaining fifteen-second story bounds",()=>{
+  const subscriber={...validProbe,format:{...validProbe.format,duration:"10.125"},streams:[
+    {...validProbe.streams[0],nb_frames:"243",nb_read_frames:"243"},validProbe.streams[1],
+  ]};
+  assert.equal(validateMediaMetadata(subscriber,expected,8_000_000,{minDurationSeconds:9.5,maxDurationSeconds:10.5}).durationSeconds,10.125);
+  assert.throws(()=>validateMediaMetadata(subscriber,expected,8_000_000),error=>error.code==="media_duration_invalid");
+  assert.throws(()=>validateMediaMetadata({...subscriber,format:{...subscriber.format,duration:"11"}},expected,8_000_000,{minDurationSeconds:9.5,maxDurationSeconds:10.5}),error=>error.code==="media_duration_invalid");
+});
+
+test("validates an upscale against the exact target recorded for its job",()=>{
+  for(const [width,height] of [[1184,666],[1920,1080]]){
+    const probe={...validProbe,streams:[{...validProbe.streams[0],width,height},validProbe.streams[1]]};
+    assert.equal(validateMediaMetadata(probe,{width,height,fpsNum:24,fpsDen:1},8_000_000).width,width);
+    assert.throws(()=>validateMediaMetadata(probe,{width:width===1184?1920:1184,height:height===666?1080:666,fpsNum:24,fpsDen:1},8_000_000),error=>error.code==="media_dimensions_invalid");
+  }
+});
+
+test("uses planned artifact dimensions and preserves legacy job defaults",()=>{
+  assert.deepEqual(expectedArtifactDimensions({stage:"video_upscale",planning_payload:{outputWidth:1184,outputHeight:666},output_width:1280,output_height:720}),{width:1184,height:666});
+  assert.deepEqual(expectedArtifactDimensions({stage:"video_upscale",planning_payload:{outputWidth:1920,outputHeight:1080},output_width:1280,output_height:720}),{width:1920,height:1080});
+  assert.deepEqual(expectedArtifactDimensions({stage:"video_upscale",planning_payload:{},output_width:1280,output_height:720}),{width:1920,height:1080});
+  assert.deepEqual(expectedArtifactDimensions({stage:"video_base",planning_payload:{},output_width:1280,output_height:720}),{width:1280,height:720});
+  assert.deepEqual(expectedArtifactDimensions({stage:"video_base",planning_payload:{outputWidth:512,outputHeight:288},output_width:1280,output_height:720}),{width:512,height:288});
 });
 
 test("rejects invalid container, dimensions, frame rate, duration and size",()=>{

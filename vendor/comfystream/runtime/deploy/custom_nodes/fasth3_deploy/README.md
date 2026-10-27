@@ -1,106 +1,56 @@
-# FastH3 custom node
+# FastH3 generation node
+
+This package provides SlopTogether's first-stage H3 video generation nodes for
+ComfyUI. It includes the sampler, conditioning, VAE decode, and streamed output
+path used by the pinned worker recipes. The package does not include model
+weights; use the model revisions and hashes in
+[`fasth3-environment.json`](../../vast/fasth3-environment.json).
+
+## Product vision: live AI video at consumer-GPU economics
+
+SlopTogether aims to make always-on, interactive AI video practical on
+consumer-class GPUs, with a target GPU operating cost below $2 per hour. The
+long-term ambition is up to 200× lower cost than higher-cost video-generation
+alternatives—potentially opening up always-on streams, interactive storytelling,
+community-driven worlds, and experiments that per-clip pricing makes difficult.
+
+These figures describe goals, not measured claims. This repository does not
+establish a 200× apples-to-apples saving, an end-to-end cost below $2/hour, or a
+"best in the world" ranking. The current runtime targets Linux/NVIDIA workers;
+consumer-GPU and RTX 4090/WSL2 operation still need hardware qualification.
+
+## Runtime
+
+The pinned worker targets Linux, NVIDIA GPUs, Python 3.12, CUDA 13, and the
+ComfyUI/Kitchen versions recorded in the environment manifest. Model weights
+are downloaded separately and are not redistributed by this package. Follow
+the [worker deployment guide](../../vast/README.md) to prepare the runtime.
+
+The standard generation workflow uses `FastH3OptimizedLoader`,
+`ComfyStreamerH3ImageToVideo`, `FastH3BenchmarkSampler`,
+`FastH3BenchmarkVAEDecode`, `FastH3BenchmarkVAEDecodeAudio`, and
+`FastH3BenchmarkOutput`. `ClipProjApply` is supplied by the separately pinned
+ComfyUI-ClipProj extension. FastH3 generation and the optional SoL refinement
+stage are separate nodes and workers.
+
+The node supports the pinned five-step Trim workflow and its configured VSA
+attention path. The five-step schedule is exploratory; this repository does
+not establish production quality, continuous real-time reliability, or support
+for every GPU/model combination.
+
+## Install and use
+
+Use the deployment package and pinned dependencies from this repository rather
+than cloning a different public node repository. Install the ComfyUI-ClipProj
+dependency and model assets as described in the
+[worker deployment guide](../../vast/README.md), then load the SlopTogether
+generation recipe. No weights, private credentials, or sample videos are
+bundled here.
+
+The optional adaptive VSA route redistributes a fixed per-head attention
+budget. Its current speed comparison was effectively tied with fixed routing,
+and its visual quality has not been evaluated. The loader's `fixed` setting
+remains available as the reference route.
 
 This project is licensed under the [MIT License](LICENSE). Third-party
-components remain subject to their included licenses and notices.
-
-This custom node runs ComfyStream's FastH3 workflow in ComfyUI using the pinned
-runtime and model assets below. Output quality, speed, GPU support and cost vary
-with the selected workflow and worker; the examples here are not a release or
-hardware-qualification claim.
-
-FastH3 generation and optional H3 refinement use separate custom nodes and
-workers. The refined output must pass the same media checks before playback.
-See the [deployment guide](../../README.md) for compatible runtime and provider
-setup.
-
-For supported base B1 VSA presets, adaptive GPU key-budget redistribution is
-the loader's default. It keeps the fixed per-head interaction budget and runs
-without route telemetry. Choose `fixed` in the loader to use the reference
-route. The current two-seed RTX PRO 6000 speed check matched fixed end-to-end
-latency; adaptive visual quality has not yet been evaluated.
-
-## Install
-
-Clone the repository into ComfyUI's `custom_nodes` directory and restart
-ComfyUI:
-
-```bash
-cd ComfyUI/custom_nodes
-git clone https://github.com/Comfy-Org/comfystreamerh3.git
-```
-
-## Deploy to the Comfy Developer Platform
-
-Sign up for a [Comfy plan](https://comfy.org/pricing/) to deploy.
-
-Install the Comfy CLI and sign in:
-
-```sh
-python3 -m pip install -U comfy-cli
-comfy cloud login
-```
-
-Install `ffmpeg` and make sure it is available on your `PATH` for the continuous viewer.
-
-From the repository root:
-
-```sh
-comfy build validate . --custom-nodes-dir .
-comfy build push . --custom-nodes-dir .
-comfy build release create . --target linux/nvidia --watch
-comfy deploy up . --gpu rtx-pro-6000-server --region anywhere --min 0 --max 1 --watch
-comfy deploy status .
-```
-
-With `--min 0`, the deployment scales to zero when idle, avoiding ongoing GPU
-charges at the cost of a cold start for the next job. Staged model storage is
-still billed while any deployment of the Build exists in a region.
-
-After the deployment is ready, start the continuous HLS viewer with the prompt
-field and resolution picker:
-
-```sh
-python3 examples/continuous_demo.py
-```
-
-Delete each deployment when you are done to remove its endpoint. Builds and
-releases are free to keep. Storage billing ends shortly after the Build's last
-deployment in each region is deleted:
-
-```sh
-comfy deploy delete .
-```
-
-## Historical throughput result
-
-In the October 4, 2026 Lium run, one RTX 5090 completed paired 448 × 256 jobs
-with a 15.083-second clip duration. The 11 warm jobs with QKV compilation took
-23.51 seconds at the median for 30.17 seconds of video, or 1.28× real time.
-The source report says the 0.18-second warm difference from the compile-off
-median was too small to establish a compile speed gain; the observed throughput
-gain came from the lower resolution. This dated result does not qualify a
-current model, provider or release. See the full
-[benchmark report](../../../benchmark-results/live-threegpu-lium-20261004/RESULTS.md)
-for environment and limitations.
-
-The four sample MP4s and preview images previously linked from this page are
-not present in the repository. New output files are generated by running the
-workflow; this page does not host sample media.
-
-## Runtime and models
-
-The managed runtime targets Linux with an NVIDIA GPU, Python 3.12, CUDA 13
-PyTorch, matching TorchVision and TorchAudio builds, and `comfy-kitchen` 0.2.34.
-The build configuration pins the runtime and model assets. The node repository
-does not include model weights.
-
-| Model | ComfyUI folder | Managed build filename |
-|---|---|---|
-| FastH3 checkpoint | `models/diffusion_models/` | `fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors` |
-| Text encoder | `models/text_encoders/` | `qwen3vl_4b_fp8_scaled.safetensors` |
-| ClipProj MLP | `models/clip_projections/` | `mmh3-4b-ClipProj-v3.1-mlp.safetensors` |
-| Audio VAE | `models/vae/` | `minimax_h3_audio_vae_fp32.safetensors` |
-| Video VAE | `models/vae/` | `minimax_h3_video_vae_int8_convrot.safetensors` |
-
-The sample workflow expects `ClipProjApply` from
-[ComfyUI-ClipProj](https://github.com/nicolab28/ComfyUI-ClipProj).
+components retain their included licenses and notices.

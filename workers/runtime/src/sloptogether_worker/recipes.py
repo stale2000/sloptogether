@@ -5,18 +5,23 @@ import hashlib
 import importlib.resources
 import json
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from .errors import WorkerError
 from .models import WorkerJob
 
 TRIM_FIVE_STEP_ID = "fast-h3-trim-5step-vsa20-b1"
+SUBSCRIBER_TRIM_ID = "fast-h3-trim-5step-vsa20-b1-10s"
+TRIM_RECIPE_IDS = frozenset({TRIM_FIVE_STEP_ID, SUBSCRIBER_TRIM_ID})
 SOL_UPSCALE_ID = "sol-h3-upscale-pruna-fast"
+SOL_UPSCALE_1184_ID = "sol-h3-upscale-pruna-fast-1184-v1"
 TRIM_PRESET_ID = "fp4-mlp-fused-fasth3-trim-5step-vsa20-b1-candidate"
 TRIM_SOURCE_DIGEST = "9a2d5d19fb22b7e55d29c8e6048c4c421c5b73b044b7cc010188efe7df9ccaef"
 UPSCALE_SOURCE_DIGEST = "e0b4949fbbc02e31b0dc697fc2bedc5a7a1efe57d5d96fe908013d89a3bf8b8c"
+UPSCALE_1184_SOURCE_DIGEST = "8bd316e466037db6e4ec4e9b0b3c6b010274020df16c1609e788bb97b8fd6848"
 MAX_WORKFLOW_BYTES = 2 * 1024 * 1024
+UPSCALE_IDS = frozenset({SOL_UPSCALE_ID, SOL_UPSCALE_1184_ID})
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,8 +42,7 @@ class Recipe:
     platforms: frozenset[str] = frozenset({"linux", "wsl", "fal"})
 
 
-RECIPES: dict[str, Recipe] = {
-    TRIM_FIVE_STEP_ID: Recipe(
+_TRIM_FIVE_STEP_RECIPE = Recipe(
         recipe_id=TRIM_FIVE_STEP_ID,
         workflow_file="trim-five-step-first-last-frame.json",
         source_digest=TRIM_SOURCE_DIGEST,
@@ -60,13 +64,34 @@ RECIPES: dict[str, Recipe] = {
             "LoadImage",
         }),
         output_node_id="12",
-    ),
+    )
+
+RECIPES: dict[str, Recipe] = {
+    TRIM_FIVE_STEP_ID: _TRIM_FIVE_STEP_RECIPE,
+    # FastH3's node contract accepts lengths in 17-frame increments.
+    # 243 frames at 24fps is 10.125 seconds and remains a native 16:9 Trim render.
+    SUBSCRIBER_TRIM_ID: replace(_TRIM_FIVE_STEP_RECIPE, recipe_id=SUBSCRIBER_TRIM_ID, frame_count=243),
     SOL_UPSCALE_ID: Recipe(
         recipe_id=SOL_UPSCALE_ID,
         workflow_file="sol-upscale-standard.json",
         source_digest=UPSCALE_SOURCE_DIGEST,
         width=1920,
         height=1080,
+        fps=None,
+        frame_count=None,
+        minimum_vram_bytes=24_000_000_000,
+        minimum_free_vram_bytes=22 * 1024**3,
+        minimum_sm=(8, 9),
+        required_nodes=frozenset({"LoadVideo", "ComfyStreamMiniMaxH3SoLUpscaler", "SaveVideo"}),
+        output_node_id="3",
+        minimum_system_memory_bytes=128 * 1024**3,
+    ),
+    SOL_UPSCALE_1184_ID: Recipe(
+        recipe_id=SOL_UPSCALE_1184_ID,
+        workflow_file="sol-upscale-1184-v1.json",
+        source_digest=UPSCALE_1184_SOURCE_DIGEST,
+        width=1184,
+        height=666,
         fps=None,
         frame_count=None,
         minimum_vram_bytes=24_000_000_000,
@@ -112,14 +137,14 @@ def validate_comfy_capabilities(
 ) -> list[str]:
     if not isinstance(object_info, dict):
         raise WorkerError("comfy_object_info_invalid", "Local ComfyUI returned invalid node metadata.")
-    recipes = [item for item in RECIPES.values() if (role == "generation" and item.fps) or (role == "upscale" and item.width and item.recipe_id == SOL_UPSCALE_ID)]
+    recipes = [item for item in RECIPES.values() if (role == "generation" and item.fps) or (role == "upscale" and item.recipe_id in UPSCALE_IDS)]
     eligible: list[str] = []
     for recipe in recipes:
         if platform not in recipe.platforms:
             continue
         if not recipe.required_nodes.issubset(object_info):
             continue
-        if recipe.recipe_id == SOL_UPSCALE_ID:
+        if recipe.recipe_id in UPSCALE_IDS:
             node = object_info.get("ComfyStreamMiniMaxH3SoLUpscaler")
             inputs = node.get("input") if isinstance(node, dict) else None
             optional = inputs.get("optional") if isinstance(inputs, dict) else None
@@ -133,7 +158,7 @@ def validate_comfy_capabilities(
         else:
             # 5-step Trim is a candidate preset; never imply this is qualified
             # for a GPU solely because the custom node has loaded.
-            if recipe.recipe_id != TRIM_FIVE_STEP_ID:
+            if recipe.recipe_id not in TRIM_RECIPE_IDS:
                 continue
             if vsa_budget_policy == "adaptive" and platform != "fal":
                 continue
@@ -174,7 +199,7 @@ def validate_free_vram(
 ) -> None:
     recipe = RECIPES.get(recipe_id)
     required = recipe.minimum_free_vram_bytes if recipe else 0
-    if (recipe_id == SOL_UPSCALE_ID and compute_capability is not None
+    if (recipe_id in UPSCALE_IDS and compute_capability is not None
             and compute_capability >= (10, 0) and total_memory_bytes is not None
             and total_memory_bytes >= 94 * 1024**3):
         required = 90 * 1024**3
@@ -199,13 +224,14 @@ def build_workflow(
         recipe.width, recipe.height, recipe.fps, 1, recipe.frame_count
     ):
         raise WorkerError("recipe_dimensions_not_qualified", "This device does not support the job's requested native video geometry.")
-    if recipe.recipe_id == SOL_UPSCALE_ID and (job.width, job.height) != (recipe.width, recipe.height):
-        raise WorkerError("recipe_dimensions_not_qualified", "This device does not support the requested upscale dimensions.")
+    if recipe.recipe_id in UPSCALE_IDS:
+        if (job.width, job.height) != (recipe.width, recipe.height) or (job.output_width, job.output_height) != (job.width, job.height):
+            raise WorkerError("recipe_dimensions_not_qualified", "This device does not support the requested upscale dimensions.")
     graph = _workflow(recipe)
     rendered = copy.deepcopy(graph)
-    if recipe.recipe_id == TRIM_FIVE_STEP_ID and vsa_budget_policy not in {"fixed", "adaptive"}:
+    if recipe.recipe_id in TRIM_RECIPE_IDS and vsa_budget_policy not in {"fixed", "adaptive"}:
         raise WorkerError("trim_vsa_budget_policy_invalid", "This worker profile has an unsupported Trim VSA policy.")
-    if recipe.recipe_id == TRIM_FIVE_STEP_ID and not job.requested_end_boundary_revision_id:
+    if recipe.recipe_id in TRIM_RECIPE_IDS and not job.requested_end_boundary_revision_id:
         # The node defines both image references as optional. Remove the
         # unrequested last-frame input node entirely, rather than passing the
         # start image twice and pretending the worker had a locked end anchor.
@@ -244,8 +270,8 @@ def build_workflow(
         elif kind == "LoadVideo":
             inputs["file"] = comfy_filenames.get("source_video", "")
         elif kind == "ComfyStreamMiniMaxH3SoLUpscaler":
-            inputs["width"] = recipe.width
-            inputs["height"] = recipe.height
+            inputs["width"] = job.width
+            inputs["height"] = job.height
             inputs["output_backend"] = "nvenc"
             inputs["transformer_precision"] = "auto"
             inputs["sloptogether_scope"] = f"sloptogether/{job.job_id}/{job.attempt_id}"

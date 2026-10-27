@@ -12,6 +12,8 @@ import { screenPromptAndImages, type InputPreflightResult } from "./preflight";
 import { trustedProxyClientIp } from "./proxy-client-ip";
 import { abandonStoryProducerPlans } from "./worker-revocation";
 import { reservationUsd } from "./reservation";
+import { BASE_GENERATION_SIZE } from "./generation-profile";
+import { getStream } from "./stream-service";
 import { z } from "zod";
 import type { PoolClient } from "pg";
 
@@ -31,8 +33,13 @@ async function ownerAttemptBudgetBlock(client:PoolClient,channelId:string,cap:st
 
 const UPSCALE_RECIPE="sol-h3-upscale-pruna-fast";
 const UPSCALE_RECIPE_SHA256="e0b4949fbbc02e31b0dc697fc2bedc5a7a1efe57d5d96fe908013d89a3bf8b8c";
-const UPSCALE_OUTPUT_WIDTH=1920;
-const UPSCALE_OUTPUT_HEIGHT=1080;
+const SMALL_UPSCALE_RECIPE="sol-h3-upscale-pruna-fast-1184-v1";
+const SMALL_UPSCALE_RECIPE_SHA256="8bd316e466037db6e4ec4e9b0b3c6b010274020df16c1609e788bb97b8fd6848";
+const LEGACY_GENERATION_RECIPE="fast-h3-trim-5step-vsa20-b1";
+const SUBSCRIBER_INTERRUPT_RECIPE="fast-h3-trim-5step-vsa20-b1-10s";
+const SUBSCRIBER_INTERRUPT_FRAME_COUNT=243;
+const SMALL_UPSCALE_SIZE={outputWidth:1184,outputHeight:666} as const;
+const LARGE_UPSCALE_SIZE={outputWidth:1920,outputHeight:1080} as const;
 
 export async function requestClipUpscale(locator:string,request:Request){
   assertSameOrigin(request);
@@ -55,7 +62,12 @@ export async function requestClipUpscale(locator:string,request:Request){
        WHERE pi.id=$1 AND pi.twitch_channel_id=$2 AND pi.item_kind='story' AND pi.committed_at IS NOT NULL
          AND a.status='published' AND a.sha256 IS NOT NULL AND a.media_kind='video'`,[body.programItemId,channel.twitch_channel_id]);
     const item=source.rows[0];if(!item)throw new ApiError(404,"approved_story_clip_not_found");
-    if(item.width>=UPSCALE_OUTPUT_WIDTH||item.height>=UPSCALE_OUTPUT_HEIGHT)throw new ApiError(409,"clip_already_at_upscale_target","The approved upscale profile cannot enlarge this clip further.");
+    if(!Number.isSafeInteger(item.width)||!Number.isSafeInteger(item.height)||item.width<1||item.height<1||item.width*9!==item.height*16)
+      throw new ApiError(409,"clip_dimensions_invalid","The source clip must have valid 16:9 dimensions.");
+    const target=item.width<=BASE_GENERATION_SIZE.outputWidth&&item.height<=BASE_GENERATION_SIZE.outputHeight?SMALL_UPSCALE_SIZE:LARGE_UPSCALE_SIZE;
+    const recipeId=target===SMALL_UPSCALE_SIZE?SMALL_UPSCALE_RECIPE:UPSCALE_RECIPE;
+    const recipeSha=target===SMALL_UPSCALE_SIZE?SMALL_UPSCALE_RECIPE_SHA256:UPSCALE_RECIPE_SHA256;
+    if(item.width>=target.outputWidth||item.height>=target.outputHeight)throw new ApiError(409,"clip_already_at_upscale_target","The approved upscale profile cannot enlarge this clip further.");
     const existing=await client.query<{id:string;state:string}>(`SELECT id,state FROM sloptogether.jobs
       WHERE twitch_channel_id=$1 AND stage='video_upscale' AND parent_asset_id=$2 AND state NOT IN ('failed','cancelled','expired')
       ORDER BY created_at DESC LIMIT 1`,[channel.twitch_channel_id,item.asset_id]);
@@ -63,11 +75,11 @@ export async function requestClipUpscale(locator:string,request:Request){
     const jobId=randomUUID(),attemptId=randomUUID();
     await client.query(`INSERT INTO sloptogether.jobs(id,twitch_channel_id,segment_revision_id,stage,execution_mode,state,recipe_id,recipe_sha256,input_sha256,requested_by,parent_asset_id,planning_payload,result_deadline_at)
       VALUES($1,$2,$3,'video_upscale','pull_worker','ready',$4,$5,$6,$7,$8,$9::jsonb,now()+interval '24 hours')`,
-      [jobId,channel.twitch_channel_id,item.segment_revision_id,UPSCALE_RECIPE,Buffer.from(UPSCALE_RECIPE_SHA256,"hex"),item.sha256,actor,item.asset_id,JSON.stringify({inputScreenId:item.screen_id,outputWidth:UPSCALE_OUTPUT_WIDTH,outputHeight:UPSCALE_OUTPUT_HEIGHT})]);
+      [jobId,channel.twitch_channel_id,item.segment_revision_id,recipeId,Buffer.from(recipeSha,"hex"),item.sha256,actor,item.asset_id,JSON.stringify({inputScreenId:item.screen_id,...target})]);
     await client.query(`INSERT INTO sloptogether.job_attempts(id,job_id,attempt_number,fence,client_idempotency_key,state,attempt_deadline_at,input_sha256)
       VALUES($1,$2,1,1,$3,'ready',now()+interval '24 hours',$4)`,[attemptId,jobId,`job:${jobId}:attempt:1`,item.sha256]);
     await client.query("INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,action,target_kind,target_id,after_state) VALUES($1,$2,'upscale.requested','asset',$3,$4::jsonb)",
-      [channel.twitch_channel_id,actor,item.asset_id,JSON.stringify({jobId,programItemId:body.programItemId,recipeId:UPSCALE_RECIPE})]);
+      [channel.twitch_channel_id,actor,item.asset_id,JSON.stringify({jobId,programItemId:body.programItemId,recipeId})]);
     return {accepted:true,jobId,state:"ready",existing:false};
   });
 }
@@ -229,7 +241,7 @@ async function resolveExpiredElections(client:import("pg").PoolClient,channelId:
         jobId=randomUUID();const attemptId=randomUUID();
         await client.query(`INSERT INTO sloptogether.jobs(id,twitch_channel_id,segment_revision_id,stage,execution_mode,state,recipe_id,recipe_sha256,input_sha256,requested_by,dependency_resolution_id,planning_payload,result_deadline_at)
           VALUES($1,$2,$3,'video_base','pull_worker','ready',$4,$5,$6,$7,$8,$9::jsonb,now()+interval '45 minutes')`,
-          [jobId,channelId,selected.revision_id,selected.recipe_id,Buffer.from("9a2d5d19fb22b7e55d29c8e6048c4c421c5b73b044b7cc010188efe7df9ccaef","hex"),selected.input_sha256,selected.author_id,dependency.rows[0]?.id??null,JSON.stringify({inputScreenId:selected.input_screen_id})]);
+          [jobId,channelId,selected.revision_id,selected.recipe_id,Buffer.from("9a2d5d19fb22b7e55d29c8e6048c4c421c5b73b044b7cc010188efe7df9ccaef","hex"),selected.input_sha256,selected.author_id,dependency.rows[0]?.id??null,JSON.stringify({inputScreenId:selected.input_screen_id,...BASE_GENERATION_SIZE})]);
         if(dependency.rows[0])await client.query("INSERT INTO sloptogether.endpoint_resolution_dependencies(resolution_id,dependent_job_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[dependency.rows[0].id,jobId]);
         await client.query(`INSERT INTO sloptogether.job_attempts(id,job_id,attempt_number,fence,client_idempotency_key,state,attempt_deadline_at,input_sha256)
           VALUES($1,$2,1,1,$3,'ready',now()+interval '45 minutes',$4)`,[attemptId,jobId,`job:${jobId}:attempt:1`,selected.input_sha256]);
@@ -252,6 +264,8 @@ export async function claimWorkerLease(request:Request){
   const url=new URL(request.url);const role=url.searchParams.get("role")??"generation";
   if(role!=="generation"&&role!=="upscale")throw new ApiError(400,"worker_role_invalid");
   const grant=await requireWorker(request,`worker:${role}`);
+  const body=request.body===null?{}:await readJson(request,z.object({supportedRecipes:z.array(z.string().min(1).max(128)).max(32).optional()}).strict());
+  const offeredRecipes=[...new Set(body.supportedRecipes??[role==="generation"?LEGACY_GENERATION_RECIPE:UPSCALE_RECIPE])];
   if(grant.paired&&grant.platform==="windows")
     throw new ApiError(409,"worker_platform_unqualified","This paired Windows inference runtime is not qualified yet.");
   const grantChannel=await findChannel(grant.channelId);
@@ -284,12 +298,13 @@ export async function claimWorkerLease(request:Request){
           CASE WHEN j.interrupt_id IS NULL THEN sr.requested_end_boundary_revision_id ELSE NULL END AS end_boundary_revision_id,
           j.parent_asset_id AS source_asset_id,
           CASE WHEN j.interrupt_id IS NULL THEN end_b.asset_id ELSE NULL END AS end_frame_asset_id,
-          CASE WHEN j.stage='video_upscale' THEN (j.planning_payload->>'outputWidth')::int ELSE c.output_width END AS output_width,
-          CASE WHEN j.stage='video_upscale' THEN (j.planning_payload->>'outputHeight')::int ELSE c.output_height END AS output_height,
-          CASE WHEN j.stage='video_upscale' THEN 1920 ELSE c.output_width END AS width,
-          CASE WHEN j.stage='video_upscale' THEN 1080 ELSE c.output_height END AS height,
+          coalesce(nullif(j.planning_payload->>'outputWidth','')::int,CASE WHEN j.stage='video_upscale' THEN 1920 ELSE c.output_width END) AS output_width,
+          coalesce(nullif(j.planning_payload->>'outputHeight','')::int,CASE WHEN j.stage='video_upscale' THEN 1080 ELSE c.output_height END) AS output_height,
+          coalesce(nullif(j.planning_payload->>'outputWidth','')::int,1920) AS width,
+          coalesce(nullif(j.planning_payload->>'outputHeight','')::int,1080) AS height,
           c.output_fps_num AS fps_num,c.output_fps_den AS fps_den,
-          (c.output_fps_num*15/c.output_fps_den)::int AS frame_count,ja.id AS attempt_id,ja.fence,ja.attempt_deadline_at AS deadline,ja.execution_binding_id
+          CASE WHEN j.interrupt_id IS NOT NULL THEN ${SUBSCRIBER_INTERRUPT_FRAME_COUNT}
+            ELSE (c.output_fps_num*15/c.output_fps_den)::int END AS frame_count,ja.id AS attempt_id,ja.fence,ja.attempt_deadline_at AS deadline,ja.execution_binding_id
        FROM sloptogether.jobs j JOIN sloptogether.channels c ON c.twitch_channel_id=j.twitch_channel_id
        LEFT JOIN sloptogether.segment_revisions sr ON sr.id=j.segment_revision_id
        LEFT JOIN sloptogether.boundary_revisions start_b ON start_b.id=coalesce((j.planning_payload->>'startBoundaryRevisionId')::uuid,sr.start_boundary_revision_id)
@@ -309,9 +324,13 @@ export async function claimWorkerLease(request:Request){
          AND (j.interrupt_id IS NULL OR NOT EXISTS(SELECT 1 FROM sloptogether.interrupt_requests ir JOIN sloptogether.subscription_events se ON se.id=ir.trigger_event_id
            JOIN sloptogether.bans b ON b.twitch_user_id=se.twitch_actor_id WHERE ir.id=j.interrupt_id AND b.revoked_at IS NULL
              AND (b.expires_at IS NULL OR b.expires_at>now()) AND (b.scope='global' OR b.twitch_channel_id=$1)))
-         AND j.stage=$2 AND (j.result_deadline_at IS NULL OR j.result_deadline_at>now())
+         AND j.stage=$2 AND j.recipe_id=ANY($6::text[]) AND (j.result_deadline_at IS NULL OR j.result_deadline_at>now())
+         AND (j.stage<>'video_upscale'
+           OR (j.recipe_id=$7 AND coalesce(nullif(j.planning_payload->>'outputWidth','')::int,1920)=1920
+             AND coalesce(nullif(j.planning_payload->>'outputHeight','')::int,1080)=1080)
+           OR (j.recipe_id=$8 AND (j.planning_payload->>'outputWidth')::int=1184 AND (j.planning_payload->>'outputHeight')::int=666))
        ORDER BY j.priority DESC,j.created_at ASC LIMIT 1 FOR UPDATE OF j SKIP LOCKED`,
-      [grant.channelId,role==="generation"?"video_base":"video_upscale",grant.keyId,role,grant.issuingTwitchUserId]);
+      [grant.channelId,role==="generation"?"video_base":"video_upscale",grant.keyId,role,grant.issuingTwitchUserId,offeredRecipes,UPSCALE_RECIPE,SMALL_UPSCALE_RECIPE]);
     const job=result.rows[0];if(!job)return {status:"empty"};
     const fence=Number(job.fence);if(!Number.isSafeInteger(fence)||fence<1)throw new ApiError(500,"job_fence_invalid");
     const stage=role;const deadline=(job.deadline??new Date(Date.now()+30*60_000)).toISOString();
@@ -320,7 +339,7 @@ export async function claimWorkerLease(request:Request){
       prompt:job.prompt??"",startFrameAssetId:job.start_frame_asset_id,requestedEndBoundaryRevisionId:job.end_boundary_revision_id,
       endFrameAssetId:job.end_frame_asset_id,endpointResolutionId:null,sourceAssetId:job.source_asset_id,
       width:role==="generation"?448:job.width,height:role==="generation"?256:job.height,outputWidth:job.output_width,outputHeight:job.output_height,
-      fpsNum:job.fps_num,fpsDen:job.fps_den,frameCount:role==="generation"?362:job.frame_count,attemptId:job.attempt_id,fence,attemptDeadlineAt:deadline};
+      fpsNum:job.fps_num,fpsDen:job.fps_den,frameCount:role==="generation"?(job.interrupt_id?SUBSCRIBER_INTERRUPT_FRAME_COUNT:362):job.frame_count,attemptId:job.attempt_id,fence,attemptDeadlineAt:deadline};
     jobInputSchema.parse(payload);
     await client.query("UPDATE sloptogether.job_attempts SET state='leased',execution_binding_id=$2,claimed_at=now(),lease_expires_at=least(now()+interval '60 seconds',attempt_deadline_at) WHERE id=$1 AND state='ready'",[job.attempt_id,job.execution_binding_id]);
     await client.query("UPDATE sloptogether.jobs SET state='leased' WHERE id=$1 AND state='ready'",[job.id]);
@@ -418,9 +437,10 @@ export async function downloadWorkerAsset(leaseId:string,assetId:string,request:
   if(!allowed||!row.content_type||!['image/png','image/jpeg','image/webp','video/mp4'].includes(row.content_type)||!['approved','published'].includes(row.status))throw new ApiError(403,"worker_asset_not_in_attempt");
   if(principal.worker.paired&&!await canContribute(await findChannel(row.channel_id),principal))throw new ApiError(403,"contribution_not_allowed");
   const byteSize=Number(row.byte_size);if(!Number.isSafeInteger(byteSize)||byteSize<1||byteSize>128*1024*1024)throw new ApiError(413,"worker_asset_size_invalid");
+  const url=workerMediaGatewayUrl();
   const ticket=signUploadTicket({version:1,purpose:"worker_asset_read",channelId:row.channel_id,leaseId,assetId,fence,storageKey:row.storage_key,
     contentType:row.content_type,byteSize,expiresAt:new Date(Date.now()+60_000).toISOString()});
-  return {url:workerMediaGatewayUrl(),ticket};
+  return {url,ticket};
 }
 
 export async function failWorkerLease(leaseId:string,request:Request){
@@ -518,8 +538,9 @@ export async function listWindowsWorkerRelease(){
   return {version,downloadUrl:url,sha256:sha.toLowerCase(),platform:"windows-x64",available:true,releasedAt,windowsBuild,roles,qualifiedGpus,notes:["Verify the download SHA-256 before running it."]};
 }
 
-export async function claimStoryProducer(locator:string,request:Request){
+export async function claimStoryProducer(locator:string,request:Request,streamSlug="main"){
   const channel=await findChannel(locator);const grant=await requireWorker(request,"story:write_future");
+  const stream=await getStream(channel.twitch_channel_id,streamSlug);
   if(grant.channelId!==channel.twitch_channel_id||grant.issuingTwitchUserId!==channel.owner_twitch_user_id)throw new ApiError(403,"story_producer_owner_key_required");
   if(await isBanned(channel.twitch_channel_id,grant.issuingTwitchUserId))throw new ApiError(403,"channel_ban_active");
   return transaction(async client=>{
@@ -527,17 +548,17 @@ export async function claimStoryProducer(locator:string,request:Request){
     if(current.rows[0]?.policy_revision!==channel.policy_revision)throw new ApiError(409,"channel_policy_changed");
     const binding=await client.query<{id:string}>("SELECT id FROM sloptogether.trusted_executions WHERE twitch_channel_id=$1 AND key_id=$2 AND execution_role='story_producer' AND revoked_at IS NULL ORDER BY enabled_at DESC LIMIT 1",[channel.twitch_channel_id,grant.keyId]);
     if(!binding.rows[0])throw new ApiError(403,"story_producer_binding_revoked");
-    const existing=await client.query<{id:string;fence:string;last_sequence:string;lease_expires_at:Date;execution_binding_id:string}>("SELECT id,fence,last_sequence,lease_expires_at,execution_binding_id FROM sloptogether.story_producers WHERE twitch_channel_id=$1 AND released_at IS NULL FOR UPDATE",[channel.twitch_channel_id]);
+    const existing=await client.query<{id:string;fence:string;last_sequence:string;lease_expires_at:Date;execution_binding_id:string}>("SELECT id,fence,last_sequence,lease_expires_at,execution_binding_id FROM sloptogether.story_producers WHERE stream_id=$1 AND released_at IS NULL FOR UPDATE",[stream.id]);
     let leaseId:string;let fence:number;let sequence:number;
     if(existing.rows[0]&&existing.rows[0].lease_expires_at.getTime()>Date.now()){
       if(existing.rows[0].execution_binding_id!==binding.rows[0].id)throw new ApiError(409,"story_producer_already_active");
       leaseId=existing.rows[0].id;fence=Number(existing.rows[0].fence);sequence=Number(existing.rows[0].last_sequence)+1;
     }else{
       if(existing.rows[0])await abandonStoryProducerPlans(client,[existing.rows[0].id]);
-      await client.query("UPDATE sloptogether.story_producers SET released_at=now() WHERE twitch_channel_id=$1 AND released_at IS NULL",[channel.twitch_channel_id]);
-      const prior=await client.query<{fence:string}>("SELECT coalesce(max(fence),0)::text AS fence FROM sloptogether.story_producers WHERE twitch_channel_id=$1",[channel.twitch_channel_id]);
+      await client.query("UPDATE sloptogether.story_producers SET released_at=now() WHERE stream_id=$1 AND released_at IS NULL",[stream.id]);
+      const prior=await client.query<{fence:string}>("SELECT coalesce(max(fence),0)::text AS fence FROM sloptogether.story_producers WHERE stream_id=$1",[stream.id]);
       fence=Number(prior.rows[0]!.fence)+1;leaseId=randomUUID();sequence=1;
-      await client.query("INSERT INTO sloptogether.story_producers(id,twitch_channel_id,execution_binding_id,fence,last_sequence,lease_expires_at) VALUES($1,$2,$3,$4,0,now()+interval '90 seconds')",[leaseId,channel.twitch_channel_id,binding.rows[0]!.id,fence]);
+      await client.query("INSERT INTO sloptogether.story_producers(id,twitch_channel_id,stream_id,execution_binding_id,fence,last_sequence,lease_expires_at) VALUES($1,$2,$3,$4,$5,0,now()+interval '90 seconds')",[leaseId,channel.twitch_channel_id,stream.id,binding.rows[0]!.id,fence]);
     }
     const pending=await client.query<{id:string;idempotency_key:string;expected_channel_revision:number;input_payload:{theme?:string;recentStorySummary?:string;recentDialogue?:string;subscriberLabel?:string;interruptId?:string;sceneSeed?:string}}>("SELECT id,idempotency_key,expected_channel_revision,input_payload FROM sloptogether.story_plan_attempts WHERE producer_id=$1 AND producer_fence=$2 AND sequence=$3 AND status='planning' FOR UPDATE",[leaseId,fence,sequence]);
     if(pending.rows[0]){
@@ -588,21 +609,21 @@ export async function claimStoryProducer(locator:string,request:Request){
     const idempotencyKey=randomUUID();const claimToken=randomUUID();const sceneSeed=randomUUID();
     const context=await client.query<{story_world_prompt:string;recent_story_summary:string;recent_dialogue:string}>(
       `SELECT c.story_world_prompt,
-        coalesce((SELECT sr.prompt FROM sloptogether.segment_revisions sr JOIN sloptogether.segments s ON s.id=sr.segment_id WHERE s.twitch_channel_id=c.twitch_channel_id AND sr.state IN ('ready','played') ORDER BY s.ordinal DESC LIMIT 1),'' ) AS recent_story_summary,
-        coalesce((SELECT sr.dialogue FROM sloptogether.segment_revisions sr JOIN sloptogether.segments s ON s.id=sr.segment_id WHERE s.twitch_channel_id=c.twitch_channel_id AND sr.state IN ('ready','played') ORDER BY s.ordinal DESC LIMIT 1),'') AS recent_dialogue
-       FROM sloptogether.channels c WHERE c.twitch_channel_id=$1`,[channel.twitch_channel_id]);
+        coalesce((SELECT sr.prompt FROM sloptogether.segment_revisions sr JOIN sloptogether.segments s ON s.id=sr.segment_id JOIN sloptogether.branches b ON b.id=s.branch_id WHERE b.stream_id=$2 AND sr.state IN ('ready','played') ORDER BY s.ordinal DESC LIMIT 1),'' ) AS recent_story_summary,
+        coalesce((SELECT sr.dialogue FROM sloptogether.segment_revisions sr JOIN sloptogether.segments s ON s.id=sr.segment_id JOIN sloptogether.branches b ON b.id=s.branch_id WHERE b.stream_id=$2 AND sr.state IN ('ready','played') ORDER BY s.ordinal DESC LIMIT 1),'') AS recent_dialogue
+       FROM sloptogether.channels c WHERE c.twitch_channel_id=$1`,[channel.twitch_channel_id,stream.id]);
     const row=context.rows[0]!;
     const interrupt=await client.query<{id:string;subscriber_label:string;plan_payload:Record<string,unknown>}>(`SELECT ir.id,ir.subscriber_label,ir.plan_payload FROM sloptogether.interrupt_requests ir
       JOIN sloptogether.subscription_events se ON se.id=ir.trigger_event_id
       JOIN sloptogether.funding_authorizations f ON f.id=ir.funding_id AND f.state='reserved'
-      WHERE ir.broadcaster_twitch_id=$1 AND ir.program_state='queued' AND ir.expires_at>now()
+      WHERE ir.broadcaster_twitch_id=$1 AND ir.stream_id=$4 AND ir.program_state='queued' AND ir.expires_at>now()
         AND ($2::jsonb->>'enabled')::boolean=true
         AND EXISTS(SELECT 1 FROM sloptogether.sessions sess WHERE sess.twitch_user_id=$3 AND sess.revoked_at IS NULL AND sess.expires_at>now()
           AND sess.granted_scopes @> ARRAY['channel:read:subscriptions']::text[])
         AND (se.twitch_actor_id IS NULL OR NOT EXISTS(SELECT 1 FROM sloptogether.bans b WHERE b.twitch_user_id=se.twitch_actor_id
           AND b.revoked_at IS NULL AND (b.expires_at IS NULL OR b.expires_at>now()) AND (b.scope='global' OR b.twitch_channel_id=$1)))
       ORDER BY ir.created_at,ir.id LIMIT 1 FOR UPDATE OF ir SKIP LOCKED`,
-      [channel.twitch_channel_id,JSON.stringify(current.rows[0]!.subscriber_interrupt_policy),channel.owner_twitch_user_id]);
+      [channel.twitch_channel_id,JSON.stringify(current.rows[0]!.subscriber_interrupt_policy),channel.owner_twitch_user_id,stream.id]);
     const queued=interrupt.rows[0];
     if(!queued){
       const blocked=await ownerAttemptBudgetBlock(client,channel.twitch_channel_id,current.rows[0]!.owner_budget_cap_usd);
@@ -610,8 +631,8 @@ export async function claimStoryProducer(locator:string,request:Request){
     }
     const inputPayload={theme:row.story_world_prompt,recentStorySummary:row.recent_story_summary,recentDialogue:row.recent_dialogue,sceneSeed,
       ...(queued?{interruptId:queued.id,subscriberLabel:queued.subscriber_label}:{} )};
-    await client.query(`INSERT INTO sloptogether.story_plan_attempts(twitch_channel_id,producer_id,producer_fence,sequence,idempotency_key,expected_channel_revision,input_payload,claim_token,claim_expires_at)
-      VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,now()+interval '60 seconds')`,[channel.twitch_channel_id,leaseId,fence,sequence,idempotencyKey,channel.policy_revision,JSON.stringify(inputPayload),claimToken]);
+    await client.query(`INSERT INTO sloptogether.story_plan_attempts(twitch_channel_id,stream_id,producer_id,producer_fence,sequence,idempotency_key,expected_channel_revision,input_payload,claim_token,claim_expires_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,now()+interval '60 seconds')`,[channel.twitch_channel_id,stream.id,leaseId,fence,sequence,idempotencyKey,channel.policy_revision,JSON.stringify(inputPayload),claimToken]);
     if(queued){
       await client.query("UPDATE sloptogether.interrupt_requests SET program_state='planning' WHERE id=$1 AND program_state='queued'",[queued.id]);
       await client.query("UPDATE sloptogether.outbox SET delivered_at=now(),leased_until=NULL WHERE aggregate_id=$1 AND event_kind='subscriber_interrupt.plan' AND delivered_at IS NULL",[queued.id]);
@@ -631,8 +652,8 @@ async function scheduleSubscriberInterrupt(channel:ChannelRow,actor:string,keyId
     const current=policy.rows[0];
     if(!current||current.policy_revision!==channel.policy_revision)throw new ApiError(409,"channel_policy_changed");
     if(current.subscriber_interrupt_policy.enabled!==true)throw new ApiError(409,"subscriber_interrupts_disabled");
-    const lease=await client.query<{id:string;fence:string;lease_expires_at:Date;last_sequence:string}>(
-      "SELECT id,fence,lease_expires_at,last_sequence FROM sloptogether.story_producers WHERE id=$1 AND twitch_channel_id=$2 AND released_at IS NULL FOR UPDATE",[body.leaseId,channel.twitch_channel_id]);
+    const lease=await client.query<{id:string;fence:string;lease_expires_at:Date;last_sequence:string;stream_id:string}>(
+      "SELECT id,fence,lease_expires_at,last_sequence,stream_id FROM sloptogether.story_producers WHERE id=$1 AND twitch_channel_id=$2 AND released_at IS NULL FOR UPDATE",[body.leaseId,channel.twitch_channel_id]);
     const owner=lease.rows[0];
     if(!owner||Number(owner.fence)!==body.fence||owner.lease_expires_at.getTime()<=Date.now())throw new ApiError(409,"story_producer_lease_fenced");
     if(body.sequence<=Number(owner.last_sequence))throw new ApiError(409,"story_sequence_replayed");
@@ -641,11 +662,11 @@ async function scheduleSubscriberInterrupt(channel:ChannelRow,actor:string,keyId
       [body.leaseId,body.fence,body.sequence,body.idempotencyKey,body.claimToken]);
     if(!planned.rows[0]||planned.rows[0].expected_channel_revision!==current.policy_revision||planned.rows[0].input_payload.interruptId!==interruptId)
       throw new ApiError(409,"story_plan_attempt_not_current");
-    const request=await client.query<{funding_id:string;expires_at:Date;trigger_event_id:string;subscriber_label:string;event_actor_id:string|null}>(
-      `SELECT ir.funding_id,ir.expires_at,ir.trigger_event_id,ir.subscriber_label,se.twitch_actor_id AS event_actor_id
+    const request=await client.query<{funding_id:string;expires_at:Date;trigger_event_id:string;subscriber_label:string;event_actor_id:string|null;stream_id:string}>(
+      `SELECT ir.funding_id,ir.expires_at,ir.trigger_event_id,ir.subscriber_label,ir.stream_id,se.twitch_actor_id AS event_actor_id
        FROM sloptogether.interrupt_requests ir JOIN sloptogether.subscription_events se ON se.id=ir.trigger_event_id
        JOIN sloptogether.funding_authorizations f ON f.id=ir.funding_id AND f.state='reserved' AND f.source='owner_budget'
-       WHERE ir.id=$1 AND ir.broadcaster_twitch_id=$2 AND ir.program_state='planning' AND ir.expires_at>now() FOR UPDATE OF ir,f`,[interruptId,channel.twitch_channel_id]);
+       WHERE ir.id=$1 AND ir.broadcaster_twitch_id=$2 AND ir.stream_id=$3 AND ir.program_state='planning' AND ir.expires_at>now() FOR UPDATE OF ir,f`,[interruptId,channel.twitch_channel_id,owner.stream_id]);
     const alert=request.rows[0];if(!alert)throw new ApiError(409,"subscriber_interrupt_expired_or_unfunded");
     if(alert.event_actor_id&&await isBanned(channel.twitch_channel_id,alert.event_actor_id))throw new ApiError(403,"channel_ban_active");
     const boundary=await client.query<{boundary_id:string|null;resolution_id:string|null;revision_id:string;segment_id:string;frame_asset_id:string|null}>(`SELECT coalesce(r.requested_end_boundary_revision_id,er.resolved_end_boundary_revision_id) AS boundary_id,
@@ -653,8 +674,8 @@ async function scheduleSubscriberInterrupt(channel:ChannelRow,actor:string,keyId
       FROM sloptogether.branches b JOIN sloptogether.segments s ON s.branch_id=b.id JOIN sloptogether.segment_revisions r ON r.id=s.selected_revision_id
       LEFT JOIN LATERAL(SELECT id,resolved_end_boundary_revision_id FROM sloptogether.endpoint_resolutions WHERE segment_revision_id=r.id AND retired_at IS NULL ORDER BY created_at DESC LIMIT 1) er ON true
       LEFT JOIN sloptogether.boundary_revisions frame ON frame.id=coalesce(r.requested_end_boundary_revision_id,er.resolved_end_boundary_revision_id)
-      WHERE b.twitch_channel_id=$1 AND b.is_selected AND b.archived_at IS NULL AND r.state IN ('selected','locked','ready','played')
-      ORDER BY s.ordinal DESC LIMIT 1 FOR UPDATE OF s`,[channel.twitch_channel_id]);
+      WHERE b.twitch_channel_id=$1 AND b.stream_id=$2 AND b.is_selected AND b.archived_at IS NULL AND r.state IN ('selected','locked','ready','played')
+      ORDER BY s.ordinal DESC LIMIT 1 FOR UPDATE OF s`,[channel.twitch_channel_id,owner.stream_id]);
     const latest=boundary.rows[0];
     if(!latest?.boundary_id||latest.boundary_id!==preview.boundary_id||latest.resolution_id!==(preview.resolution_id??null)){
       await client.query("UPDATE sloptogether.story_plan_attempts SET status='failed',claim_token=NULL,claim_expires_at=NULL,updated_at=now() WHERE producer_id=$1 AND producer_fence=$2 AND sequence=$3 AND status='planning'",[body.leaseId,body.fence,body.sequence]);
@@ -672,10 +693,10 @@ async function scheduleSubscriberInterrupt(channel:ChannelRow,actor:string,keyId
     const jobId=randomUUID(),attemptId=randomUUID();
     if(!latest.frame_asset_id)throw new ApiError(409,"story_start_boundary_not_approved");
     const planningPayload={inputScreenId:input.rows[0].id,prompt,startBoundaryRevisionId:latest.boundary_id,
-      startFrameAssetId:latest.frame_asset_id,outputWidth:current.output_width,outputHeight:current.output_height,subscriberLabel:alert.subscriber_label};
+      startFrameAssetId:latest.frame_asset_id,...BASE_GENERATION_SIZE,subscriberLabel:alert.subscriber_label,durationSeconds:10,frameCount:SUBSCRIBER_INTERRUPT_FRAME_COUNT};
     await client.query(`INSERT INTO sloptogether.jobs(id,twitch_channel_id,segment_revision_id,interrupt_id,stage,execution_mode,state,recipe_id,recipe_sha256,input_sha256,requested_by,funding_id,dependency_resolution_id,planning_payload,priority,result_deadline_at)
-      VALUES($1,$2,$3,$4,'video_base','pull_worker','ready','fast-h3-trim-5step-vsa20-b1',$5,$6,$7,$8,$9,$10::jsonb,100,$11)`,
-      [jobId,channel.twitch_channel_id,latest.revision_id,interruptId,Buffer.from("9a2d5d19fb22b7e55d29c8e6048c4c421c5b73b044b7cc010188efe7df9ccaef","hex"),Buffer.from(screen.digest,"hex"),channel.owner_twitch_user_id,alert.funding_id,latest.resolution_id,JSON.stringify(planningPayload),alert.expires_at]);
+      VALUES($1,$2,$3,$4,'video_base','pull_worker','ready',$5,$6,$7,$8,$9,$10,$11::jsonb,100,$12)`,
+      [jobId,channel.twitch_channel_id,latest.revision_id,interruptId,SUBSCRIBER_INTERRUPT_RECIPE,Buffer.from("9a2d5d19fb22b7e55d29c8e6048c4c421c5b73b044b7cc010188efe7df9ccaef","hex"),Buffer.from(screen.digest,"hex"),channel.owner_twitch_user_id,alert.funding_id,latest.resolution_id,JSON.stringify(planningPayload),alert.expires_at]);
     if(latest.resolution_id)await client.query("INSERT INTO sloptogether.endpoint_resolution_dependencies(resolution_id,dependent_job_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[latest.resolution_id,jobId]);
     await client.query(`INSERT INTO sloptogether.job_attempts(id,job_id,attempt_number,fence,client_idempotency_key,state,attempt_deadline_at,input_sha256,funding_id)
       VALUES($1,$2,1,1,$3,'ready',$4,$5,$6)`,[attemptId,jobId,`job:${jobId}:attempt:1`,alert.expires_at,Buffer.from(screen.digest,"hex"),alert.funding_id]);
@@ -690,8 +711,9 @@ async function scheduleSubscriberInterrupt(channel:ChannelRow,actor:string,keyId
   });
 }
 
-export async function submitStoryProposal(locator:string,request:Request){
+export async function submitStoryProposal(locator:string,request:Request,streamSlug="main"){
   const channel=await findChannel(locator);const grant=await requireWorker(request,"story:write_future");
+  const stream=await getStream(channel.twitch_channel_id,streamSlug);
   if(grant.channelId!==channel.twitch_channel_id||grant.issuingTwitchUserId!==channel.owner_twitch_user_id)throw new ApiError(403,"story_producer_owner_key_required");
   if(await isBanned(channel.twitch_channel_id,grant.issuingTwitchUserId))throw new ApiError(403,"channel_ban_active");
   const body=await readJson(request,(await import("@sloptogether/contracts")).storyProposalSchema);
@@ -703,18 +725,21 @@ export async function submitStoryProposal(locator:string,request:Request){
       CASE WHEN r.requested_end_boundary_revision_id IS NULL THEN er.id ELSE NULL END AS resolution_id
     FROM sloptogether.branches b JOIN sloptogether.segments s ON s.branch_id=b.id JOIN sloptogether.segment_revisions r ON r.id=s.selected_revision_id
     LEFT JOIN LATERAL(SELECT id,resolved_end_boundary_revision_id FROM sloptogether.endpoint_resolutions WHERE segment_revision_id=r.id AND retired_at IS NULL ORDER BY created_at DESC LIMIT 1) er ON true
-    WHERE b.twitch_channel_id=$1 AND b.is_selected=true AND b.archived_at IS NULL AND r.state IN ('selected','locked','ready','played')
-    ORDER BY s.ordinal DESC LIMIT 1`,[channel.twitch_channel_id]);
+    WHERE b.twitch_channel_id=$1 AND b.stream_id=$2 AND b.is_selected=true AND b.archived_at IS NULL AND r.state IN ('selected','locked','ready','played')
+    ORDER BY s.ordinal DESC LIMIT 1`,[channel.twitch_channel_id,stream.id]);
   const previewBoundaryId=previewBoundary.rows[0]?.boundary_id;
   if(!previewBoundaryId)throw new ApiError(409,"story_start_boundary_missing");
   const startImage=await readApprovedBoundaryImage(channel.twitch_channel_id,previewBoundaryId);
   const screen=await screenPromptAndImages({channelId:channel.twitch_channel_id,prompt,images:[startImage]});
   if(screen.decision!=="clear")throw new ApiError(422,"story_plan_held");
-  if(body.interruptId)return scheduleSubscriberInterrupt(channel,grant.issuingTwitchUserId,grant.keyId,body,prompt,screen,previewBoundary.rows[0]!);
+  if(body.interruptId){
+    if(!stream.is_default)throw new ApiError(409,"subscriber_interrupts_default_stream_only");
+    return scheduleSubscriberInterrupt(channel,grant.issuingTwitchUserId,grant.keyId,body,prompt,screen,previewBoundary.rows[0]!);
+  }
   return transaction(async client=>{
     const policy=await client.query<{policy_revision:number;owner_budget_cap_usd:string}>("SELECT policy_revision,owner_budget_cap_usd FROM sloptogether.channels WHERE twitch_channel_id=$1 AND is_enabled FOR UPDATE",[channel.twitch_channel_id]);
     const currentPolicy=policy.rows[0];if(!currentPolicy||currentPolicy.policy_revision!==channel.policy_revision)throw new ApiError(409,"channel_policy_changed");
-    const lease=await client.query<{id:string;fence:string;lease_expires_at:Date;last_sequence:string}>("SELECT id,fence,lease_expires_at,last_sequence FROM sloptogether.story_producers WHERE id=$1 AND twitch_channel_id=$2 AND released_at IS NULL FOR UPDATE",[body.leaseId,channel.twitch_channel_id]);
+    const lease=await client.query<{id:string;fence:string;lease_expires_at:Date;last_sequence:string;stream_id:string}>("SELECT id,fence,lease_expires_at,last_sequence,stream_id FROM sloptogether.story_producers WHERE id=$1 AND twitch_channel_id=$2 AND stream_id=$3 AND released_at IS NULL FOR UPDATE",[body.leaseId,channel.twitch_channel_id,stream.id]);
     const row=lease.rows[0];if(!row||Number(row.fence)!==body.fence||row.lease_expires_at.getTime()<=Date.now())throw new ApiError(409,"story_producer_lease_fenced");
     if(body.sequence<=Number(row.last_sequence))throw new ApiError(409,"story_sequence_replayed");
     const planned=await client.query<{id:string;expected_channel_revision:number;input_payload:{interruptId?:string}}>("SELECT id,expected_channel_revision,input_payload FROM sloptogether.story_plan_attempts WHERE producer_id=$1 AND producer_fence=$2 AND sequence=$3 AND idempotency_key=$4 AND claim_token=$5 AND claim_expires_at>now() AND status='planning' FOR UPDATE",[body.leaseId,body.fence,body.sequence,body.idempotencyKey,body.claimToken]);
@@ -725,7 +750,7 @@ export async function submitStoryProposal(locator:string,request:Request){
     const spent=await client.query<{total:string}>(`SELECT coalesce(sum(greatest(reserved_usd,coalesce(actual_cost_usd,0))),0)::text AS total
       FROM sloptogether.funding_authorizations WHERE twitch_channel_id=$1 AND source='owner_budget' AND state<>'released'`,[channel.twitch_channel_id]);
     if(Number(spent.rows[0]?.total??0)+quote>Number(currentPolicy.owner_budget_cap_usd))throw new ApiError(409,"owner_generation_budget_exhausted");
-    const branch=await client.query<{id:string}>("SELECT id FROM sloptogether.branches WHERE twitch_channel_id=$1 AND is_selected=true AND archived_at IS NULL FOR UPDATE",[channel.twitch_channel_id]);
+    const branch=await client.query<{id:string}>("SELECT id FROM sloptogether.branches WHERE twitch_channel_id=$1 AND stream_id=$2 AND is_selected=true AND archived_at IS NULL FOR UPDATE",[channel.twitch_channel_id,stream.id]);
     if(!branch.rows[0])throw new ApiError(409,"selected_branch_unavailable");
     const last=await client.query<{id:string;ordinal:string;state:string;selected_revision_id:string|null;protected_at:Date|null}>("SELECT id,ordinal::text,state,selected_revision_id,protected_at FROM sloptogether.segments WHERE branch_id=$1 ORDER BY ordinal DESC LIMIT 1 FOR UPDATE",[branch.rows[0].id]);
     const tail=last.rows[0];let reuseSegmentId:string|null=null;let ordinal=Number(tail?.ordinal??-1)+1;
@@ -759,7 +784,7 @@ export async function submitStoryProposal(locator:string,request:Request){
     await client.query("INSERT INTO sloptogether.funding_authorizations(id,twitch_channel_id,source,purchaser_twitch_user_id,action_intent_id,reserved_usd,state) VALUES($1,$2,'owner_budget',$3,$4,$5,'reserved')",[fundingId,channel.twitch_channel_id,channel.owner_twitch_user_id,jobId,quote]);
     await client.query(`INSERT INTO sloptogether.jobs(id,twitch_channel_id,segment_revision_id,stage,execution_mode,state,recipe_id,recipe_sha256,input_sha256,requested_by,funding_id,dependency_resolution_id,planning_payload,result_deadline_at)
       VALUES($1,$2,$3,'video_base','pull_worker','ready','fast-h3-trim-5step-vsa20-b1',$4,$5,$6,$7,$8,$9::jsonb,now()+interval '45 minutes')`,
-      [jobId,channel.twitch_channel_id,revision.rows[0]!.id,Buffer.from("9a2d5d19fb22b7e55d29c8e6048c4c421c5b73b044b7cc010188efe7df9ccaef","hex"),Buffer.from(screen.digest,"hex"),grant.issuingTwitchUserId,fundingId,resolutionId,JSON.stringify({inputScreenId:screened.rows[0].id})]);
+      [jobId,channel.twitch_channel_id,revision.rows[0]!.id,Buffer.from("9a2d5d19fb22b7e55d29c8e6048c4c421c5b73b044b7cc010188efe7df9ccaef","hex"),Buffer.from(screen.digest,"hex"),grant.issuingTwitchUserId,fundingId,resolutionId,JSON.stringify({inputScreenId:screened.rows[0].id,...BASE_GENERATION_SIZE})]);
     if(resolutionId)await client.query("INSERT INTO sloptogether.endpoint_resolution_dependencies(resolution_id,dependent_job_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[resolutionId,jobId]);
     await client.query(`INSERT INTO sloptogether.job_attempts(id,job_id,attempt_number,fence,client_idempotency_key,state,attempt_deadline_at,input_sha256,funding_id)
       VALUES($1,$2,1,1,$3,'ready',now()+interval '45 minutes',$4,$5)`,[attemptId,jobId,`job:${jobId}:attempt:1`,Buffer.from(screen.digest,"hex"),fundingId]);

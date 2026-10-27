@@ -73,6 +73,20 @@ class WorkerMediaTest(unittest.TestCase):
             with self.assertRaisesRegex(WorkerError,"filename is invalid"):
                 client.upload_image(image,r"slop-..\outside.png")
 
+    def test_comfy_video_upload_is_readable_by_the_shared_media_group(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)/"input"
+            root.mkdir()
+            source=Path(folder)/"source.mp4"
+            source.write_bytes(b"video")
+            client=object.__new__(ComfyClient)
+            client.config=SimpleNamespace(comfy_input_dir=root)
+
+            name=client.upload_video_to_input_dir(source)
+            mode=(root/name).stat().st_mode & 0o777
+            self.assertEqual(mode & 0o040,0o040)
+            self.assertEqual((root/name).read_bytes(),b"video")
+
     def test_warm_model_cache_does_not_repeat_cold_vram_admission(self) -> None:
         comfy = Mock()
         comfy.object_info.return_value = {"nodes": True}

@@ -61,11 +61,11 @@ async function ensureLocalDemoChannel(){
     if(!channel.rowCount||channel.rows[0].owner_twitch_user_id!==channelId||channel.rows[0].twitch_login!==login)
       throw new Error("local_demo_channel_fixture_conflict");
     let branch=await client.query("SELECT id FROM sloptogether.branches WHERE twitch_channel_id=$1 AND is_selected AND archived_at IS NULL LIMIT 1",[channelId]);
-    if(!branch.rowCount)branch=await client.query(`INSERT INTO sloptogether.branches(twitch_channel_id,name,is_selected,created_by)
-      VALUES($1,'Main story',true,$1) RETURNING id`,[channelId]);
+    if(!branch.rowCount)branch=await client.query(`INSERT INTO sloptogether.branches(twitch_channel_id,stream_id,name,is_selected,created_by)
+      SELECT $1,id,'Main story',true,$1 FROM sloptogether.streams WHERE twitch_channel_id=$1 AND is_default RETURNING id`,[channelId]);
     await client.query(`INSERT INTO sloptogether.segments(twitch_channel_id,branch_id,ordinal,state)
       VALUES($1,$2,0,'open') ON CONFLICT(branch_id,ordinal) DO NOTHING`,[channelId,branch.rows[0].id]);
-    await client.query("INSERT INTO sloptogether.playback_sessions(twitch_channel_id) VALUES($1) ON CONFLICT(twitch_channel_id) DO NOTHING",[channelId]);
+    await client.query("INSERT INTO sloptogether.playback_sessions(twitch_channel_id,stream_id) SELECT $1,id FROM sloptogether.streams WHERE twitch_channel_id=$1 AND is_default ON CONFLICT(stream_id) DO NOTHING",[channelId]);
     await client.query(`INSERT INTO sloptogether.memberships(twitch_user_id,twitch_channel_id,role,status)
       VALUES($1,$1,'broadcaster','active') ON CONFLICT(twitch_user_id,twitch_channel_id) DO NOTHING`,[channelId]);
     await client.query("COMMIT");

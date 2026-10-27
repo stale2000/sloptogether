@@ -14,6 +14,7 @@ import { cancelFalTurbo,FalTurboError,falCdnReadToken,falInput,falRequestId,falT
 const execFileAsync=promisify(execFile);
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_PROVIDER_JSON_BYTES=1024*1024;
+const PAID_TURBO_ENABLED=false;
 
 export function falSubmitOutcome(code){
   const definitelyRejected=(/^fal_http_4\d\d$/.test(String(code))&&code!=="fal_http_408")||code==="fal_input_invalid"||code==="fal_key_missing";
@@ -195,7 +196,7 @@ async function startDispatch(pool,storage,config,message){
     if(row.dispatch_state!=="ready"){
       await finishOutbox(client,message);await commit(client);return {duplicate:true};
     }
-    if(!config.paidBitsReady||!config.falKey||!dispatchEligible(row)){
+    if(!PAID_TURBO_ENABLED||!config.paidBitsReady||!config.falKey||!dispatchEligible(row)){
       await setOutcome(client,row,"paid_unfulfilled",!config.paidBitsReady?"paid_dispatch_gates_disabled":!config.falKey?"fal_key_missing":"dispatch_preflight_not_current",{reopen:true});
       await finishOutbox(client,message);await commit(client);return {unfulfilled:true};
     }

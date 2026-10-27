@@ -76,7 +76,7 @@ def build_plan(
     cube: tuple[int, int, int] | None = None,
     device: str | torch.device = "cpu",
 ) -> LayoutPlan:
-    """Synthetic PackedLayout-equivalent plan for tests and the microbench."""
+    """Synthetic PackedLayout-equivalent plan for tests."""
     cube = cube or cube_for_block_size(block_size)
     tiles = []
     n_prefix = 0

@@ -10,5 +10,12 @@
     "destination": "src/sloptogether_worker/assets/recipes/sol-upscale-standard.json",
     "sha256": "e0b4949fbbc02e31b0dc697fc2bedc5a7a1efe57d5d96fe908013d89a3bf8b8c",
     "bytes": 1086
+  },
+  {
+    "source": "workers/runtime/src/sloptogether_worker/assets/recipes/sol-upscale-standard.json",
+    "destination": "src/sloptogether_worker/assets/recipes/sol-upscale-1184-v1.json",
+    "sha256": "8bd316e466037db6e4ec4e9b0b3c6b010274020df16c1609e788bb97b8fd6848",
+    "bytes": 1086,
+    "derivation": "Pin the target to 1184x666 for the low-resolution upscale recipe."
   }
 ]

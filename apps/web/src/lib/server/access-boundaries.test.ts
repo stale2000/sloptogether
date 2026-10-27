@@ -4,6 +4,7 @@ import type { ChannelRow } from "./channels";
 import type { RequestPrincipal } from "./principals";
 
 const mocks=vi.hoisted(()=>({query:vi.fn(),transaction:vi.fn(),requestPrincipal:vi.fn(),currentSession:vi.fn(),moderatedChannels:vi.fn()}));
+vi.mock("server-only",()=>({}));
 vi.mock("./db",()=>({query:mocks.query,transaction:mocks.transaction,DatabaseUnavailable:class extends Error{}}));
 vi.mock("./database",()=>({publicAppUrl:()=>new URL("https://clips.gg/sloptogether")}));
 vi.mock("./session",()=>({currentSession:mocks.currentSession}));
@@ -23,6 +24,7 @@ const channel:ChannelRow={
   policy_revision:1,contribution_mode:"any_non_banned_twitch_user",contributor_whitelist:[],reviewer_whitelist:["2"],
   upload_approval_bypass_ids:[],role_based_upload_bypass:[],subscriber_interrupt_policy:{},story_world_prompt:"Private story world",
   h3_style_profile:"trim",owner_budget_cap_usd:"100",layout_revision:1,chat_voting_enabled:false,
+  preair_upscale_enabled:false,preair_upscale_wait_seconds:1200,
 };
 const reviewer={kind:"session",session:{id:"reviewer-session",twitchUserId:"2",twitchLogin:"reviewer",displayName:"Reviewer",accessToken:"token",scopes:[],expiresAt:new Date(Date.now()+60_000)}} as RequestPrincipal;
 const worker={kind:"worker-key",worker:{keyId:"worker-key",issuingTwitchUserId:"2",channelId:"123",scopes:["worker:generation"],roles:["generation"],recipes:[],paired:true,platform:"linux"}} as RequestPrincipal;

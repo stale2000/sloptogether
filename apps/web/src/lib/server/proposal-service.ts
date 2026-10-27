@@ -7,6 +7,7 @@ import { canContribute, findChannel, principalTwitchId, type ChannelRow } from "
 import { requestPrincipal, type RequestPrincipal } from "./principals";
 import { inputAsset, screenPromptAndImages } from "./preflight";
 import { signedPrivateReadUrl } from "./storage";
+import { getDefaultStreamId } from "./stream-service";
 
 interface Target { id:string; branch_id:string; ordinal:string; state:string }
 interface Boundary { id:string; asset_id:string; storage_key:string; content_type:string; status:string; sha256:Buffer|null }
@@ -68,12 +69,13 @@ async function reserveProposalSubmission(channelId:string,actor:string){
   return id;
 }
 
-export async function submitProposal(locator:string,request:Request) {
+export async function submitProposal(locator:string,request:Request,requestedStreamId?:string) {
   const principal=await requestPrincipal(request);
   if(!principal)throw new ApiError(401,"login_required");
   if(principal.kind==="session")assertSameOrigin(request);
   if(principal.kind!=="session"&&principal.kind!=="extension")throw new ApiError(403,"interactive_identity_required");
   const channel=await findChannel(locator);
+  const streamId=requestedStreamId??await getDefaultStreamId(channel.twitch_channel_id);
   if(principal.kind==="extension"&&principal.extension.channelId!==channel.twitch_channel_id)throw new ApiError(403,"extension_channel_mismatch");
   if(!await canContribute(channel,principal))throw new ApiError(403,"contribution_not_allowed");
   const actor=principalTwitchId(principal)!;
@@ -82,9 +84,9 @@ export async function submitProposal(locator:string,request:Request) {
   let reservationConsumed=false;
   try{
   const targetResult=await query<Target>(`SELECT s.id,s.branch_id,s.ordinal,s.state FROM sloptogether.segments s
-    JOIN sloptogether.branches b ON b.id=s.branch_id AND b.is_selected AND b.archived_at IS NULL
+    JOIN sloptogether.branches b ON b.id=s.branch_id AND b.stream_id=$3 AND b.is_selected AND b.archived_at IS NULL
     WHERE s.twitch_channel_id=$1 AND ($2::uuid IS NULL OR s.id=$2)
-      AND s.state IN ('open','voting') AND s.protected_at IS NULL ORDER BY s.ordinal LIMIT 1`,[channel.twitch_channel_id,body.segmentId??null]);
+      AND s.state IN ('open','voting') AND s.protected_at IS NULL ORDER BY s.ordinal LIMIT 1`,[channel.twitch_channel_id,body.segmentId??null,streamId]);
   const target=targetResult.rows[0];
   if(!target)throw new ApiError(409,"open_segment_required","There is no unlocked future segment available.");
   const predecessor=await predecessorBoundary(target.branch_id,Number(target.ordinal));

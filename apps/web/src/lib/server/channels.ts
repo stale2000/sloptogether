@@ -25,6 +25,8 @@ export interface ChannelRow extends QueryResultRow {
   owner_budget_cap_usd:string;
   layout_revision:number;
   chat_voting_enabled:boolean;
+  preair_upscale_enabled:boolean;
+  preair_upscale_wait_seconds:number;
 }
 
 export function principalTwitchId(principal:RequestPrincipal|null):string|null{
@@ -42,7 +44,8 @@ export async function findChannel(locator:string,requireEnabled=true):Promise<Ch
     `SELECT twitch_channel_id,owner_twitch_user_id,twitch_login,display_name,visibility,is_enabled,
       policy_revision,contribution_mode,contributor_whitelist,reviewer_whitelist,
       upload_approval_bypass_ids,role_based_upload_bypass,subscriber_interrupt_policy,
-      story_world_prompt,h3_style_profile,owner_budget_cap_usd,layout_revision,chat_voting_enabled
+      story_world_prompt,h3_style_profile,owner_budget_cap_usd,layout_revision,chat_voting_enabled,
+      preair_upscale_enabled,preair_upscale_wait_seconds
      FROM sloptogether.channels
      WHERE twitch_login=$1 OR twitch_channel_id=$2
      LIMIT 1`,[key,locator],

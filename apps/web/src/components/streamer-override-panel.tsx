@@ -16,6 +16,7 @@ export function StreamerOverridePanel({ channel }: { channel: string }) {
   const [candidateSet,setCandidateSet]=useState<{segmentId:string;candidates:OverrideCandidate[]}|null>(null);
   const [candidatesLoading,setCandidatesLoading]=useState(false);
   const [seekSegmentId,setSeekSegmentId]=useState("");
+  const [upscaleSegmentId,setUpscaleSegmentId]=useState("");
   const [seekSeconds,setSeekSeconds]=useState(0);
   const [prompt,setPrompt]=useState("");
   const [reason,setReason]=useState("");
@@ -51,6 +52,7 @@ export function StreamerOverridePanel({ channel }: { channel: string }) {
   const selectedChoice=candidates.find(candidate=>candidate.proposalId===proposalId)??candidates[0];
   const seekable=value.segments.filter(segment=>segment.programItemId&&(segment.state==="ready"||segment.state==="played"));
   const seekTarget=seekable.find(segment=>segment.id===(seekSegmentId||value.currentProgramItem?.segmentId||seekable.at(-1)?.id))??seekable.at(-1);
+  const upscaleTarget=seekable.find(segment=>segment.id===(upscaleSegmentId||value.currentProgramItem?.segmentId||seekable.at(-1)?.id))??seekable.at(-1);
 
   const send=async(payload:Record<string,unknown>,success:string)=>{
     setBusy(true);setError(null);setMessage(null);
@@ -85,11 +87,11 @@ export function StreamerOverridePanel({ channel }: { channel: string }) {
   };
 
   const requestUpscale=async()=>{
-    const item=value.currentProgramItem;if(!item||item.kind!=="story")return;
+    if(!upscaleTarget?.programItemId)return;
     setUpscaling(true);setError(null);setMessage(null);
     try{
-      const result=await apiFetch<{existing:boolean}>(`/channels/${encodeURIComponent(channel)}/upscale`,{method:"POST",body:JSON.stringify({programItemId:item.id})});
-      setMessage(result.existing?"An upscale request already exists for this scene.":"Upscale queued for a qualified volunteer worker. Approval is required, and live playback will stay on the current clip.");
+      const result=await apiFetch<{existing:boolean}>(`/channels/${encodeURIComponent(channel)}/upscale`,{method:"POST",body:JSON.stringify({programItemId:upscaleTarget.programItemId})});
+      setMessage(result.existing?"An upscale request already exists for this scene.":"Upscale queued for review.");
     }catch(problem){setError(problem instanceof Error?problem.message:"The upscale couldn't be queued.");}
     finally{setUpscaling(false);}
   };
@@ -123,8 +125,10 @@ export function StreamerOverridePanel({ channel }: { channel: string }) {
     <hr className="panel-divider"/>
     <div className="section-label">BROWSER OUTPUT</div>
     <h3>Optional clip upscale</h3>
-    <p className="panel-copy">Queue the current story clip for a volunteer with a qualified upscale GPU. The reviewed result stays separate from aired playback.</p>
-    <button className="button secondary small" disabled={upscaling||value.currentProgramItem?.kind!=="story"} onClick={()=>void requestUpscale()}>{upscaling?"Queueing…":"Request current clip upscale"}</button>
+    {seekable.length?<><label className="field-label" htmlFor="upscale-scene">Clip</label>
+      <select id="upscale-scene" className="select-input" value={upscaleTarget?.id??""} onChange={event=>setUpscaleSegmentId(event.target.value)}>{seekable.map(segment=><option key={segment.id} value={segment.id}>Scene {segment.ordinal+1} · {segment.promptPreview||segment.state}</option>)}</select>
+    </>:null}
+    <button className="button secondary small" disabled={upscaling||!upscaleTarget?.programItemId} onClick={()=>void requestUpscale()}>{upscaling?"Queueing…":"Request upscale"}</button>
     <h3>Jump to a scene</h3>
     {seekable.length?<>
       <label className="field-label" htmlFor="seek-scene">Committed scene</label>

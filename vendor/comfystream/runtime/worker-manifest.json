@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "fc072f7f3abea1cc10f293fc27b36c179ee9da0567d18edf1193c0b70d584e37",
+  "artifact_digest": "911188efad5aea329bdf2ede5f55f994931927285b915944bfde7140de3375d4",
   "asset_digest": "4d2c60ce31de4199beb132ca0e050602bf80ab6b9a0e2044439fe0b7a52646c7",
   "assets": {
     "decoder": {
@@ -44,7 +44,7 @@
       "MODEL_REVISION": "4655337474c1c77fb52e9ac55111552e625e779c"
     }
   },
-  "code_digest": "ffef247d6cdea6dd17537760483953dad73adb5936bbea5c2d9bbc5ff8213112",
+  "code_digest": "b9761794e04fda9cb8537523679b8ddad9cac857ccf5129bdfe35f6c6a349517",
   "compatibility": {
     "comfyui_api": "prompt-history-object_info/1",
     "drama3_package": "comfystream_drama3",
@@ -69,13 +69,9 @@
       "executable": false,
       "sha256": "889185eb8455dbe9eedf1eafbefd47a1d8f90a6c51873e79bab62ac9f55c55c0"
     },
-    "deploy/custom_nodes/comfystream_sol_refiner_h3/PERFORMANCE.md": {
-      "executable": false,
-      "sha256": "9ec40f07711371c982d4bd7af7e8322b73c4ea82084d807a3353cfb5a96843c8"
-    },
     "deploy/custom_nodes/comfystream_sol_refiner_h3/README.md": {
       "executable": false,
-      "sha256": "a80e495020ab304eaf8b8421b18858614ac430637d0dedae7201a7054892990f"
+      "sha256": "c5beec262fcd22ef270421bee1aa7e90de69b4d261d5a77ae03d30f884d33bc9"
     },
     "deploy/custom_nodes/comfystream_sol_refiner_h3/__init__.py": {
       "executable": false,
@@ -107,7 +103,7 @@
     },
     "deploy/custom_nodes/comfystream_sol_refiner_h3/hardware_profiles.py": {
       "executable": false,
-      "sha256": "591d1ed8818276f1e503604a2362e0fbea61aa56da79e30fb3110947cd47d754"
+      "sha256": "d3355d480e0da76324825abb97cd0aa3314ff4ad02548491f237e4c43479ae91"
     },
     "deploy/custom_nodes/comfystream_sol_refiner_h3/install.py": {
       "executable": false,
@@ -135,7 +131,7 @@
     },
     "deploy/custom_nodes/comfystream_sol_refiner_h3/node.py": {
       "executable": false,
-      "sha256": "4400dfb1aa7c9defbe653f733996e87c700fa38d27e5e89d98af7e0e35990bf9"
+      "sha256": "cc5f08625ec0512f8d5fe542990f05184e08306f93448afe4fcd458b62012929"
     },
     "deploy/custom_nodes/comfystream_sol_refiner_h3/nvfp4_checkpoint.py": {
       "executable": false,
@@ -219,39 +215,23 @@
     },
     "deploy/custom_nodes/comfystream_sol_refiner_h3/worker_client.py": {
       "executable": false,
-      "sha256": "619520631a3fc6b7052bbaf3c8e403f9d8e0a7ed82b6f8b9c2a83d983bb8d79f"
+      "sha256": "c1355a1c7f79de321f196cfd8b46988a74f5f00aa0ce437cc3fd17890fd0ff3b"
     },
     "deploy/custom_nodes/comfystream_worker_identity/__init__.py": {
       "executable": false,
       "sha256": "60c96153b64b32c57add9c7b9ee072f398d79476944d39655ac7e2a55e2afc9c"
     },
-    "deploy/custom_nodes/fasth3_deploy/ADAPTIVE_ATTENTION_PLAN.md": {
-      "executable": false,
-      "sha256": "a7130969454a4a7b37937ac626d19b09dcd879acb0237573bff7bad3b2a6570f"
-    },
-    "deploy/custom_nodes/fasth3_deploy/ADAPTIVE_ATTENTION_RESEARCH.md": {
-      "executable": false,
-      "sha256": "93abcfa802a5b24dc6e6b70b70d3ef0581db8db9e6f80a527b236da07dbaedf9"
-    },
-    "deploy/custom_nodes/fasth3_deploy/DMAD_BENCHMARK.md": {
-      "executable": false,
-      "sha256": "bf36187ea9c36a903bb7848a8d19262e5f6869ad8c58572a4df609cb4b2e4b44"
-    },
     "deploy/custom_nodes/fasth3_deploy/LICENSE": {
       "executable": false,
       "sha256": "145c62d7d3215de61ef99aeeb571ba1f189b9eb9fb3fa948420643ea547878e4"
     },
-    "deploy/custom_nodes/fasth3_deploy/QUICKSTART.md": {
-      "executable": false,
-      "sha256": "3421ebddba01c9c9a2b86e6121049255f32af5ce58429fee66f722f764936bbf"
-    },
     "deploy/custom_nodes/fasth3_deploy/README.md": {
       "executable": false,
-      "sha256": "926a623b6add49c45ce008c70d187dca118a145a199a2755d02c91c37a9ffaa4"
+      "sha256": "065e8b71220cf60a7b20fe6363e06db093080896d53cfd39ef26b69053dae40b"
     },
     "deploy/custom_nodes/fasth3_deploy/__init__.py": {
       "executable": false,
-      "sha256": "16f9fc40bfe29bd06db1bb942adf7e96e4c8cfbbd7a8f95bded2c0f5dc762c7c"
+      "sha256": "a52e40c8e21327278f31d16e972473c60d2778498f9093213849fdc5e7bad1ba"
     },
     "deploy/custom_nodes/fasth3_deploy/anemoi_native/README.md": {
       "executable": false,
@@ -465,10 +445,6 @@
       "executable": false,
       "sha256": "12220e72133cba8d36a5e71e97deb41352d2f03b2f3accc4305eab3a022343f7"
     },
-    "deploy/custom_nodes/fasth3_deploy/decoder_cache.py": {
-      "executable": false,
-      "sha256": "3b319a36445565ab0057246e6c6edbba7c6e3ea924f319524b248fe4b95a2a59"
-    },
     "deploy/custom_nodes/fasth3_deploy/decoder_diagnostics.py": {
       "executable": false,
       "sha256": "586b69761e510c95f131cb7f5d3efb0fa263145e5a4d8265d69c4888d5f72fc3"
@@ -476,10 +452,6 @@
     "deploy/custom_nodes/fasth3_deploy/decoder_graph.py": {
       "executable": false,
       "sha256": "761cbb656525a7966e4e27b64ed63ba8ea25a94ec9b5931915425c604033f156"
-    },
-    "deploy/custom_nodes/fasth3_deploy/decoder_layout.py": {
-      "executable": false,
-      "sha256": "987724e9d947148113f431d2b4e8ffcdc94712d5beed4320aed2ef8e38023011"
     },
     "deploy/custom_nodes/fasth3_deploy/decoder_optimizations.py": {
       "executable": false,
@@ -509,14 +481,6 @@
       "executable": false,
       "sha256": "cac9b80099793ce5473c8c296ab0208078b7ee319e40e5b47c362ebe5644ed8d"
     },
-    "deploy/custom_nodes/fasth3_deploy/forcingbooster_router.py": {
-      "executable": false,
-      "sha256": "530f00b94cbdfe89b46ed3fc71958f819a70e643f8ce2bc8346e89efe92ad41d"
-    },
-    "deploy/custom_nodes/fasth3_deploy/forcingbooster_training.py": {
-      "executable": false,
-      "sha256": "7ee00b87c8141a3e369ea97f32b433b9e2ec55195f5c1921aa217201cb7adfc2"
-    },
     "deploy/custom_nodes/fasth3_deploy/fp4_kernel_config.py": {
       "executable": false,
       "sha256": "f00b2ac9d1a72403ada29275cd31601e99664941ad5ceecd99bdb2e9f6c34861"
@@ -533,17 +497,9 @@
       "executable": false,
       "sha256": "5ef2f509d2a20f1e9e76e60a7e54a8e8706d5734c39bceb4f029174372628015"
     },
-    "deploy/custom_nodes/fasth3_deploy/inference_metrics.py": {
-      "executable": false,
-      "sha256": "366612ab8aee8677414dd6c60265835bb18d14122dc2cab224fd4b28f42f395a"
-    },
     "deploy/custom_nodes/fasth3_deploy/install.py": {
       "executable": false,
       "sha256": "47561157abe2b5e6378c8ff57755e530f05d7ec7ebdcdfa31b1ba7cac9717355"
-    },
-    "deploy/custom_nodes/fasth3_deploy/intermediate_capture.py": {
-      "executable": false,
-      "sha256": "0305ee5bd26db1d41f3ffa62bf5dbb6d49507349d01d5a54bf1abe7fa0df7a6d"
     },
     "deploy/custom_nodes/fasth3_deploy/kernel_types.py": {
       "executable": false,
@@ -567,7 +523,7 @@
     },
     "deploy/custom_nodes/fasth3_deploy/memory_features.py": {
       "executable": false,
-      "sha256": "a6597f8143605f822f523d20e769c94a388344d70268778cfbcf1c02b264cf56"
+      "sha256": "bd77c91d2ecc9a89799e46c2e91a13717fe62b5392216ec7f6ff7435621643ec"
     },
     "deploy/custom_nodes/fasth3_deploy/migration_capture.py": {
       "executable": false,
@@ -575,7 +531,7 @@
     },
     "deploy/custom_nodes/fasth3_deploy/model_cache.py": {
       "executable": false,
-      "sha256": "da79935baa55e0f6c3993f7ebbbcdbc6b38390a83795772fde36a9bddb7e0053"
+      "sha256": "c8f07bba901741387ce158e3144e1a07fb88a00c3ef04fac600169b33ae999f8"
     },
     "deploy/custom_nodes/fasth3_deploy/model_provenance.py": {
       "executable": false,
@@ -673,10 +629,6 @@
       "executable": false,
       "sha256": "a8eb0b9152276dd60f3ffe952c39097f33e91aadd8145e7f15a44524090d059f"
     },
-    "deploy/custom_nodes/fasth3_deploy/native_attention/diagnostics.py": {
-      "executable": false,
-      "sha256": "902558bf920cb46e3989b99b0dd2d07f0f09eef25ba4f90107df8edda33c0e09"
-    },
     "deploy/custom_nodes/fasth3_deploy/native_attention/grouped.py": {
       "executable": false,
       "sha256": "05a59ae9950521c9ce8ccc9b991027ea22c7c011c1e2acd33f7b81f1e77ab35d"
@@ -692,10 +644,6 @@
     "deploy/custom_nodes/fasth3_deploy/native_attention/oracle.py": {
       "executable": false,
       "sha256": "9ef8ea92f3832e00e32d6818e05c0a4e0b895963cb2c2c5e5d71f9d68b2c343a"
-    },
-    "deploy/custom_nodes/fasth3_deploy/native_attention/route_compaction.py": {
-      "executable": false,
-      "sha256": "cd94e0bc26371f3ba5af66ea64fba16fdb198135e0cfa3cae6c5aca0fce54086"
     },
     "deploy/custom_nodes/fasth3_deploy/native_attention/runtime.py": {
       "executable": false,
@@ -745,17 +693,13 @@
       "executable": false,
       "sha256": "bacf98310bbcb38172c670f0dfd18d8a05d6fe925b807a76646010c5cf50fc61"
     },
-    "deploy/custom_nodes/fasth3_deploy/sequence_parallel.py": {
-      "executable": false,
-      "sha256": "672fddb7c4b48f32aaddd599707a6d8f6ce555c085c950e5150b36d9730a6523"
-    },
     "deploy/custom_nodes/fasth3_deploy/sol_attn_minimax_v5.py": {
       "executable": false,
       "sha256": "ee612b195c83b44791d27b3415971462fed02fc5f33592bf48996094cf0f7ac4"
     },
     "deploy/custom_nodes/fasth3_deploy/speculative_forcing_freeze.py": {
       "executable": false,
-      "sha256": "2fa067d2af70e10ec2fc8b1c976673f94dc840789745fb9bad0a099f1262619a"
+      "sha256": "cd6c6759695ab0ab73383ebcb6050887cc68cc8a7c645515e246416810d4a4cb"
     },
     "deploy/custom_nodes/fasth3_deploy/speculative_forcing_probe.py": {
       "executable": false,
@@ -1039,11 +983,7 @@
     },
     "deploy/custom_nodes/fasth3_deploy/vsa_sm120/layout.py": {
       "executable": false,
-      "sha256": "7d4cc399e71b8bb5dd63a44639c4f1a085b49f320c6a8c4cc195bd07de8c477f"
-    },
-    "deploy/custom_nodes/fasth3_deploy/vsa_sm120/microbench.py": {
-      "executable": false,
-      "sha256": "40e830e3019a72702d6431ebf26e5d5a180b69658991d5bef43499c30a88cc4e"
+      "sha256": "838d9a67fe64e85dffb30080d74505af2a4f5130ff252bbb8c18066457d70825"
     },
     "deploy/custom_nodes/fasth3_deploy/vsa_sm120/producer.py": {
       "executable": false,
@@ -1131,15 +1071,19 @@
     },
     "scripts/assemble_worker_artifact.py": {
       "executable": true,
-      "sha256": "8fd4ec8c2838ee0878557ab22832c9d0863af6ab58b8b99777b1b037feb03d21"
+      "sha256": "2674ad6dccf665934521fd9f08b4e4d235f49b63d02c0e0afe03ffec572636cc"
     },
     "scripts/download_fasth3_models.sh": {
       "executable": true,
-      "sha256": "198cbad6d8665be40eef55000e60798d22a325a7d03e6abf8d1835e350481c90"
+      "sha256": "de69921ae7ad0ab5f39c4c8711c13250a05fcb70f2e6fff772e3cc011ff0178b"
     },
     "scripts/prepare_h3_upscale_conditioning.py": {
       "executable": true,
       "sha256": "e90f4c420fc713f10f782d3f855d85c43ba711806c2eb5ce40150bd09a1a13d5"
+    },
+    "scripts/verify_fasth3_models.py": {
+      "executable": false,
+      "sha256": "d763132a29fbe813867c1931bf98a879d50ed883d18549b0257d18b94e256850"
     }
   },
   "profile": "vast",

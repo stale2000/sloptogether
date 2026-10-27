@@ -1,5 +1,7 @@
 import { createHmac } from "node:crypto";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
+import { findChannel,isBanned,requireChannelModerator } from "./channels";
+import { currentSession } from "./session";
 
 const mocks=vi.hoisted(()=>({query:vi.fn(),transaction:vi.fn()}));
 vi.mock("server-only",()=>({}));
@@ -10,7 +12,7 @@ vi.mock("./timeline",()=>({getActiveElections:vi.fn()}));
 vi.mock("./session",()=>({currentSession:vi.fn()}));
 vi.mock("./voting-service",()=>({castBallot:vi.fn()}));
 
-import { handleEventSubWebhook } from "./subscriber-service";
+import { handleEventSubWebhook,handleSubscriberSettings } from "./subscriber-service";
 
 const secret="local-eventsub-test-secret";
 const event={broadcaster_user_id:"123",user_id:"456",user_login:"viewer_456",user_name:"Viewer",is_anonymous:false,is_gift:false};
@@ -49,9 +51,43 @@ function configureAdmission({duplicate=false,hourlySpendCapUsd=1,lastCreatedAt=n
 beforeEach(()=>{
   vi.resetAllMocks();
   vi.stubEnv("TWITCH_EVENTSUB_SECRET",secret);
+  vi.stubEnv("PUBLIC_APP_URL","https://clips.gg/sloptogether");
   vi.stubEnv("SLOPTOGETHER_SUBSCRIBER_ATTEMPT_RESERVATION_USD","0.25");
 });
-afterEach(()=>vi.unstubAllEnvs());
+afterEach(()=>{vi.unstubAllGlobals();vi.unstubAllEnvs()});
+
+describe("subscriber settings funding preflight",()=>{
+  const policy={enabled:true,newSubscriptions:true,resubscriptionMessages:false,giftMode:"off",minimumGapSeconds:60,eventMaxAgeSeconds:180,hourlySpendCapUsd:1,fallback:"skip"};
+  function prepare(ownerBudgetCapUsd:string){
+    vi.mocked(findChannel).mockResolvedValue({twitch_channel_id:"123",owner_twitch_user_id:"123",twitch_login:"streamer",display_name:"Streamer",
+      visibility:"public",is_enabled:true,policy_revision:1,owner_budget_cap_usd:ownerBudgetCapUsd} as never);
+    vi.mocked(requireChannelModerator).mockResolvedValue("123");
+    vi.mocked(isBanned).mockResolvedValue(false);
+    vi.mocked(currentSession).mockResolvedValue({twitchUserId:"123",scopes:["channel:read:subscriptions"]} as never);
+  }
+  function request(settings=policy){
+    return new Request("https://clips.gg/sloptogether/api/v1/channels/streamer/subscriber-interrupts",{
+      method:"PUT",headers:{Origin:"https://clips.gg","Content-Type":"application/json"},body:JSON.stringify(settings),
+    });
+  }
+  it("rejects a missing subscriber reservation before it registers with Twitch",async()=>{
+    prepare("10");vi.stubEnv("SLOPTOGETHER_SUBSCRIBER_ATTEMPT_RESERVATION_USD","");
+    const fetch=vi.fn();vi.stubGlobal("fetch",fetch);
+    await expect(handleSubscriberSettings("streamer",request(),"update")).rejects.toMatchObject({status:503,code:"subscriber_reservation_not_configured"});
+    expect(fetch).not.toHaveBeenCalled();expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+  it("rejects an owner budget below one alert reservation before it registers with Twitch",async()=>{
+    prepare("0");const fetch=vi.fn();vi.stubGlobal("fetch",fetch);
+    await expect(handleSubscriberSettings("streamer",request(),"update")).rejects.toMatchObject({status:409,code:"subscriber_budget_cap_too_low"});
+    expect(fetch).not.toHaveBeenCalled();expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+  it("rejects an hourly cap below one alert reservation before it registers with Twitch",async()=>{
+    prepare("10");const fetch=vi.fn();vi.stubGlobal("fetch",fetch);
+    await expect(handleSubscriberSettings("streamer",request({...policy,hourlySpendCapUsd:0.1}),"update"))
+      .rejects.toMatchObject({status:409,code:"subscriber_hourly_cap_too_low"});
+    expect(fetch).not.toHaveBeenCalled();expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+});
 
 describe("subscriber EventSub admission",()=>{
   it("queues one funded interrupt for a signed, eligible subscription",async()=>{
@@ -60,6 +96,8 @@ describe("subscriber EventSub admission",()=>{
     expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.funding_authorizations"))).toBe(true);
     expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.interrupt_requests"))).toBe(true);
     expect(client.query.mock.calls.some(([sql])=>String(sql).includes("subscriber_interrupt.plan"))).toBe(true);
+    const interruptInsert=client.query.mock.calls.find(([sql])=>String(sql).includes("INSERT INTO sloptogether.interrupt_requests"));
+    expect(JSON.parse(String(interruptInsert?.[1]?.[5]))).toMatchObject({durationSeconds:10,frameCount:243,requireAudio:true});
   });
 
   it("acknowledges a duplicate delivery without creating a second reservation",async()=>{

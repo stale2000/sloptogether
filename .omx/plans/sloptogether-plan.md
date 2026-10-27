@@ -1,6 +1,6 @@
 # SlopTogether — implementation plan
 
-Status: product specification and historical implementation notes. The [October 24 implementation audit](../../docs/implementation-audit-2026-10-24.md) and [current completion plan](sloptogether-completion-plan.md) supersede older readiness/deployment assumptions below. Public target: **https://clips.gg/sloptogether**. The application must support continuous streams with no fixed clip-count limit; three/four clips are only smoke-test sizes. The existing Clips.gg database is approved for additive objects in the isolated `sloptogether` schema with a scoped runtime role.
+Status: product specification and historical implementation notes. Use the [October 27 execution plan](../../docs/completion-plan-2026-10-27.md) for current status, EventSub ten-second alert scope, Windows release work and the two-hour GPU maximum. The [October 24 implementation audit](../../docs/implementation-audit-2026-10-24.md) and [current completion plan](sloptogether-completion-plan.md) supersede older readiness/deployment assumptions below. Public target: **https://clips.gg/sloptogether**. The application must support continuous streams with no fixed clip-count limit; three/four clips are only smoke-test sizes. The existing Clips.gg database is approved for additive objects in the isolated `sloptogether` schema with a scoped runtime role.
 
 ### Earlier deployment snapshot — superseded by the current audit
 
@@ -25,9 +25,13 @@ SlopTogether is a Twitch-connected collaborative video timeline for each broadca
 
 The application owns identity, choices, timeline consistency, jobs, moderation, publication, and browser playback. The existing inference runtime is one dependency. The same worker program runs for Windows contributors and as Linux/headless workers on fal; it selects generation or upscale and uses identical job/upload/continuity contracts. Ordinary users pair Twitch; owner-managed workers can configure a scoped trusted key. Streamer OAuth or a streamer-control key can override channel editorial decisions. The delivery goal remains the working public application, not a demonstration alone.
 
+### Channel and stream hierarchy
+
+One Twitch channel can host multiple SlopTogether streams. `/channels/<login>` is the channel's stream directory; each stream has its own route under `/channels/<login>/streams/<slug>`. Output, participation, moderation queue, votes, story-producer lease, HLS program and playback position are stream-scoped. A new channel starts with the `main` stream; old `/channels/<login>/output`, `/participate` and `/moderate` URLs resolve to that stream. Twitch identity, channel policy, bans, moderation roles, worker authorization and budgets remain channel-scoped. The Extension can select a stream for voting and prompt proposals. Subscriber interrupts and the Bits Turbo product continue to target `main` until their Twitch event/payment contracts carry an explicit stream selection.
+
 | Requirement | Planned behavior |
 |---|---|
-| R1 — Channel tenancy | Each Twitch broadcaster owns independent settings, roles, branches, jobs, votes, workers, budgets and playhead. Every scoped record/action carries an immutable Twitch broadcaster ID. |
+| R1 — Channel tenancy | Channel policy and identity are shared by a Twitch broadcaster; stream timelines, branches, jobs, votes, producer leases, HLS programs and playheads are isolated by stream ID. Every scoped record/action carries an immutable Twitch broadcaster ID and, when stream-owned, a stream ID. |
 | R2 — Collaborative timeline | Prompt, first-frame and last-frame proposals target future slots; selected end boundary is also the next slot's start boundary. Both approved anchors and continuation-generated endpoints are supported. |
 | R3 — Decisions | Manual selection, timed free voting, automatic selection, and optional approved monetization rules can lock a slot. Selection and permission to publish remain separate decisions. |
 | R4 — Generation stages | Prompt planning, image generation, base video, optional upscale, trusted validation/conformance, moderation and publication are distinct recoverable stages. |
@@ -229,7 +233,7 @@ The Twitch voting Extension is a required client, separate from the OBS plugin/e
 | Attribution | Link submitted content to the verified Twitch username; show author/worker credit subject to privacy choices. |
 | Stream metadata | Optional chat announcements and Twitch stream markers at selected moments; Twitch VOD markers are not our source-playhead authority. |
 
-Policy constraints materially affect the requested product. Twitch allows Bits voting but restricts user/broadcaster-defined exchanges and selecting a particular audiovisual work, and prohibits calling Bits a donation. UGC requires linked Twitch identity, attribution and broadcaster review/removal controls. Keep free-form prompt/image contributions free; keep any paid mechanism disabled until its precise catalog and voting behavior pass Twitch review. A moderator-approved custom prompt is not automatically an allowed Bits product. Free website/chat participation remains usable without Extension approval or channel monetization eligibility. Source: [Twitch Extension policies](https://dev.twitch.tv/docs/extensions/guidelines-and-policies/).
+The chosen Bits action is the fixed Prompt Lock: a viewer enters one screened prompt, confirms a fixed Twitch SKU, and reserves exactly one render attempt on an eligible future slot. Once confirmed, the paid lock outranks that slot's vote. Streamer/moderator approval still controls publication; rejection reopens the slot, and the same transaction cannot buy another render. Bind transaction, prompt, user, channel, stream, price and slot revision before dispatch. Twitch's Bits Extension showcase and Sound Alerts TTS establish precedent for fixed actions carrying viewer-authored text; submit our actual prompt-to-video flow through ordinary Extension review without replacing the selected custom-prompt product. Extension copy uses the Bits amount, not “donation.” UGC still requires linked identity, attribution and moderator review/removal controls. See [Twitch policy](https://dev.twitch.tv/docs/extensions/guidelines-and-policies/), [Bits examples](https://dev.twitch.tv/extensions/bits-extensions-to-try/), and the [paid product and economics plan](../../docs/paid-turbo-segments.md).
 
 Use optional native polls/Channel Points only when channel capabilities and granted scopes permit them. Poll details: [Twitch Polls](https://dev.twitch.tv/docs/api/polls). Extension frontend identity and latency come from a JWT-verified EBS integration; see [Extension reference](https://dev.twitch.tv/docs/extensions/reference/). Use current EventSub for chat, not retired general Twitch PubSub. Extension-specific PubSub messaging remains a distinct supported extension facility.
 
@@ -379,7 +383,7 @@ The owner starts/configures the two fal deployments and their warm/persistent ru
 
 Add exact endpoint `minimax/h3-max-turbo/image-to-video` as an optional paid model/quality upgrade, using our backend-held fal key. Its current schema exposes both first/end image URLs and up to 15 requested seconds, with possible output overrun; normalize the returned clip before admission. This is separate from hosting our own nodes on fal. Use explicit resolution and prompt-expansion settings rather than API defaults. Details, source snapshots, pricing formulas and verified Bits fulfillment are in [paid-turbo-segments.md](../../docs/paid-turbo-segments.md).
 
-The developer's ordinary Bits share is fixed by Twitch; it must cover the provider bill and operating costs. Reprice against regular configuration-specific rates when promotions end, and pause products when margins or compute reserves are inadequate. The owner earns the developer share through a monetized Extension, not by listening to ordinary chat Cheers. Exact paid slot/custom content behavior still needs the policy review described above.
+Twitch's standard Bits-in-Extensions share currently gives the developer 20% of US$0.01 per Bit (about US$0.002/Bit); confirm the share shown for this Extension at release. The roughly US$1 default Bits action uses FastH3 Trim five-step workers; its Fal/owner operating cost still needs measurement. The regular 480P H3 Max Turbo estimate of US$0.375 per 15-second render is for a separate optional premium SKU. At 100 Bits the developer receives about US$0.20, so price Turbo above its measured cost or subsidize it explicitly. Record the cost model and stop new paid actions when compute reserves or contribution margin are insufficient. The Twitch-native developer share requires the monetized Extension; ordinary chat Cheers do not provide it.
 
 ### Low-cost H3 story and shout-out planning
 
@@ -518,7 +522,7 @@ The user's subsequent browser/public/trust/payment decisions are incorporated an
 
 ## 18. Eight-hour local end-to-end sprint
 
-Goal: finish a safe local validation path by eight hours after the user's instruction, with no Twitch broadcast. Use GPU compute only for a bounded test job; a Fal model API request is serverless and does not create a persistent pod. Do not start a long-running custom GPU worker without an explicit eight-hour stop timer and a verified cancellation path.
+Goal: finish a safe local validation path by eight hours after the user's instruction, with no Twitch broadcast. Use GPU compute only for a bounded test job; a Fal model API request is serverless and does not create a persistent pod. Do not start a long-running custom GPU worker without an explicit two-hour stop timer and a verified cancellation path.
 
 ### Current evidence
 
@@ -590,4 +594,4 @@ Goal: finish a safe local validation path by eight hours after the user's instru
 
 ### Resource shutdown rule
 
-The completed Fal smoke used a single serverless model request; it left no persistent GPU pod. Input and output files were configured for one-hour CDN expiration, and input-file deletion was attempted. If a persistent Fal/RunPod worker is started during this sprint, record its resource ID and a durable stop task at creation, verify it is stopped by the eight-hour deadline, and stop it sooner when the test no longer needs inference. Never leave a one-off request looping as an always-on worker.
+The completed Fal smoke used a single serverless model request; it left no persistent GPU pod. Input and output files were configured for one-hour CDN expiration, and input-file deletion was attempted. If a persistent Fal/RunPod worker is started during this sprint, record its resource ID and a durable stop task at creation, verify it is stopped within the two-hour session maximum, and stop it sooner when the test no longer needs inference. Never leave a one-off request looping as an always-on worker.

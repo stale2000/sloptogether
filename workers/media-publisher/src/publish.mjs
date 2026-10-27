@@ -123,14 +123,14 @@ async function decodeEntireFile(ffmpeg,file,options){
   }
 }
 
-async function packageHls(ffmpeg,inputPath,workDir,profile,options){
+export async function packageHls(ffmpeg,inputPath,workDir,profile,options){
   const playlistPath=join(workDir,"index.m3u8");
   const segmentPattern=join(workDir,"segment-%03d.ts");
   const gop=Math.max(1,Math.round(profile.fps*profile.segmentSeconds));
   const args=[
     "-hide_banner","-nostdin","-y","-v","error","-i",inputPath,
     "-map","0:v:0","-map","0:a?","-sn","-dn",
-    "-vf","setsar=1","-r",`${profile.fpsNum}/${profile.fpsDen}`,"-fps_mode","cfr",
+    "-vf",`scale=${profile.width}:${profile.height}:flags=lanczos,setsar=1`,"-r",`${profile.fpsNum}/${profile.fpsDen}`,"-fps_mode","cfr",
     "-c:v","libx264","-preset","veryfast","-pix_fmt","yuv420p","-g",String(gop),"-keyint_min",String(gop),"-sc_threshold","0",
     "-force_key_frames",`expr:gte(t,n_forced*${profile.segmentSeconds})`,
     "-c:a","aac","-b:a","128k","-ar","48000","-ac","2",
@@ -168,12 +168,40 @@ async function uploadSegments(storage,bucket,channelId,assetId,workDir,segments,
   return uploaded;
 }
 
-async function loadPublishCandidate(pool,assetId){
+// A derivative is eligible only for the exact still-approved parent and scene.
+// This fragment is also used during the locked commit, after encoding.
+function approvedPreAirParent(baseParameter){
+  return `EXISTS(SELECT 1 FROM sloptogether.preair_upscale_requests pr
+    JOIN sloptogether.assets base ON base.id=pr.base_asset_id AND base.twitch_channel_id=a.twitch_channel_id
+    JOIN sloptogether.job_attempts base_attempt ON base_attempt.output_asset_id=base.id AND base_attempt.state='succeeded'
+    JOIN sloptogether.jobs base_job ON base_job.id=base_attempt.job_id AND base_job.stage='video_base' AND base_job.state='succeeded'
+      AND base_job.segment_revision_id=j.segment_revision_id AND base_job.twitch_channel_id=a.twitch_channel_id
+    JOIN LATERAL(SELECT ba.decision,ba.input_screen_id FROM sloptogether.artifact_approvals ba
+      WHERE ba.asset_id=base.id AND ba.sha256=base.sha256 ORDER BY ba.created_at DESC,ba.id DESC LIMIT 1) base_approval ON base_approval.decision='approved'
+    JOIN sloptogether.input_screens base_screen ON base_screen.id=base_approval.input_screen_id
+      AND base_screen.twitch_channel_id=a.twitch_channel_id AND base_screen.effective_state='clear'
+    WHERE pr.base_asset_id=${baseParameter} AND pr.base_asset_id=j.parent_asset_id AND pr.upscale_job_id=j.id
+      AND pr.twitch_channel_id=a.twitch_channel_id AND pr.segment_revision_id=j.segment_revision_id AND pr.state='pending' AND sr.planning_mode='continuation'
+      AND pr.deadline_at>now() AND base.status='approved' AND base.sha256=pr.base_sha256 AND j.input_sha256=base.sha256
+      AND base_job.input_sha256=sr.input_sha256
+      AND base_screen.id=coalesce(NULLIF(base_job.planning_payload->>'inputScreenId','')::uuid,
+        (SELECT proposal.input_screen_id FROM sloptogether.proposals proposal WHERE proposal.segment_revision_id=base_job.segment_revision_id AND proposal.input_screen_id IS NOT NULL ORDER BY proposal.created_at DESC LIMIT 1),
+        (SELECT plan.screen_id FROM sloptogether.story_plan_attempts plan JOIN sloptogether.segment_revisions rs ON rs.segment_id=plan.resulting_segment_id
+          WHERE rs.id=base_job.segment_revision_id AND plan.screen_id IS NOT NULL ORDER BY plan.created_at DESC LIMIT 1))
+      AND j.planning_payload->>'inputScreenId'=base_approval.input_screen_id::text AND screen.id=base_approval.input_screen_id
+      AND NOT EXISTS(SELECT 1 FROM sloptogether.bans bb WHERE bb.revoked_at IS NULL AND (bb.expires_at IS NULL OR bb.expires_at>now())
+        AND (bb.scope='global' OR bb.twitch_channel_id=a.twitch_channel_id)
+        AND bb.twitch_user_id IN (base_job.requested_by,coalesce(base.uploaded_by_twitch_user_id,''))))`;
+}
+
+async function loadPublishCandidate(pool,assetId,baseAssetId=null){
   const result=await pool.query(`SELECT a.id AS asset_id,a.twitch_channel_id,a.storage_key,a.sha256,a.content_type,a.byte_size,a.duration_seconds,a.status AS asset_status,a.uploaded_by_twitch_user_id,
-      ja.id AS attempt_id,ja.state AS attempt_state,ja.fence,ja.funding_id AS attempt_funding_id,j.id AS job_id,j.stage,j.state AS job_state,j.segment_revision_id,j.interrupt_id,j.requested_by,j.funding_id AS job_funding_id,
+      ja.id AS attempt_id,ja.state AS attempt_state,ja.fence,ja.funding_id AS attempt_funding_id,j.id AS job_id,j.stream_id,j.stage,j.state AS job_state,j.segment_revision_id,j.interrupt_id,j.requested_by,j.funding_id AS job_funding_id,
       coalesce(nullif(j.planning_payload->>'prompt',''),sr.prompt) AS prompt,sr.input_sha256,sr.planning_mode,
       ir.program_state AS interrupt_state,ir.expires_at AS interrupt_expires_at,se.twitch_actor_id AS interrupt_actor_id,
-      s.id AS segment_id,s.ordinal,s.state AS segment_state,s.selected_revision_id,s.protected_at,c.visibility,c.is_enabled,c.output_width,c.output_height,c.output_fps_num,c.output_fps_den,
+      s.id AS segment_id,b.stream_id,s.ordinal,s.state AS segment_state,s.selected_revision_id,s.protected_at,c.visibility,c.is_enabled,c.output_width,c.output_height,c.output_fps_num,c.output_fps_den,
+      coalesce(nullif(j.planning_payload->>'outputWidth','')::int,c.output_width) AS source_width,
+      coalesce(nullif(j.planning_payload->>'outputHeight','')::int,c.output_height) AS source_height,
       EXISTS(SELECT 1 FROM sloptogether.segments prior WHERE prior.branch_id=s.branch_id AND prior.ordinal<s.ordinal AND prior.state<>'retired'
         AND NOT EXISTS(SELECT 1 FROM sloptogether.program_items pi WHERE pi.segment_id=prior.id AND pi.committed_at IS NOT NULL)) AS predecessor_pending,
       approved.input_screen_id,screen.effective_state AS input_state,
@@ -192,7 +220,8 @@ async function loadPublishCandidate(pool,assetId){
       ORDER BY aa.created_at DESC,aa.id DESC LIMIT 1) approved ON approved.decision='approved'
     JOIN sloptogether.input_screens screen ON screen.id=approved.input_screen_id AND screen.twitch_channel_id=a.twitch_channel_id
     WHERE a.id=$1 AND a.media_kind='video' AND a.content_type='video/mp4' AND a.status IN ('approved','published') AND a.sha256 IS NOT NULL
-      AND j.stage='video_base' AND s.selected_revision_id=sr.id
+      AND ((j.stage='video_base' AND $2::uuid IS NULL) OR (j.stage='video_upscale' AND $2::uuid IS NOT NULL AND ${approvedPreAirParent("$2")}))
+      AND s.selected_revision_id=sr.id
       AND (j.interrupt_id IS NULL OR (ir.program_state='rendering' AND ir.expires_at>now() AND (c.subscriber_interrupt_policy->>'enabled')::boolean=true))
       AND approved.approval_path IN ('human_review','trusted_execution_policy','trusted_uploader_policy','streamer_override')
       AND screen.effective_state='clear'
@@ -200,8 +229,88 @@ async function loadPublishCandidate(pool,assetId){
       AND (j.interrupt_id IS NOT NULL OR NOT EXISTS(SELECT 1 FROM sloptogether.program_items pi WHERE pi.segment_id=s.id AND pi.committed_at IS NOT NULL))
       AND NOT EXISTS(SELECT 1 FROM sloptogether.bans b WHERE b.revoked_at IS NULL AND (b.expires_at IS NULL OR b.expires_at>now())
         AND (b.scope='global' OR b.twitch_channel_id=a.twitch_channel_id) AND b.twitch_user_id IN (j.requested_by,coalesce(a.uploaded_by_twitch_user_id,''),coalesce(se.twitch_actor_id,'')))
-    LIMIT 1`,[assetId]);
+    LIMIT 1`,[assetId,baseAssetId]);
   return result.rows[0]??null;
+}
+
+/** Derive a provisional choice; commit rechecks it under channel/segment locks. */
+export function classifyPreAirRequest(row){
+  if(!row||row.state==="fallback")return {kind:"base"};
+  if(row.state!=="pending")return {kind:"base"};
+  if(row.binding_valid!==true){
+    if(row.expired)return {kind:"invalid_fallback",reason:"binding_invalid"};
+    return {kind:"waiting",reason:"binding_invalid"};
+  }
+  if(row.expired||["failed","cancelled","expired"].includes(row.job_state))return {kind:"fallback",reason:row.expired?"deadline_expired":`upscale_${row.job_state}`};
+  if(row.output_banned)return {kind:"fallback",reason:"upscale_banned"};
+  if(row.output_approval==="rejected"||row.output_approval==="revoked"||["rejected","retired"].includes(row.output_status))return {kind:"fallback",reason:"upscale_rejected"};
+  if(row.output_screen_state&&row.output_screen_state!=="clear")return {kind:"fallback",reason:"upscale_input_held"};
+  if(row.job_state==="succeeded"&&row.output_asset_id&&row.output_status==="approved"&&row.output_approval==="approved"&&row.output_screen_state==="clear")
+    return {kind:"upscale",assetId:row.output_asset_id};
+  return {kind:"waiting"};
+}
+
+async function preAirRequest(db,baseAssetId,{lock=false}={}){
+  const result=await db.query(`SELECT p.state,p.upscale_job_id,p.deadline_at<=now() AS expired,j.state AS job_state,
+      (j.twitch_channel_id=p.twitch_channel_id AND j.parent_asset_id=p.base_asset_id AND j.segment_revision_id=p.segment_revision_id
+        AND j.stage='video_upscale' AND j.input_sha256=p.base_sha256 AND (
+          (j.recipe_id='sol-h3-upscale-pruna-fast-1184-v1' AND j.recipe_sha256=decode('8bd316e466037db6e4ec4e9b0b3c6b010274020df16c1609e788bb97b8fd6848','hex')
+            AND j.planning_payload->>'outputWidth'='1184' AND j.planning_payload->>'outputHeight'='666') OR
+          (j.recipe_id='sol-h3-upscale-pruna-fast' AND j.recipe_sha256=decode('e0b4949fbbc02e31b0dc697fc2bedc5a7a1efe57d5d96fe908013d89a3bf8b8c','hex')
+            AND j.planning_payload->>'outputWidth'='1920' AND j.planning_payload->>'outputHeight'='1080'))) AS binding_valid,
+      finished.output_asset_id,output.status AS output_status,approval.decision AS output_approval,screen.effective_state AS output_screen_state,
+      EXISTS(SELECT 1 FROM sloptogether.bans banned WHERE banned.revoked_at IS NULL AND (banned.expires_at IS NULL OR banned.expires_at>now())
+        AND (banned.scope='global' OR banned.twitch_channel_id=p.twitch_channel_id)
+        AND banned.twitch_user_id IN (j.requested_by,coalesce(output.uploaded_by_twitch_user_id,''))) AS output_banned
+    FROM sloptogether.preair_upscale_requests p JOIN sloptogether.jobs j ON j.id=p.upscale_job_id
+    LEFT JOIN LATERAL(SELECT ja.output_asset_id FROM sloptogether.job_attempts ja WHERE ja.job_id=j.id AND ja.state='succeeded'
+      ORDER BY ja.attempt_number DESC LIMIT 1) finished ON true
+    LEFT JOIN sloptogether.assets output ON output.id=finished.output_asset_id AND output.twitch_channel_id=p.twitch_channel_id
+    LEFT JOIN LATERAL(SELECT aa.decision,aa.input_screen_id FROM sloptogether.artifact_approvals aa
+      WHERE aa.asset_id=output.id AND aa.sha256=output.sha256 ORDER BY aa.created_at DESC,aa.id DESC LIMIT 1) approval ON true
+    LEFT JOIN sloptogether.input_screens screen ON screen.id=approval.input_screen_id AND screen.twitch_channel_id=p.twitch_channel_id
+    WHERE p.base_asset_id=$1 ${lock?"FOR UPDATE OF p,j":""}`,[baseAssetId]);
+  return result.rows[0]??null;
+}
+
+async function recordPreAirFallback(client,baseAssetId,request,reason){
+  const updated=await client.query("UPDATE sloptogether.preair_upscale_requests SET state='fallback',fallback_reason=$2,resolved_at=now() WHERE base_asset_id=$1 AND state='pending' RETURNING twitch_channel_id",[baseAssetId,reason]);
+  if(updated.rowCount)await client.query(`INSERT INTO sloptogether.audit_log(twitch_channel_id,action,target_kind,target_id,after_state)
+    VALUES($1,'upscale.preair_fallback','asset',$2,$3::jsonb)`,[updated.rows[0].twitch_channel_id,baseAssetId,JSON.stringify({jobId:request.upscale_job_id,reason})]);
+}
+
+async function markPreAirFallback(client,baseAssetId,request,reason){
+  await client.query(`UPDATE sloptogether.job_attempts SET state='expired',fence=fence+1,lease_expires_at=now(),finished_at=coalesce(finished_at,now()),error_code='preair_fallback'
+    WHERE job_id=$1 AND state IN ('ready','leased','running','uncertain','uploaded','validating')`,[request.upscale_job_id]);
+  await client.query(`UPDATE sloptogether.upload_reservations SET state='expired',expires_at=now()
+    WHERE attempt_id IN (SELECT id FROM sloptogether.job_attempts WHERE job_id=$1) AND state IN ('issued','uploaded')`,[request.upscale_job_id]);
+  await client.query("UPDATE sloptogether.jobs SET state='expired',completed_at=coalesce(completed_at,now()) WHERE id=$1 AND state NOT IN ('succeeded','failed','cancelled','expired')",[request.upscale_job_id]);
+  await recordPreAirFallback(client,baseAssetId,request,reason);
+}
+
+async function finishStaleBase(pool,message,baseAssetId){
+  const identity=await pool.query(`SELECT p.twitch_channel_id,r.segment_id FROM sloptogether.preair_upscale_requests p
+    JOIN sloptogether.segment_revisions r ON r.id=p.segment_revision_id WHERE p.base_asset_id=$1 AND p.state='pending'`,[baseAssetId]);
+  if(!identity.rows[0])return completeStale(pool,message);
+  const client=await pool.connect();
+  try{
+    await client.query("BEGIN");
+    await client.query("SELECT twitch_channel_id FROM sloptogether.channels WHERE twitch_channel_id=$1 FOR UPDATE",[identity.rows[0].twitch_channel_id]);
+    await client.query("SELECT id FROM sloptogether.segments WHERE id=$1 AND twitch_channel_id=$2 FOR UPDATE",[identity.rows[0].segment_id,identity.rows[0].twitch_channel_id]);
+    const lease=await client.query("SELECT id FROM sloptogether.outbox WHERE id=$1 AND delivered_at IS NULL AND leased_until=$2 FOR UPDATE",[message.id,message.leaseUntil]);
+    if(!lease.rowCount){await client.query("ROLLBACK");return {status:"stale_lease"};}
+    if(await loadPublishCandidate(client,baseAssetId)){
+      await client.query("UPDATE sloptogether.outbox SET leased_until=NULL,available_at=now() WHERE id=$1 AND delivered_at IS NULL AND leased_until=$2",[message.id,message.leaseUntil]);
+      await client.query("COMMIT");return {status:"retry"};
+    }
+    const request=await preAirRequest(client,baseAssetId,{lock:true});
+    if(request?.state==="pending"){
+      if(request.binding_valid===true)await markPreAirFallback(client,baseAssetId,request,"base_no_longer_eligible");
+      else await recordPreAirFallback(client,baseAssetId,request,"binding_invalid");
+    }
+    await client.query("UPDATE sloptogether.outbox SET delivered_at=now(),leased_until=NULL WHERE id=$1 AND delivered_at IS NULL AND leased_until=$2",[message.id,message.leaseUntil]);
+    await client.query("COMMIT");return {status:"stale"};
+  }catch(error){await client.query("ROLLBACK").catch(()=>undefined);throw error;}finally{client.release();}
 }
 
 async function completeStale(pool,message){
@@ -213,6 +322,12 @@ async function deferUntilPredecessor(pool,message){
   await pool.query(`UPDATE sloptogether.outbox SET leased_until=NULL,available_at=now()+interval '10 seconds'
     WHERE id=$1 AND delivered_at IS NULL AND leased_until=$2`,[message.id,message.leaseUntil]);
   return {status:"waiting_for_predecessor"};
+}
+
+async function deferUntilUpscale(pool,message){
+  await pool.query(`UPDATE sloptogether.outbox SET leased_until=NULL,available_at=now()+interval '10 seconds'
+    WHERE id=$1 AND delivered_at IS NULL AND leased_until=$2`,[message.id,message.leaseUntil]);
+  return {status:"waiting_for_upscale"};
 }
 
 async function rejectInvalidPublish(pool,message,candidate,error){
@@ -251,6 +366,31 @@ async function rejectInvalidPublish(pool,message,candidate,error){
         [candidate.twitch_channel_id,row.owner_twitch_user_id,candidate.asset_id,JSON.stringify({interruptId:candidate.interrupt_id,jobId:candidate.job_id,code})]);
       await client.query("UPDATE sloptogether.outbox SET delivered_at=now(),leased_until=NULL WHERE id=$1 AND delivered_at IS NULL AND leased_until=$2",[message.id,message.leaseUntil]);
       await client.query("COMMIT");return {status:"rejected",code};
+    }
+    if(candidate.stage==="video_upscale"){
+      const request=await preAirRequest(client,candidate.base_asset_id,{lock:true});
+      if(request?.state!=="pending"||request.binding_valid!==true){
+        await client.query("UPDATE sloptogether.outbox SET leased_until=NULL,available_at=now() WHERE id=$1 AND delivered_at IS NULL AND leased_until=$2",[message.id,message.leaseUntil]);
+        await client.query("COMMIT");return {status:"retry"};
+      }
+      const current=await client.query(`SELECT j.id FROM sloptogether.preair_upscale_requests p
+        JOIN sloptogether.jobs j ON j.id=p.upscale_job_id AND j.parent_asset_id=p.base_asset_id
+        JOIN sloptogether.job_attempts ja ON ja.job_id=j.id AND ja.output_asset_id=$2
+        JOIN sloptogether.assets a ON a.id=ja.output_asset_id AND a.twitch_channel_id=p.twitch_channel_id
+        WHERE p.base_asset_id=$1 AND p.state='pending' AND j.id=$3 AND j.state='succeeded'
+          AND ja.id=$4 AND ja.fence=$5 AND ja.state='succeeded' AND a.sha256=$6 AND a.status='approved'
+        FOR UPDATE OF p,j,ja,a`,[candidate.base_asset_id,candidate.asset_id,candidate.job_id,candidate.attempt_id,candidate.fence,candidate.sha256]);
+      if(current.rowCount){
+        const code=String(error?.code??"publish_invalid").slice(0,80);
+        await client.query("UPDATE sloptogether.assets SET status='rejected' WHERE id=$1 AND sha256=$2 AND status='approved'",[candidate.asset_id,candidate.sha256]);
+        await client.query("UPDATE sloptogether.artifact_approvals SET decision='revoked',reason=$3 WHERE asset_id=$1 AND sha256=$2 AND decision='approved'",[candidate.asset_id,candidate.sha256,"Upscale publication validation failed: "+code]);
+        await client.query("UPDATE sloptogether.job_attempts SET state='rejected',finished_at=coalesce(finished_at,now()),error_code=$3 WHERE id=$1 AND fence=$2",[candidate.attempt_id,candidate.fence,code]);
+        await client.query("UPDATE sloptogether.jobs SET state='failed',completed_at=coalesce(completed_at,now()) WHERE id=$1",[candidate.job_id]);
+        await markPreAirFallback(client,candidate.base_asset_id,request,"upscale_publication_invalid");
+      }
+      // The outbox belongs to the approved base, which must be reconsidered.
+      await client.query("UPDATE sloptogether.outbox SET leased_until=NULL,available_at=now() WHERE id=$1 AND delivered_at IS NULL AND leased_until=$2",[message.id,message.leaseUntil]);
+      await client.query("COMMIT");return {status:"upscale_fallback"};
     }
     const current=await client.query(`SELECT a.id,a.sha256,a.status,ja.id AS attempt_id,ja.fence,ja.funding_id AS attempt_funding_id,
         j.id AS job_id,j.funding_id AS job_funding_id,j.stage,j.segment_revision_id,s.id AS segment_id,s.selected_revision_id
@@ -329,8 +469,34 @@ async function commitProgramItem(pool,message,candidate,segments,duration,endpoi
       await client.query(`UPDATE sloptogether.outbox SET leased_until=NULL,available_at=now()+interval '10 seconds' WHERE id=$1 AND delivered_at IS NULL AND leased_until=$2`,[message.id,message.leaseUntil]);
       await client.query("COMMIT");return {status:"waiting_for_predecessor"};
     }
+    const pending=await preAirRequest(client,candidate.base_asset_id,{lock:true});
+    let choice=classifyPreAirRequest(pending);
+    if(choice.kind==="invalid_fallback"){
+      // A corrupted binding might point at another channel's job. Record the
+      // bounded fallback without modifying any unverified job or attempt.
+      await recordPreAirFallback(client,candidate.base_asset_id,pending,choice.reason);
+      choice={kind:"base"};
+    }
+    if(choice.kind==="fallback"){
+      // Fence unfinished attempts before the base can be committed; a late GPU
+      // result may not replace already-aired history.
+      await markPreAirFallback(client,candidate.base_asset_id,pending,choice.reason);
+      choice={kind:"base"};
+    }
+    if(choice.kind==="waiting"||(choice.kind==="upscale"&&candidate.asset_id!==choice.assetId)
+      ||(choice.kind==="base"&&candidate.asset_id!==candidate.base_asset_id)){
+      await client.query("UPDATE sloptogether.outbox SET leased_until=NULL,available_at=now()+interval '10 seconds' WHERE id=$1 AND delivered_at IS NULL AND leased_until=$2",[message.id,message.leaseUntil]);
+      await client.query("COMMIT");return {status:"waiting_for_upscale"};
+    }
+    if(candidate.stage==="video_upscale"){
+      await client.query(`SELECT base.id FROM sloptogether.assets base
+        JOIN sloptogether.job_attempts ba ON ba.output_asset_id=base.id JOIN sloptogether.jobs bj ON bj.id=ba.job_id
+        WHERE base.id=$1 AND base.twitch_channel_id=$2 FOR UPDATE OF base,ba,bj`,[candidate.base_asset_id,candidate.twitch_channel_id]);
+    }
     const current=await client.query(`SELECT a.id,a.sha256,a.status,j.stage,j.segment_revision_id,j.interrupt_id,j.state AS job_state,ja.id AS attempt_id,ja.state AS attempt_state,ja.fence,
         s.id AS segment_id,s.state AS segment_state,s.selected_revision_id,c.output_width,c.output_height,c.output_fps_num,c.output_fps_den,
+        coalesce(nullif(j.planning_payload->>'outputWidth','')::int,c.output_width) AS source_width,
+        coalesce(nullif(j.planning_payload->>'outputHeight','')::int,c.output_height) AS source_height,
         ir.program_state AS interrupt_state,ir.expires_at AS interrupt_expires_at,se.twitch_actor_id AS interrupt_actor_id,
         approved.input_screen_id,screen.effective_state,screen.expires_at,approved.approval_path,approved.decision
       FROM sloptogether.assets a JOIN sloptogether.job_attempts ja ON ja.output_asset_id=a.id JOIN sloptogether.jobs j ON j.id=ja.job_id
@@ -342,7 +508,7 @@ async function commitProgramItem(pool,message,candidate,segments,duration,endpoi
         ORDER BY aa.created_at DESC,aa.id DESC LIMIT 1) approved ON approved.decision='approved'
       JOIN sloptogether.input_screens screen ON screen.id=approved.input_screen_id AND screen.twitch_channel_id=a.twitch_channel_id
       WHERE a.id=$1 AND a.sha256=$2 AND j.id=$3 AND ja.id=$4 AND j.twitch_channel_id=$5 AND ja.fence=$6
-        AND a.status IN ('approved','published') AND j.stage='video_base' AND s.selected_revision_id=sr.id
+        AND a.status IN ('approved','published') AND ((j.stage='video_base' AND a.id=$7) OR (j.stage='video_upscale' AND ${approvedPreAirParent("$7")})) AND s.selected_revision_id=sr.id
         AND ja.state IN ('validating','succeeded') AND j.state IN ('validating','succeeded')
         AND (j.interrupt_id IS NULL OR (ir.program_state='rendering' AND ir.expires_at>now() AND (c.subscriber_interrupt_policy->>'enabled')::boolean=true))
         AND screen.effective_state='clear'
@@ -350,22 +516,37 @@ async function commitProgramItem(pool,message,candidate,segments,duration,endpoi
         AND (j.interrupt_id IS NOT NULL OR NOT EXISTS(SELECT 1 FROM sloptogether.program_items pi WHERE pi.segment_id=s.id AND pi.committed_at IS NOT NULL))
         AND NOT EXISTS(SELECT 1 FROM sloptogether.bans b WHERE b.revoked_at IS NULL AND (b.expires_at IS NULL OR b.expires_at>now())
           AND (b.scope='global' OR b.twitch_channel_id=c.twitch_channel_id) AND b.twitch_user_id IN (j.requested_by,coalesce(a.uploaded_by_twitch_user_id,''),coalesce(se.twitch_actor_id,'')))
-      FOR UPDATE OF a,ja,j,s,c,screen`,[candidate.asset_id,candidate.sha256,candidate.job_id,candidate.attempt_id,candidate.twitch_channel_id,candidate.fence]);
+      FOR UPDATE OF a,ja,j,s,c,screen`,[candidate.asset_id,candidate.sha256,candidate.job_id,candidate.attempt_id,candidate.twitch_channel_id,candidate.fence,candidate.base_asset_id]);
     const row=current.rows[0];
     if(!row){
+      if(pending?.state==="pending"){
+        await client.query("UPDATE sloptogether.outbox SET leased_until=NULL,available_at=now() WHERE id=$1 AND delivered_at IS NULL AND leased_until=$2",[message.id,message.leaseUntil]);
+        await client.query("COMMIT");return {status:"retry"};
+      }
       await client.query("UPDATE sloptogether.outbox SET delivered_at=now(),leased_until=NULL WHERE id=$1 AND delivered_at IS NULL AND leased_until=$2",[message.id,message.leaseUntil]);
       await client.query("COMMIT");return {status:"stale"};
     }
-    await client.query("INSERT INTO sloptogether.program_manifests(twitch_channel_id,program_epoch,manifest_revision) VALUES($1,1,0) ON CONFLICT DO NOTHING",[candidate.twitch_channel_id]);
+    // Packaging happened outside the transaction. Retry with a fresh profile if
+    // channel settings or the job's source profile changed during encoding.
+    if(["output_width","output_height","output_fps_num","output_fps_den","source_width","source_height"]
+      .some(key=>Number(row[key])!==Number(candidate[key]))){
+      await client.query("UPDATE sloptogether.outbox SET leased_until=NULL,available_at=now() WHERE id=$1 AND delivered_at IS NULL AND leased_until=$2",[message.id,message.leaseUntil]);
+      await client.query("COMMIT");return {status:"profile_changed"};
+    }
+    await client.query("INSERT INTO sloptogether.program_manifests(twitch_channel_id,stream_id,program_epoch,manifest_revision) VALUES($1,$2,1,0) ON CONFLICT DO NOTHING",[candidate.twitch_channel_id,candidate.stream_id]);
     const manifest=await client.query(
-      "SELECT program_epoch,manifest_revision,channel_duration_seconds FROM sloptogether.program_manifests WHERE twitch_channel_id=$1 ORDER BY program_epoch DESC LIMIT 1 FOR UPDATE",[candidate.twitch_channel_id]);
+      "SELECT program_epoch,manifest_revision,channel_duration_seconds FROM sloptogether.program_manifests WHERE stream_id=$1 ORDER BY program_epoch DESC LIMIT 1 FOR UPDATE",[candidate.stream_id]);
     const epoch=Number(manifest.rows[0]?.program_epoch??1);
-    const order=await client.query("SELECT coalesce(max(item_order),-1)+1 AS item_order FROM sloptogether.program_items WHERE twitch_channel_id=$1 AND program_epoch=$2",[candidate.twitch_channel_id,epoch]);
+    const order=await client.query("SELECT coalesce(max(item_order),-1)+1 AS item_order FROM sloptogether.program_items WHERE stream_id=$1 AND program_epoch=$2",[candidate.stream_id,epoch]);
     const itemId=randomUUID();
-    if(candidate.interrupt_id)await client.query(`INSERT INTO sloptogether.program_items(id,twitch_channel_id,item_kind,interrupt_id,asset_id,item_order,source_pts_start,source_pts_end,program_epoch,discontinuity_before,committed_at)
-      VALUES($1,$2,'subscriber_interrupt',$3,$4,$5,0,$6,$7,true,now())`,[itemId,candidate.twitch_channel_id,candidate.interrupt_id,candidate.asset_id,order.rows[0].item_order,duration,epoch]);
-    else await client.query(`INSERT INTO sloptogether.program_items(id,twitch_channel_id,item_kind,segment_id,asset_id,item_order,source_pts_start,source_pts_end,program_epoch,committed_at)
-      VALUES($1,$2,'story',$3,$4,$5,0,$6,$7,now())`,[itemId,candidate.twitch_channel_id,candidate.segment_id,candidate.asset_id,order.rows[0].item_order,duration,epoch]);
+    if(candidate.stage==="video_upscale"){
+      const selected=await client.query("UPDATE sloptogether.preair_upscale_requests SET state='selected',selected_asset_id=$2,resolved_at=now() WHERE base_asset_id=$1 AND state='pending' RETURNING base_asset_id",[candidate.base_asset_id,candidate.asset_id]);
+      if(!selected.rowCount)throw new Error("preair_selection_changed");
+    }
+    if(candidate.interrupt_id)await client.query(`INSERT INTO sloptogether.program_items(id,twitch_channel_id,stream_id,item_kind,interrupt_id,asset_id,item_order,source_pts_start,source_pts_end,program_epoch,discontinuity_before,committed_at)
+      VALUES($1,$2,$3,'subscriber_interrupt',$4,$5,$6,0,$7,$8,true,now())`,[itemId,candidate.twitch_channel_id,candidate.stream_id,candidate.interrupt_id,candidate.asset_id,order.rows[0].item_order,duration,epoch]);
+    else await client.query(`INSERT INTO sloptogether.program_items(id,twitch_channel_id,stream_id,item_kind,segment_id,asset_id,item_order,source_pts_start,source_pts_end,program_epoch,committed_at)
+      VALUES($1,$2,$3,'story',$4,$5,$6,0,$7,$8,now())`,[itemId,candidate.twitch_channel_id,candidate.stream_id,candidate.segment_id,candidate.asset_id,order.rows[0].item_order,duration,epoch]);
     let sourceStart=0;
     for(const segment of segments){
       const hlsAssetId=randomUUID();
@@ -413,7 +594,7 @@ async function commitProgramItem(pool,message,candidate,segments,duration,endpoi
     const fundingId=candidate.attempt_funding_id??candidate.job_funding_id;
     if(fundingId)await client.query("UPDATE sloptogether.funding_authorizations SET state='consumed_succeeded',consumed_at=coalesce(consumed_at,now()),settled_at=now() WHERE id=$1 AND state IN ('reserved','consumed_uncertain')",[fundingId]);
     await client.query(`UPDATE sloptogether.program_manifests SET manifest_revision=manifest_revision+1,channel_duration_seconds=channel_duration_seconds+$3,updated_at=now()
-      WHERE twitch_channel_id=$1 AND program_epoch=$2`,[candidate.twitch_channel_id,epoch,duration]);
+      WHERE stream_id=$1 AND program_epoch=$2`,[candidate.stream_id,epoch,duration]);
     await client.query("UPDATE sloptogether.channels SET layout_revision=layout_revision+1,updated_at=now() WHERE twitch_channel_id=$1",[candidate.twitch_channel_id]);
     if(!candidate.interrupt_id)await client.query(`INSERT INTO sloptogether.segments(twitch_channel_id,branch_id,ordinal,state)
       SELECT s.twitch_channel_id,s.branch_id,s.ordinal+1,'open' FROM sloptogether.segments s WHERE s.id=$1
@@ -426,16 +607,29 @@ async function commitProgramItem(pool,message,candidate,segments,duration,endpoi
 
 export async function processPublishRequested({pool,storage,config,message}){
   if(!pool||typeof pool.connect!=="function"||!storage||typeof storage.send!=="function")throw new Error("publish_dependencies_missing");
-  const options=requiredConfig(config);
+  let options=requiredConfig(config);
   let payload;
   try{payload=normalizePublishPayload(message?.payload)}catch{return completeStale(pool,message)}
-  const candidate=await loadPublishCandidate(pool,payload.assetId);
-  if(!candidate)return completeStale(pool,message);
+  const base=await loadPublishCandidate(pool,payload.assetId);
+  if(!base)return finishStaleBase(pool,message,payload.assetId);
+  // Subscriber alerts are short-lived and must not wait on the optional story upscale queue.
+  const interrupt=Boolean(base.interrupt_id);
+  if(interrupt)options={...options,minDurationSeconds:9.5,maxDurationSeconds:10.5};
+  const choice=interrupt?{kind:"base"}:classifyPreAirRequest(await preAirRequest(pool,payload.assetId));
+  if(choice.kind==="waiting")return deferUntilUpscale(pool,message);
+  const candidate=choice.kind==="upscale"?await loadPublishCandidate(pool,choice.assetId,payload.assetId):base;
+  // A revoked or held derivative is never substituted; wait until its bounded
+  // deadline so the transaction below can fence it before publishing the base.
+  if(!candidate)return deferUntilUpscale(pool,message);
+  candidate.base_asset_id=payload.assetId;
   if(!candidate.sha256||!candidate.storage_key||!candidate.segment_id||!candidate.segment_revision_id)
     return completeStale(pool,message);
   if(candidate.predecessor_pending)return deferUntilPredecessor(pool,message);
-  let profile;
-  try{profile=validateHlsProfile({width:candidate.output_width,height:candidate.output_height,fpsNum:candidate.output_fps_num,fpsDen:candidate.output_fps_den},{segmentSeconds:options.segmentSeconds});}
+  let profile,sourceProfile;
+  try{
+    profile=validateHlsProfile({width:candidate.output_width,height:candidate.output_height,fpsNum:candidate.output_fps_num,fpsDen:candidate.output_fps_den},{segmentSeconds:options.segmentSeconds});
+    sourceProfile=validateHlsProfile({width:candidate.source_width,height:candidate.source_height,fpsNum:candidate.output_fps_num,fpsDen:candidate.output_fps_den},{segmentSeconds:options.segmentSeconds});
+  }
   catch(error){if(error instanceof InvalidPublishError)return rejectInvalidPublish(pool,message,candidate,error);throw error;}
   const directory=await mkdtemp(join(options.tempDir,"sloptogether-publish-"));
   try{
@@ -443,7 +637,7 @@ export async function processPublishRequested({pool,storage,config,message}){
     const source=await downloadObject(storage,options.bucket,candidate.storage_key,inputPath,options.maxBytes);
     if(!source.sha256.equals(candidate.sha256))throw new InvalidPublishError("publish_sha256_mismatch");
     const probe=await runFfprobe(options.ffprobe,inputPath);
-    const metadata=validateMediaMetadata(probe,profile,source.bytes,{maxBytes:options.maxBytes,minDurationSeconds:options.minDurationSeconds,maxDurationSeconds:options.maxDurationSeconds});
+    const metadata=validateMediaMetadata(probe,sourceProfile,source.bytes,{maxBytes:options.maxBytes,minDurationSeconds:options.minDurationSeconds,maxDurationSeconds:options.maxDurationSeconds});
     if(Math.abs(metadata.durationSeconds-Number(candidate.duration_seconds))>0.25)throw new InvalidPublishError("publish_duration_changed");
     await decodeEntireFile(options.ffmpeg,inputPath,options);
     let endpoint=null;

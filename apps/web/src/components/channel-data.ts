@@ -17,6 +17,7 @@ export interface ChannelDetail {
 
 export interface TimelinePayload extends PublicTimelineResponse {
   channel: ChannelDetail;
+  stream:{id:string;slug:string;displayName:string;isDefault:boolean};
   segments: Array<PublicTimelineSegment & { programItemId?:string|null; upscaleUrl?:string }>;
   elections: LiveElection[];
   currentProgramItem: ProgramOutput["currentProgramItem"];
@@ -31,6 +32,7 @@ export interface TimelinePayload extends PublicTimelineResponse {
 
 const localDemoTimeline:TimelinePayload={
   channel:{twitchChannelId:"localdemo",twitchLogin:"localdemo",displayName:"Local demo",visibility:"unlisted"},
+  stream:{id:"localdemo-main",slug:"main",displayName:"Main stream",isDefault:true},
   segments:[],elections:[],currentProgramItem:null,subscriberInterrupts:{enabled:false,current:null},
   playback:{offsetSeconds:0,sequence:0,sourceController:"offline"},
 };
@@ -40,8 +42,8 @@ export type Loadable<T> =
   | { state: "ready"; value: T; refreshError?: string }
   | { state: "error"; error: string; retry: () => void };
 
-export function isLocalDemoFallbackEnabled(channel:string,enabled=process.env.NEXT_PUBLIC_LOCAL_DEMO_ENABLED){
-  return channel==="localdemo"&&enabled==="true";
+export function isLocalDemoFallbackEnabled(channel:string,enabled=process.env.NEXT_PUBLIC_LOCAL_DEMO_ENABLED,streamSlug="main"){
+  return channel==="localdemo"&&streamSlug==="main"&&enabled==="true";
 }
 
 async function loadLocalDemoProgram():Promise<ProgramManifest>{
@@ -55,7 +57,7 @@ async function loadLocalDemoProgram():Promise<ProgramManifest>{
   return body as ProgramManifest;
 }
 
-export function useChannelTimeline(channel: string): Loadable<TimelinePayload> {
+export function useChannelTimeline(channel: string,streamSlug="main"): Loadable<TimelinePayload> {
   const [revision, setRevision] = useState(0);
   const [value, setValue] = useState<{channel:string;payload:TimelinePayload}|null>(null);
   const [error, setError] = useState<{channel:string;message:string}|null>(null);
@@ -66,7 +68,7 @@ export function useChannelTimeline(channel: string): Loadable<TimelinePayload> {
   }, []);
 
   useEffect(() => {
-    if(isLocalDemoFallbackEnabled(channel))return;
+    if(isLocalDemoFallbackEnabled(channel,undefined,streamSlug))return;
     let stopped = false;
     let channelMissing = false;
     let reading=false;
@@ -76,7 +78,7 @@ export function useChannelTimeline(channel: string): Loadable<TimelinePayload> {
       if(reading||channelMissing||document.hidden)return;
       reading=true;
       try {
-        const response = await fetch(`${API_BASE}/channels/${encodeURIComponent(channel)}/timeline`, {
+        const response = await fetch(`${API_BASE}/channels/${encodeURIComponent(channel)}/streams/${encodeURIComponent(streamSlug)}/timeline`, {
           credentials: "same-origin",
           cache: "no-store",
           signal: abort.signal,
@@ -89,7 +91,7 @@ export function useChannelTimeline(channel: string): Loadable<TimelinePayload> {
         }
         if (!body || !("channel" in body) || !Array.isArray(body.segments)) throw new Error("The timeline response wasn't valid.");
         if (!stopped) {
-          setValue({channel,payload:body as TimelinePayload});
+          setValue({channel:`${channel}/${streamSlug}`,payload:body as TimelinePayload});
           setError(null);
         }
       } catch (problem) {
@@ -97,7 +99,7 @@ export function useChannelTimeline(channel: string): Loadable<TimelinePayload> {
           if(problem instanceof ApiError&&problem.status===404&&problem.code==="channel_not_found"){
             channelMissing=true;
           }
-          setError({channel,message:displayProblem(problem)});
+          setError({channel:`${channel}/${streamSlug}`,message:displayProblem(problem)});
         }
       }finally{reading=false}
     };
@@ -111,29 +113,30 @@ export function useChannelTimeline(channel: string): Loadable<TimelinePayload> {
       abort.abort();
       window.clearInterval(timer);
     };
-  }, [channel, revision]);
+  }, [channel,streamSlug, revision]);
 
-  if(isLocalDemoFallbackEnabled(channel))return {state:"ready",value:localDemoTimeline};
-  const currentValue=value?.channel===channel?value.payload:null;
-  const currentError=error?.channel===channel?error.message:null;
+  if(isLocalDemoFallbackEnabled(channel,undefined,streamSlug))return {state:"ready",value:localDemoTimeline};
+  const identity=`${channel}/${streamSlug}`;
+  const currentValue=value?.channel===identity?value.payload:null;
+  const currentError=error?.channel===identity?error.message:null;
   if (currentValue) return { state: "ready", value:currentValue, ...(currentError?{refreshError:currentError}:{}) };
   if (currentError) return { state: "error", error:currentError, retry };
   return { state: "loading" };
 }
 
-export function useChannelProgram(channel: string): Loadable<ProgramManifest> {
+export function useChannelProgram(channel: string,streamSlug="main"): Loadable<ProgramManifest> {
   const [revision, setRevision] = useState(0);
   const [value, setValue] = useState<{channel:string;manifest:ProgramManifest}|null>(null);
   const [error, setError] = useState<{channel:string;message:string}|null>(null);
   const retry = useCallback(() => { setError(null); setRevision((n) => n + 1); }, []);
 
   useEffect(() => {
-    if(isLocalDemoFallbackEnabled(channel)){
+    if(isLocalDemoFallbackEnabled(channel,undefined,streamSlug)){
       let stopped=false;
       void loadLocalDemoProgram().then(manifest=>{
-        if(!stopped){setValue({channel,manifest});setError(null);}
+        if(!stopped){setValue({channel:`${channel}/${streamSlug}`,manifest});setError(null);}
       }).catch(problem=>{
-        if(!stopped)setError({channel,message:displayProblem(problem)});
+        if(!stopped)setError({channel:`${channel}/${streamSlug}`,message:displayProblem(problem)});
       });
       return()=>{stopped=true};
     }
@@ -145,7 +148,7 @@ export function useChannelProgram(channel: string): Loadable<ProgramManifest> {
       if (reading || channelMissing || document.hidden) return;
       reading = true;
       try {
-        const response = await fetch(`${API_BASE}/channels/${encodeURIComponent(channel)}/program`, {
+        const response = await fetch(`${API_BASE}/channels/${encodeURIComponent(channel)}/streams/${encodeURIComponent(streamSlug)}/program`, {
           cache: "no-store", credentials: "same-origin", signal: controller.signal,
         });
         const body = await response.json().catch(() => null) as (ProgramManifest & {error?:string;message?:string}) | null;
@@ -168,30 +171,31 @@ export function useChannelProgram(channel: string): Loadable<ProgramManifest> {
           }
           if (url.protocol !== "https:" && !developmentOrigin) throw new Error("Production media sources must use HTTPS.");
         }
-        if (!stopped) { setValue({channel,manifest:body}); setError(null); }
+        if (!stopped) { setValue({channel:`${channel}/${streamSlug}`,manifest:body}); setError(null); }
       } catch (problem) {
         if (!stopped && !(problem instanceof DOMException && problem.name === "AbortError")) {
           if(problem instanceof ApiError&&problem.status===404&&problem.code==="channel_not_found"){
             channelMissing=true;
-            if(isLocalDemoFallbackEnabled(channel)){
+            if(isLocalDemoFallbackEnabled(channel,undefined,streamSlug)){
               try{
                 const manifest=await loadLocalDemoProgram();
-                if(!stopped){setValue({channel,manifest});setError(null);}
+                if(!stopped){setValue({channel:`${channel}/${streamSlug}`,manifest});setError(null);}
                 return;
               }catch{/* Keep the original missing-channel state if fixture packaging is incomplete. */}
             }
           }
-          setError({channel,message:displayProblem(problem)});
+          setError({channel:`${channel}/${streamSlug}`,message:displayProblem(problem)});
         }
       } finally { reading = false; }
     };
     void read();
     const timer = window.setInterval(() => { void read(); }, 5000);
     return () => { stopped = true; controller.abort(); window.clearInterval(timer); };
-  }, [channel, revision]);
+  }, [channel,streamSlug, revision]);
 
-  const currentValue=value?.channel===channel?value.manifest:null;
-  const currentError=error?.channel===channel?error.message:null;
+  const identity=`${channel}/${streamSlug}`;
+  const currentValue=value?.channel===identity?value.manifest:null;
+  const currentError=error?.channel===identity?error.message:null;
   if (currentValue) return { state: "ready", value:currentValue, ...(currentError?{refreshError:currentError}:{}) };
   if (currentError) return { state: "error", error:currentError, retry };
   return { state: "loading" };

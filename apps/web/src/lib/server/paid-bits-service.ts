@@ -11,6 +11,9 @@ import { verifyExtensionBitsReceipt,verifyExtensionRequest } from "./extension-a
 import { getExtensionTransaction,listExtensionBitsProducts,twitchExtensionClientId } from "./twitch";
 import { bitsReconcileEndpointMatchesApp,bitsTransactionMatchesReceiptTarget } from "../bits-reconciliation";
 
+// Keep the paid product implementation, but never expose or dispatch it.
+const PAID_TURBO_ENABLED = process.env.NODE_ENV === "test";
+
 const productsSchema=z.array(z.object({
   sku:z.string().trim().min(1).max(255).regex(/^[A-Za-z0-9._-]+$/),
   amountBits:z.number().int().min(1).max(10_000),
@@ -32,7 +35,7 @@ const receiptReconcileGraceMs=10*60_000;
 const receiptReconcileStates=["receipt_seen","expired","cancelled","receipt_unverified"] as const;
 
 function configuredProducts(){
-  if(process.env.SLOPTOGETHER_BITS_TURBO_ENABLED!=="true"||process.env.SLOPTOGETHER_BITS_POLICY_APPROVED!=="true"
+  if(!PAID_TURBO_ENABLED||process.env.SLOPTOGETHER_BITS_TURBO_ENABLED!=="true"||process.env.SLOPTOGETHER_BITS_POLICY_APPROVED!=="true"
     ||process.env.SLOPTOGETHER_BITS_EVENTSUB_READY!=="true"||process.env.SLOPTOGETHER_BITS_DISPATCH_READY!=="true")
     throw new ApiError(503,"bits_turbo_unavailable","Paid Turbo is disabled until its fixed Extension product and Twitch review are approved.");
   if((process.env.SLOPTOGETHER_BITS_RECONCILE_SECRET??"").length<32)throw new ApiError(503,"bits_reconciliation_not_configured");
@@ -124,7 +127,7 @@ async function fulfillVerifiedBitsTransaction(client:PoolClient,tx:VerifiedBitsR
     await markBitsTransactionUnallocated(client,tx.transaction_id,"transaction_intent_binding_mismatch");
     return {state:"verified_unallocated"};
   }
-  if(["expired","cancelled","paid_unfulfilled"].includes(intent.state)||process.env.SLOPTOGETHER_BITS_TURBO_ENABLED!=="true"
+  if(!PAID_TURBO_ENABLED||["expired","cancelled","paid_unfulfilled"].includes(intent.state)||process.env.SLOPTOGETHER_BITS_TURBO_ENABLED!=="true"
     ||process.env.SLOPTOGETHER_BITS_POLICY_APPROVED!=="true"||process.env.SLOPTOGETHER_BITS_EVENTSUB_READY!=="true"
     ||process.env.SLOPTOGETHER_BITS_DISPATCH_READY!=="true"){
     await client.query(`INSERT INTO sloptogether.funding_authorizations(twitch_channel_id,source,twitch_transaction_id,purchaser_twitch_user_id,paid_action_intent_id,amount_bits,reserved_usd,state,consumed_at,settled_at)
@@ -147,7 +150,7 @@ async function fulfillVerifiedBitsTransaction(client:PoolClient,tx:VerifiedBitsR
        EXISTS(SELECT 1 FROM sloptogether.program_items pi WHERE pi.segment_id=s.id AND pi.committed_at IS NOT NULL) AS committed,
        EXISTS(SELECT 1 FROM sloptogether.job_attempts a JOIN sloptogether.jobs j ON j.id=a.job_id WHERE j.segment_revision_id=r.id
          AND j.stage='video_base' AND a.state IN ('leased','running','uploaded','validating')) AS active_render
-     FROM sloptogether.segments s JOIN sloptogether.branches b ON b.id=s.branch_id AND b.is_selected AND b.archived_at IS NULL
+     FROM sloptogether.segments s JOIN sloptogether.branches b ON b.id=s.branch_id AND b.stream_id=(SELECT id FROM sloptogether.streams WHERE twitch_channel_id=$4 AND is_default) AND b.is_selected AND b.archived_at IS NULL
      JOIN sloptogether.segment_revisions r ON r.segment_id=s.id AND r.id=$2
      JOIN sloptogether.input_screens i ON i.id=$3 AND i.twitch_channel_id=s.twitch_channel_id
      JOIN sloptogether.boundary_revisions sb ON sb.id=r.start_boundary_revision_id AND sb.retired_at IS NULL
@@ -205,6 +208,7 @@ async function fulfillVerifiedBitsTransaction(client:PoolClient,tx:VerifiedBitsR
 
 export async function getExtensionBitsState(request:Request){
   const principal=verifyExtensionRequest(request);
+  if(!PAID_TURBO_ENABLED)return {enabled:false,products:[],target:null,requiresLinkedIdentity:false};
   if(!principal.linkedTwitchUserId||await isBanned(principal.channelId,principal.linkedTwitchUserId))
     return {enabled:false,products:[],target:null,requiresLinkedIdentity:true};
   const products=await availableProducts();
@@ -219,7 +223,7 @@ export async function getExtensionBitsState(request:Request){
     " AND i.effective_state='clear' AND (i.expires_at IS NULL OR i.expires_at>now()) ORDER BY i.created_at DESC LIMIT 1) AS input_screen_id "+
     "FROM sloptogether.branches b JOIN sloptogether.segments s ON s.branch_id=b.id "+
     "JOIN sloptogether.segment_revisions r ON r.id=s.selected_revision_id "+
-    "WHERE b.twitch_channel_id=$1 AND b.is_selected AND b.archived_at IS NULL "+
+    "WHERE b.twitch_channel_id=$1 AND b.stream_id=(SELECT id FROM sloptogether.streams WHERE twitch_channel_id=$1 AND is_default) AND b.is_selected AND b.archived_at IS NULL "+
     " AND s.state IN ('selected','locked','rendering','ready') "+
     " AND NOT EXISTS(SELECT 1 FROM sloptogether.program_items pi WHERE pi.segment_id=s.id AND pi.committed_at IS NOT NULL) "+
     " AND NOT EXISTS(SELECT 1 FROM sloptogether.job_attempts a JOIN sloptogether.jobs j ON j.id=a.job_id "+
@@ -234,6 +238,7 @@ export async function getExtensionBitsState(request:Request){
 
 export async function createExtensionBitsIntent(request:Request){
   const principal=verifyExtensionRequest(request);
+  if(!PAID_TURBO_ENABLED)throw new ApiError(503,"bits_action_unavailable","This option is currently unavailable.");
   const actor=principal.linkedTwitchUserId;
   if(!actor)throw new ApiError(409,"bits_identity_share_required","Share your Twitch identity before using this product.");
   if(await isBanned(principal.channelId,actor))throw new ApiError(403,"channel_ban_active");
@@ -265,7 +270,7 @@ export async function createExtensionBitsIntent(request:Request){
             OR EXISTS(SELECT 1 FROM sloptogether.jobs j WHERE j.segment_revision_id=r.id AND j.planning_payload->>'inputScreenId'=i.id::text)
             OR EXISTS(SELECT 1 FROM sloptogether.story_plan_attempts spa WHERE spa.resulting_segment_id=s.id AND spa.screen_id=i.id AND spa.compiled_prompt=r.prompt))
         ORDER BY i.created_at DESC LIMIT 1) i ON true
-      WHERE b.twitch_channel_id=$1 AND b.is_selected AND b.archived_at IS NULL AND s.state IN ('selected','locked','rendering','ready')
+      WHERE b.twitch_channel_id=$1 AND b.stream_id=(SELECT id FROM sloptogether.streams WHERE twitch_channel_id=$1 AND is_default) AND b.is_selected AND b.archived_at IS NULL AND s.state IN ('selected','locked','rendering','ready')
         AND sa.sha256 IS NOT NULL AND (r.requested_end_boundary_revision_id IS NULL OR ea.id IS NOT NULL AND ea.sha256 IS NOT NULL)
         AND NOT EXISTS(SELECT 1 FROM sloptogether.program_items pi WHERE pi.segment_id=s.id AND pi.committed_at IS NOT NULL)
         AND NOT EXISTS(SELECT 1 FROM sloptogether.job_attempts a JOIN sloptogether.jobs j ON j.id=a.job_id

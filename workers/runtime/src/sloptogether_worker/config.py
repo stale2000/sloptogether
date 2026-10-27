@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -113,6 +114,7 @@ class WorkerConfig:
     platform: str
     role: Role
     channel_id: str | None
+    stream_slug: str
     comfy_url: str
     comfy_input_dir: Path
     comfy_output_dir: Path
@@ -133,6 +135,9 @@ class WorkerConfig:
         role_value = role_override or os.environ.get("SLOPTOGETHER_WORKER_ROLE") or worker.get("role", "generation")
         if role_value not in {"generation", "upscale", "story-producer"}:
             raise ValueError("worker_role_unsupported")
+        stream_slug=os.environ.get("SLOPTOGETHER_STREAM_SLUG",str(worker.get("stream_slug","main"))).strip().lower()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,47}",stream_slug):
+            raise ValueError("worker_stream_slug_invalid")
         default_platform = "windows" if os.name == "nt" else "linux"
         platform = platform_override or os.environ.get("SLOPTOGETHER_WORKER_PLATFORM", str(worker.get("platform", default_platform)))
         if platform not in {"windows", "wsl", "linux", "fal"}:
@@ -194,6 +199,7 @@ class WorkerConfig:
             platform=platform,
             role=role_value,  # type: ignore[arg-type]
             channel_id=os.environ.get("SLOPTOGETHER_CHANNEL_ID") or worker.get("channel_id"),
+            stream_slug=stream_slug,
             comfy_url=local_comfy,
             comfy_input_dir=input_dir,
             comfy_output_dir=output_dir,

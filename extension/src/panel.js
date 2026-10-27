@@ -5,8 +5,11 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
 
   const API = "https://www.clips.gg/sloptogether/api/v1";
   const POLL_MS = 12000;
+  const PAID_TURBO_UI_ENABLED = false;
   const nodes = {
     status: document.getElementById("status"),
+    streamPicker: document.getElementById("stream-picker"),
+    streamSelect: document.getElementById("stream-select"),
     turbo: document.getElementById("turbo"),
     turboPrompt: document.getElementById("turbo-prompt"),
     turboProducts: document.getElementById("turbo-products"),
@@ -32,8 +35,11 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
 
   let authorization = null;
   let currentElection = null;
+  let selectedStreamSlug = "main";
+  let currentChannelLogin = null;
   let selectedChoiceId = null;
   let abortController = null;
+  let voteAbortController = null;
   let pollTimer = 0;
   let isVisible = true;
   let isSubmitting = false;
@@ -50,6 +56,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
   let authorizedIdentity = null;
   let identityEpoch = 0;
   let bitsTransactionEpoch = null;
+  let errorSource = null;
 
   function message(target, text) {
     target.textContent = text;
@@ -58,14 +65,17 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
   function clearError() {
     nodes.error.hidden = true;
     nodes.error.textContent = "";
+    errorSource = null;
   }
 
-  function setError(text) {
+  function setError(text, source = "interaction") {
     nodes.error.hidden = false;
     message(nodes.error, text);
+    errorSource = source;
   }
 
   function setTurboStatus(text) {
+    if (!PAID_TURBO_UI_ENABLED) return;
     nodes.turboStatus.hidden = !text;
     message(nodes.turboStatus, text || "");
   }
@@ -104,7 +114,12 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
   }
 
   function renderTurboProducts() {
+    if (!PAID_TURBO_UI_ENABLED) { nodes.turbo.hidden = true; return; }
     nodes.turboProducts.replaceChildren();
+    if (selectedStreamSlug !== "main" && !bitsPending && !bitsBusy) {
+      nodes.turbo.hidden = true;
+      return;
+    }
     nodes.turboLink.hidden = !authorization || linkedIdentity(authorization);
     nodes.turboReconcile.hidden = !bitsReceiptUnverified || !bitsIntent;
     if (bitsPending || bitsBusy) {
@@ -138,10 +153,11 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
   }
 
   async function loadTurbo() {
+    if (!PAID_TURBO_UI_ENABLED) { bitsState = null; nodes.turbo.hidden = true; return; }
     const requestEpoch = identityEpoch;
     const currentAuthorization = authorization;
     const helper = window.Twitch?.ext;
-    if (!currentAuthorization || helper?.features?.isBitsEnabled !== true || !helper.bits) {
+    if (selectedStreamSlug !== "main" || !currentAuthorization || helper?.features?.isBitsEnabled !== true || !helper.bits) {
       bitsState = null;
       if (!bitsPending) nodes.turbo.hidden = true;
       renderTurboProducts();
@@ -210,6 +226,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
   }
 
   async function useTurboBits(product) {
+    if (!PAID_TURBO_UI_ENABLED) return;
     const helper = window.Twitch?.ext;
     if (!authorization || !linkedIdentity(authorization) || !bitsState?.enabled || !helper?.bits || !bitsState.target || bitsBusy || bitsPending) return;
     const requestEpoch = identityEpoch;
@@ -234,7 +251,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
       bitsIntent = { intentId, sku: product.sku, promptPreview: target.promptPreview, identityEpoch: requestEpoch };
       bitsPending = true;
       const linkedId = helper.viewer?.id;
-      if (linkedId) {
+      if (PAID_TURBO_UI_ENABLED && linkedId) {
         try { window.sessionStorage.setItem(`sloptogether-bits:${currentAuthorization.channelId}:${linkedId}`, intentId); } catch { /* Server polling still works for this panel session. */ }
       }
       setTurboStatus(`Confirm ${product.amountBits} Bits to use one render attempt on this scene.`);
@@ -300,7 +317,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
         "x-extension-jwt": authorization.token,
         ...options.headers,
       },
-      signal: options.signal || abortController?.signal,
+      signal: options.signal,
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -434,13 +451,23 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     const requestEpoch = identityEpoch;
     stopPolling();
     abortController = new AbortController();
-    clearError();
     try {
       const channelId = authorization.channelId;
       if (!channelId) throw new Error("Channel context unavailable.");
-      const result = await api("/extension/state", {});
+      const result = await api(`/extension/state?stream=${encodeURIComponent(selectedStreamSlug)}`, { signal: abortController.signal });
       if (requestEpoch !== identityEpoch) return;
+      currentChannelLogin=result.channel?.twitchLogin||null;
+      const streams=Array.isArray(result.streams)?result.streams:[];
+      const available=streams.filter(item=>item&&typeof item.slug==="string"&&typeof item.displayName==="string");
+      if(nodes.streamSelect){
+        nodes.streamSelect.replaceChildren(...available.map(item=>{
+          const option=document.createElement("option");option.value=item.slug;option.textContent=item.displayName;return option;
+        }));
+        if(available.some(item=>item.slug===selectedStreamSlug))nodes.streamSelect.value=selectedStreamSlug;
+      }
+      if(nodes.streamPicker)nodes.streamPicker.hidden=available.length<2;
       renderSubscriberNotice(result.subscriberInterrupts || result.channel?.subscriberInterrupts);
+      if (errorSource === "refresh") clearError();
       renderPromptForm(result.canSubmitPrompts === true);
       void loadTurbo();
       const election = result.activeElection || result.election ||
@@ -460,7 +487,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
       nodes.ballot.hidden = true;
       nodes.empty.hidden = true;
       nodes.link.hidden = true;
-      setError(error.message || "Could not load this channel's vote.");
+      setError(error.message || "Could not load this channel's vote.", "refresh");
       pollTimer = window.setTimeout(refresh, Math.min(POLL_MS * 2, 30000));
     }
   }
@@ -473,13 +500,16 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
       return;
     }
     const requestEpoch = identityEpoch;
+    const voteController = new AbortController();
+    voteAbortController = voteController;
     isSubmitting = true;
     nodes.submit.disabled = true;
     clearError();
     try {
-      await api(`/elections/${encodeURIComponent(currentElection.id)}/ballots`, {
+      await api(`/channels/${encodeURIComponent(currentChannelLogin)}/streams/${encodeURIComponent(selectedStreamSlug)}/elections/${encodeURIComponent(currentElection.id)}/ballots`, {
         method: "POST",
         body: JSON.stringify({ choiceId: selectedChoiceId }),
+        signal: voteController.signal,
       });
       if (requestEpoch !== identityEpoch) return;
       nodes.submit.textContent = "Vote saved";
@@ -492,6 +522,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
           ? "This round closed before your vote arrived."
           : error.message || "Your vote was not saved.");
     } finally {
+      if (voteAbortController === voteController) voteAbortController = null;
       if (requestEpoch === identityEpoch) {
         isSubmitting = false;
         if (currentElection) renderChoices(currentElection);
@@ -509,7 +540,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     clearError();
     renderPromptForm();
     try {
-      const response = await fetch(`${API}/channels/${encodeURIComponent(currentAuthorization.channelId)}/proposals`, {
+      const response = await fetch(`${API}/channels/${encodeURIComponent(currentChannelLogin||currentAuthorization.channelId)}/streams/${encodeURIComponent(selectedStreamSlug)}/proposals`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-extension-jwt": currentAuthorization.token },
         body: JSON.stringify({ prompt, planningMode: "continuation" }),
@@ -541,6 +572,8 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     helper.onAuthorized((auth) => {
       const nextIdentity = `${auth.channelId}:${auth.userId || ""}`;
       if (nextIdentity !== authorizedIdentity) {
+        if (voteAbortController) voteAbortController.abort();
+        voteAbortController = null;
         authorizedIdentity = nextIdentity;
         identityEpoch += 1;
         resetBitsForIdentityChange();
@@ -590,6 +623,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     });
     helper.features?.onChanged?.(() => { void loadTurbo(); });
     helper.bits?.onTransactionComplete?.((receipt) => {
+      if (!PAID_TURBO_UI_ENABLED) return;
       if (bitsTransactionEpoch !== identityEpoch || !bitsIntent || bitsIntent.identityEpoch !== identityEpoch || receipt?.initiator !== "current_user" || typeof receipt.transactionReceipt !== "string" || !authorization) return;
       bitsTransactionEpoch = null;
       const requestEpoch = identityEpoch;
@@ -609,6 +643,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
       }).catch((error) => { if (requestEpoch === identityEpoch) setError(error.message || "Bits receipt verification failed."); });
     });
     helper.bits?.onTransactionCancelled?.(() => {
+      if (!PAID_TURBO_UI_ENABLED) return;
       if (bitsTransactionEpoch !== identityEpoch || !bitsIntent || bitsIntent.identityEpoch !== identityEpoch || !authorization) return;
       bitsTransactionEpoch = null;
       const intentId = bitsIntent.intentId;
@@ -620,6 +655,11 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
 
   nodes.submit.addEventListener("click", submitVote);
   nodes.promptInput.addEventListener("input", () => renderPromptForm());
+  nodes.streamSelect?.addEventListener("change",()=>{
+    if(!nodes.streamSelect.value||nodes.streamSelect.value===selectedStreamSlug)return;
+    selectedStreamSlug=nodes.streamSelect.value;
+    currentElection=null;selectedChoiceId=null;void refresh();
+  });
   nodes.promptToggle.addEventListener("click", togglePromptForm);
   nodes.promptSubmit.addEventListener("click", submitPrompt);
   nodes.turboLink.addEventListener("click", () => {

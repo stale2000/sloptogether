@@ -29,11 +29,31 @@ class AutomaticUpscaleProfileTest(unittest.TestCase):
         profile = self.profiles.select_transformer_precision((8, 9), 24_564 * 1024**2, 23 * 1024**3)
         self.assertEqual(profile, "fp8")
 
-    def test_large_blackwell_uses_nvfp4_only_with_the_resident_memory_reserve(self):
+    def test_large_blackwell_requires_the_resident_memory_reserve(self):
         total = 96 * 1024**3
         self.assertEqual(self.profiles.select_transformer_precision((10, 0), total, 90 * 1024**3), "nvfp4")
         with self.assertRaisesRegex(RuntimeError, "90 GiB free VRAM"):
             self.profiles.select_transformer_precision((10, 0), total, 80 * 1024**3)
+
+    def test_blackwell_releases_its_resident_child_before_rechecking_memory(self):
+        release = Mock()
+        probe = Mock(return_value=91 * 1024**3)
+        profile = self.profiles.select_transformer_precision(
+            (10, 0), 96 * 1024**3, 20 * 1024**3,
+            release_resident_worker=release, probe_free_memory=probe,
+        )
+        self.assertEqual(profile, "nvfp4")
+        release.assert_called_once_with()
+        probe.assert_called_once_with()
+
+    def test_blackwell_fails_if_releasing_child_does_not_restore_reserve(self):
+        release = Mock()
+        with self.assertRaisesRegex(RuntimeError, "90 GiB free VRAM"):
+            self.profiles.select_transformer_precision(
+                (10, 0), 96 * 1024**3, 20 * 1024**3,
+                release_resident_worker=release, probe_free_memory=lambda: 80 * 1024**3,
+            )
+        release.assert_called_once_with()
 
     def test_hardware_below_the_adaptive_profile_fails_closed(self):
         for capability, memory in [((8, 6), 24 * 1024**3), ((8, 9), 16 * 1024**3)]:

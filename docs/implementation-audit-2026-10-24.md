@@ -1,8 +1,10 @@
 # SlopTogether implementation audit
 
+**Historical snapshot:** current status is in the [October 25 production review](production-review-2026-10-25.md). Claims below about missing OAuth/channels/Fal apps describe the earlier state, not today.
+
 Reviewed October 24, 2026, America/Los_Angeles. This audit was initially written before the production demo, R2 and Twitch OAuth wiring were verified. Its historical fixture/provenance findings remain useful; the current production snapshot and prioritized sequence are in the [remaining-work plan](../.omx/plans/sloptogether-remaining-work.md) and [completion plan](../.omx/plans/sloptogether-completion-plan.md).
 
-## Current result
+## Historical result
 
 The public `www.clips.gg/sloptogether` child app is live. The production-only static `localdemo` fallback plays four HLS clips totaling **60.333332 seconds** at 1280×720 with audio. A live-browser check verified clip jumps, seeking, and center-click pause/resume. This is an explicitly gated playback fixture, not a database-backed channel, real upload, or live generation run.
 

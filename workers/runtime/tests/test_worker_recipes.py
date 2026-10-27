@@ -13,13 +13,13 @@ from sloptogether_worker.errors import WorkerError
 from sloptogether_worker.models import WorkerJob
 from sloptogether_worker.runner import ComfyRecipeRunner, inspect_media
 from sloptogether_worker.recipes import (
-    RECIPES, SOL_UPSCALE_ID, TRIM_FIVE_STEP_ID, build_workflow,
+    RECIPES, SOL_UPSCALE_ID, SOL_UPSCALE_1184_ID, SUBSCRIBER_TRIM_ID, TRIM_FIVE_STEP_ID, build_workflow,
     validate_comfy_capabilities, validate_device_recipe, validate_free_vram,
 )
 
 
 class PinnedRecipeTest(unittest.TestCase):
-    def job(self, *, end_boundary=None, end_asset=None):
+    def job(self, *, end_boundary=None, end_asset=None, recipe_id=TRIM_FIVE_STEP_ID):
         return WorkerJob(
             job_id="00000000-0000-4000-8000-000000000001",
             lease_id="lease-1",
@@ -28,8 +28,8 @@ class PinnedRecipeTest(unittest.TestCase):
             kind=None,
             require_audio=False,
             execution_mode="pull_worker",
-            recipe_id=TRIM_FIVE_STEP_ID,
-            recipe_sha256=RECIPES[TRIM_FIVE_STEP_ID].source_digest,
+            recipe_id=recipe_id,
+            recipe_sha256=RECIPES[recipe_id].source_digest,
             input_sha256="a" * 64,
             attempt_id="00000000-0000-4000-8000-000000000002",
             fence=1,
@@ -44,7 +44,7 @@ class PinnedRecipeTest(unittest.TestCase):
             height=256,
             fps_num=24,
             fps_den=1,
-            frame_count=362,
+            frame_count=RECIPES[recipe_id].frame_count or 362,
             source_asset_id=None,
         )
 
@@ -77,6 +77,15 @@ class PinnedRecipeTest(unittest.TestCase):
         self.assertEqual(graph["5"]["inputs"]["last_frame"], ["21", 0])
         self.assertEqual(graph["21"]["inputs"]["image"], "end-def.png")
 
+    def test_subscriber_interrupt_recipe_renders_ten_second_native_trim(self):
+        recipe=RECIPES[SUBSCRIBER_TRIM_ID]
+        job=self.job(recipe_id=SUBSCRIBER_TRIM_ID)
+        _,graph=build_workflow(job,recipe,{"20":"start-abc.png"})
+        length=graph["5"]["inputs"]["length"]
+        self.assertEqual(length,243)
+        self.assertAlmostEqual(length/24,10.125)
+        self.assertEqual((length-5)%17,0)
+
     def test_trim_vsa_policy_is_explicitly_selected_by_the_deployment_profile(self):
         recipe = RECIPES[TRIM_FIVE_STEP_ID]
         _, fixed_graph = build_workflow(self.job(), recipe, {"20": "start.png"}, vsa_budget_policy="fixed")
@@ -94,15 +103,15 @@ class PinnedRecipeTest(unittest.TestCase):
         }
         self.assertEqual(
             validate_comfy_capabilities(object_info, "generation", compute_capability=(8, 9), vsa_budget_policy="fixed"),
-            [TRIM_FIVE_STEP_ID],
+            [TRIM_FIVE_STEP_ID,SUBSCRIBER_TRIM_ID],
         )
         self.assertEqual(
             validate_comfy_capabilities(object_info,"generation",compute_capability=(8,9),platform="wsl",vsa_budget_policy="fixed"),
-            [TRIM_FIVE_STEP_ID],
+            [TRIM_FIVE_STEP_ID,SUBSCRIBER_TRIM_ID],
         )
         self.assertEqual(
             validate_comfy_capabilities(object_info, "generation", compute_capability=(12, 0), platform="fal", vsa_budget_policy="adaptive"),
-            [TRIM_FIVE_STEP_ID],
+            [TRIM_FIVE_STEP_ID,SUBSCRIBER_TRIM_ID],
         )
         self.assertEqual(
             validate_comfy_capabilities(object_info, "generation", compute_capability=(8, 9), vsa_budget_policy="adaptive"),
@@ -133,18 +142,33 @@ class PinnedRecipeTest(unittest.TestCase):
         with self.assertRaises(WorkerError):
             build_workflow(job, RECIPES[TRIM_FIVE_STEP_ID], {"20": "start-abc.png"})
 
-    def test_upscale_preserves_16_by_9_and_targets_above_the_published_source(self):
+    def test_upscale_uses_each_qualified_target_in_the_workflow(self):
         source = self.job()
-        job = replace(source, stage="upscale", recipe_id=SOL_UPSCALE_ID,
-                      recipe_sha256=RECIPES[SOL_UPSCALE_ID].source_digest,
-                      width=1920, height=1080, output_width=1920, output_height=1080,
-                      source_asset_id="00000000-0000-4000-8000-000000000007")
-        _, graph = build_workflow(job, RECIPES[SOL_UPSCALE_ID], {"source_video": "source.mp4"})
-        self.assertEqual(graph["1"]["inputs"]["file"], "source.mp4")
-        self.assertEqual((graph["2"]["inputs"]["width"], graph["2"]["inputs"]["height"]), (1920, 1080))
-        self.assertEqual(graph["2"]["inputs"]["transformer_precision"], "auto")
-        self.assertEqual(graph["2"]["inputs"]["sloptogether_scope"],f"sloptogether/{job.job_id}/{job.attempt_id}")
-        self.assertEqual(graph["3"]["inputs"]["filename_prefix"],f"sloptogether/{job.job_id}/{job.attempt_id}/clip")
+        self.assertNotEqual(RECIPES[SOL_UPSCALE_1184_ID].source_digest, RECIPES[SOL_UPSCALE_ID].source_digest)
+        for recipe_id, width, height in ((SOL_UPSCALE_1184_ID, 1184, 666), (SOL_UPSCALE_ID, 1920, 1080)):
+            with self.subTest(width=width, height=height):
+                job = replace(source, stage="upscale", recipe_id=recipe_id,
+                              recipe_sha256=RECIPES[recipe_id].source_digest,
+                              width=width, height=height, output_width=width, output_height=height,
+                              source_asset_id="00000000-0000-4000-8000-000000000007")
+                _, graph = build_workflow(job, RECIPES[recipe_id], {"source_video": "source.mp4"})
+                self.assertEqual(graph["1"]["inputs"]["file"], "source.mp4")
+                self.assertEqual((graph["2"]["inputs"]["width"], graph["2"]["inputs"]["height"]), (width, height))
+                self.assertEqual(graph["2"]["inputs"]["transformer_precision"], "auto")
+                self.assertEqual(graph["2"]["inputs"]["sloptogether_scope"],f"sloptogether/{job.job_id}/{job.attempt_id}")
+                self.assertEqual(graph["3"]["inputs"]["filename_prefix"],f"sloptogether/{job.job_id}/{job.attempt_id}/clip")
+
+    def test_upscale_rejects_unqualified_or_mismatched_targets(self):
+        source = replace(self.job(), stage="upscale", recipe_id=SOL_UPSCALE_1184_ID,
+                         recipe_sha256=RECIPES[SOL_UPSCALE_1184_ID].source_digest,
+                         width=1184, height=666, output_width=1184, output_height=666,
+                         source_asset_id="00000000-0000-4000-8000-000000000007")
+        for job in (replace(source, width=1280, height=720, output_width=1280, output_height=720),
+                    replace(source, output_width=1920, output_height=1080),
+                    replace(source, recipe_id=SOL_UPSCALE_ID,recipe_sha256=RECIPES[SOL_UPSCALE_ID].source_digest)):
+            with self.subTest(job=job), self.assertRaises(WorkerError) as raised:
+                build_workflow(job, RECIPES[job.recipe_id], {"source_video": "source.mp4"})
+            self.assertEqual(raised.exception.code, "recipe_dimensions_not_qualified")
 
     def test_sol_intermediates_use_the_current_job_attempt_output_scope(self):
         path=Path(__file__).parents[3]/"vendor/comfystream/runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/sloptogether_scope.py"
@@ -167,8 +191,8 @@ class PinnedRecipeTest(unittest.TestCase):
                 "input": {"optional": {"transformer_precision": [["nvfp4", "auto"], {"default": "nvfp4"}],"sloptogether_scope":["STRING",{"default":""}]}}
             },
         }
-        self.assertEqual(validate_comfy_capabilities(object_info, "upscale", compute_capability=(8, 9)), [SOL_UPSCALE_ID])
-        self.assertEqual(validate_comfy_capabilities(object_info,"upscale",compute_capability=(8,9),platform="wsl"),[SOL_UPSCALE_ID])
+        self.assertEqual(validate_comfy_capabilities(object_info, "upscale", compute_capability=(8, 9)), [SOL_UPSCALE_ID,SOL_UPSCALE_1184_ID])
+        self.assertEqual(validate_comfy_capabilities(object_info,"upscale",compute_capability=(8,9),platform="wsl"),[SOL_UPSCALE_ID,SOL_UPSCALE_1184_ID])
         self.assertEqual(
             validate_comfy_capabilities(object_info, "upscale", compute_capability=(8, 9), platform="windows"),
             [],

@@ -3,14 +3,15 @@ import { type RequestPrincipal } from "./principals";
 import { isBanned, principalTwitchId } from "./channels";
 import { transaction } from "./db";
 
-export async function castBallot(electionId:string,choiceId:string,principal:RequestPrincipal,sourceSurface:"extension"|"chat"|"website",messageId?:string){
+export async function castBallot(electionId:string,choiceId:string,principal:RequestPrincipal,sourceSurface:"extension"|"chat"|"website",messageId?:string,streamId?:string){
   if(principal.kind!=="session"&&principal.kind!=="extension"&&principal.kind!=="chat")throw new ApiError(403,"voter_identity_required");
   const userId=principalTwitchId(principal);if(!userId)throw new ApiError(403,"linked_identity_required");
   return transaction(async(client)=>{
-    const result=await client.query<{id:string;closes_at:Date;state:string;twitch_channel_id:string}>(
-      "SELECT e.id,e.closes_at,e.state,s.twitch_channel_id FROM sloptogether.elections e JOIN sloptogether.segments s ON s.id=e.segment_id WHERE e.id=$1 FOR UPDATE OF e",
+    const result=await client.query<{id:string;closes_at:Date;state:string;twitch_channel_id:string;stream_id:string}>(
+      "SELECT e.id,e.closes_at,e.state,s.twitch_channel_id,br.stream_id FROM sloptogether.elections e JOIN sloptogether.segments s ON s.id=e.segment_id JOIN sloptogether.branches br ON br.id=s.branch_id WHERE e.id=$1 FOR UPDATE OF e",
       [electionId]);
     const election=result.rows[0];if(!election)throw new ApiError(404,"election_not_found");
+    if(streamId&&election.stream_id!==streamId)throw new ApiError(404,"election_not_found");
     if(principal.kind==="chat"&&principal.channelId!==election.twitch_channel_id)throw new ApiError(403,"chat_channel_mismatch");
     if(principal.kind==="extension"&&principal.extension.channelId!==election.twitch_channel_id)throw new ApiError(403,"extension_channel_mismatch");
     if(election.state!=="open"||election.closes_at.getTime()<=Date.now())throw new ApiError(409,"election_closed");

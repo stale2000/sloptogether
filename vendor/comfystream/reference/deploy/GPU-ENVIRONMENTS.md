@@ -36,7 +36,6 @@ repository does not establish ongoing deployment support or reproducibility:
 | --- | --- |
 | `deploy/fal/drama3-h3-test` | Test image; Dockerfile and README identify a Drama3 test deployment. Dependency closure pending if promoted to maintained. |
 | `deploy/fal/fasth3-drama3-obs-test` | Explicit OBS test deployment; experiment pending qualification. |
-| `deploy/fal/forcingbooster-trim` | Trim/speculative probe candidate described as exploratory in its README; do not treat as the maintained B1 baseline. |
 | `deploy/fal/sm120-attn-bench` | Attention benchmark artifact; not a general worker image. |
 
 ## Qualification rule

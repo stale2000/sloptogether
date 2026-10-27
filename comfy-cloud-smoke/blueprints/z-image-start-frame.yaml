@@ -1,0 +1,9 @@
+output_prefix: sloptogether/start-frame
+pipeline:
+  - fragment: z-image-turbo-start-frame
+    alias: frame
+    params:
+      clip_text_encode_prompt_text: "A tiny white cartoon robot stands beside a glowing blue crystal in a moonlit garden. A distant observatory sits under a bright constellation. Hand-painted 2D storybook illustration, wide 7:4 composition; keep the robot, crystal, and observatory in the central horizontal band because the final frame is center-cropped. Family-friendly, no text or logos."
+      emptysd3latentimage_width: 448
+      emptysd3latentimage_height: 256
+      ksampler_seed: 31825889

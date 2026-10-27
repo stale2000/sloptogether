@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { channelSlugSchema } from "@sloptogether/contracts";
-import { OutputSource } from "../../../../components/output-source";
 
 export const metadata: Metadata = {
   title: "Browser program output",
@@ -11,5 +10,5 @@ export const metadata: Metadata = {
 export default async function OutputPage({ params }: { params: Promise<{ channel: string }> }) {
   const { channel } = await params;
   if (!channelSlugSchema.safeParse(channel).success) notFound();
-  return <OutputSource channel={channel.toLowerCase()} />;
+  redirect(`/channels/${encodeURIComponent(channel.toLowerCase())}/streams/main/output`);
 }

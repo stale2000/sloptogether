@@ -10,7 +10,8 @@ vi.mock("./storage",()=>({signedPrivateReadUrl:vi.fn()}));
 vi.mock("./subscriber-service",()=>({cancelPendingInterrupts:vi.fn()}));
 vi.mock("./worker-revocation",()=>({abandonStoryProducerPlans:vi.fn(),lockRevokedWorkerSegments:vi.fn(),retireRevokedWorkerJobs:vi.fn()}));
 
-import { listOverrideCandidates } from "./override-service";
+import { listOverrideCandidates, schedulePulledGeneration } from "./override-service";
+import type { PoolClient } from "pg";
 
 describe("streamer override candidates",()=>{
   beforeEach(()=>{
@@ -33,5 +34,19 @@ describe("streamer override candidates",()=>{
     expect(sql).toContain("sr.state IN ('proposal','selected')");
     expect(sql).toContain("GROUP BY p.id,e.id,sr.start_boundary_revision_id,a.id");
     expect(values).toEqual(["123","00000000-0000-4000-8000-000000000001"]);
+  });
+
+  it("records the low-resolution profile when an override schedules a new generation",async()=>{
+    const client={query:vi.fn(async(sql:string)=>{
+      if(sql.includes("SELECT segment_id,planning_mode,provider_recipe_id"))return {rows:[{segment_id:"segment",planning_mode:"continuation",provider_recipe_id:"fast-h3-trim-5step-vsa20-b1",input_sha256:Buffer.alloc(32),start_boundary_revision_id:"boundary",requested_end_boundary_revision_id:null}],rowCount:1};
+      if(sql.includes("SELECT 1 FROM sloptogether.input_screens"))return {rows:[{}],rowCount:1};
+      if(sql.includes("SELECT count(*)::text AS count FROM sloptogether.boundary_revisions"))return {rows:[{count:"1"}],rowCount:1};
+      return {rows:[],rowCount:1};
+    })};
+    await schedulePulledGeneration(client as unknown as PoolClient,"123","revision","42","screen",false);
+    const insert=client.query.mock.calls.find(([sql])=>String(sql).includes("INSERT INTO sloptogether.jobs"));
+    expect(insert).toBeDefined();
+    const values=(insert as unknown as [string,unknown[]])[1];
+    expect(JSON.parse(String(values[9]))).toMatchObject({inputScreenId:"screen",outputWidth:512,outputHeight:288});
   });
 });

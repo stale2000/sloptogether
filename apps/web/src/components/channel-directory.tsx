@@ -45,7 +45,7 @@ export function ChannelDirectory() {
       {state === "ready" && channels.length === 0 ? <section className="empty-state directory-empty channel-welcome">
         <div><strong>No channels yet.</strong></div>
         <div className="channel-welcome-actions">
-          {demoEnabled?<Link className="button secondary small" href="/channels/localdemo/output"><span className="play-glyph" aria-hidden="true">▶</span> Watch the 4-clip demo</Link>:null}
+          {demoEnabled?<Link className="button secondary small" href="/channels/localdemo/streams/main/output"><span className="play-glyph" aria-hidden="true">▶</span> Watch the 4-clip demo</Link>:null}
           <Link className="button small" href="/control">Connect Twitch <span aria-hidden="true">↗</span></Link>
         </div>
       </section> : null}

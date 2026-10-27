@@ -13,7 +13,9 @@ certificate. The `workers.dev` address is disabled.
 
 The Worker secrets `UPLOAD_GATEWAY_SECRET` and `UPLOAD_TICKET_KEY` match the
 production app's `SLOPTOGETHER_UPLOAD_GATEWAY_SECRET` and
-`SLOPTOGETHER_UPLOAD_TICKET_KEY`. The production app's
-`SLOPTOGETHER_UPLOAD_WORKER_ORIGIN` now points to this domain; a Vercel
-production deployment is required for that environment change to take effect.
-Do not bind ClipsGG's existing media bucket.
+`SLOPTOGETHER_UPLOAD_TICKET_KEY`. Keep `APP_ORIGIN` pointed at the stable
+`https://sloptogether.vercel.app` project domain for internal authorization
+calls: the Clips.gg mount proxy intentionally strips unknown `x-*` headers, so
+using `https://www.clips.gg` drops `x-upload-gateway-secret`. The production
+app's `SLOPTOGETHER_UPLOAD_WORKER_ORIGIN` points at this gateway. Do not bind
+ClipsGG's existing media bucket.

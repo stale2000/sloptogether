@@ -10,7 +10,7 @@ import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import pg from "pg";
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { InvalidMediaError, parseProbeJson, trustedSystemApprovalCandidate, trustedUploaderApprovalPath, validateMediaMetadata } from "./metadata.mjs";
+import { expectedArtifactDimensions, InvalidMediaError, parseProbeJson, trustedSystemApprovalCandidate, trustedUploaderApprovalPath, validateMediaMetadata } from "./metadata.mjs";
 import { moderationKeyFrom } from "./endpoint.mjs";
 import { processPublishRequested } from "./publish.mjs";
 import { processPaidTurboMessage } from "./paid-turbo.mjs";
@@ -20,6 +20,7 @@ import { processComfyFrameExpiry } from "./comfy-frame-expiry.mjs";
 const { Pool } = pg;
 const execFileAsync = promisify(execFile);
 const LEASE_MINUTES = 5;
+const PAID_TURBO_ENABLED = process.env.NODE_ENV === "test";
 const PROBE_TIMEOUT_MS = 30_000;
 const DECODE_TIMEOUT_MS = 90_000;
 const MAX_OUTBOX_BYTES = 128 * 1024 * 1024;
@@ -53,7 +54,7 @@ export function requiredEnvironment(env) {
     falKey: env.FAL_KEY || null,
     bitsReconcileUrl: env.SLOPTOGETHER_BITS_RECONCILE_URL || null,
     bitsReconcileSecret: env.SLOPTOGETHER_BITS_RECONCILE_SECRET || null,
-    paidBitsReady: env.SLOPTOGETHER_BITS_TURBO_ENABLED === "true" && env.SLOPTOGETHER_BITS_POLICY_APPROVED === "true"
+    paidBitsReady: PAID_TURBO_ENABLED && env.SLOPTOGETHER_BITS_TURBO_ENABLED === "true" && env.SLOPTOGETHER_BITS_POLICY_APPROVED === "true"
       && env.SLOPTOGETHER_BITS_EVENTSUB_READY === "true" && env.SLOPTOGETHER_BITS_DISPATCH_READY === "true",
   };
 }
@@ -98,7 +99,7 @@ export function databasePoolOptions(databaseUrl,env=process.env){
 }
 
 function makePool(databaseUrl) {
-  return new Pool({
+  const pool = new Pool({
     ...databasePoolOptions(databaseUrl),
     max: 2,
     idleTimeoutMillis: 10_000,
@@ -106,6 +107,25 @@ function makePool(databaseUrl) {
     statement_timeout: 10_000,
     application_name: "sloptogether-media-validator",
   });
+  observePoolErrors(pool);
+  return pool;
+}
+
+export function observePoolErrors(pool, logger = console) {
+  pool.on("error", (error) => {
+    // pg emits this for errors on idle clients. Keep the process alive; Pool
+    // removes the failed client and a later query can establish a replacement.
+    logger.error(JSON.stringify({
+      event: "media_validator_database_connection_error",
+      code: error?.code || error?.name || "unknown_error",
+    }));
+  });
+  return pool;
+}
+
+export function databaseRetryDelayMs(attempt) {
+  const safeAttempt = Number.isSafeInteger(attempt) && attempt > 0 ? attempt : 1;
+  return Math.min(30_000, 1_000 * (2 ** Math.min(safeAttempt - 1, 5)));
 }
 
 function makeStorageClient(config) {
@@ -219,9 +239,9 @@ async function claimOutbox(pool,eventKinds=["media.validate","media.publish_requ
 async function currentAttempt(pool, payload) {
   const result = await pool.query(`SELECT a.id AS asset_id,a.storage_key,a.sha256,a.status AS asset_status,a.content_type,
       a.producer_key_id,a.uploaded_by_twitch_user_id,ja.id AS attempt_id,ja.fence,ja.state AS attempt_state,ja.output_asset_id,ja.input_sha256,ja.funding_id,ja.execution_binding_id,
-      j.id AS job_id,j.stage,j.state AS job_state,j.segment_revision_id,j.planning_payload,j.requested_by,
-      coalesce(nullif(j.planning_payload->>'outputWidth','')::int,c.output_width) AS output_width,
-      coalesce(nullif(j.planning_payload->>'outputHeight','')::int,c.output_height) AS output_height,
+      ja.attempt_deadline_at > clock_timestamp() AS attempt_deadline_active,
+      j.id AS job_id,j.stage,j.state AS job_state,j.segment_revision_id,j.interrupt_id,j.planning_payload,j.requested_by,
+      c.output_width,c.output_height,
       c.output_fps_num,c.output_fps_den,c.owner_twitch_user_id,c.upload_approval_bypass_ids,c.role_based_upload_bypass,c.policy_revision AS channel_policy_revision,
       ur.policy_revision AS upload_policy_revision,
       EXISTS(SELECT 1 FROM sloptogether.memberships m WHERE m.twitch_user_id=a.uploaded_by_twitch_user_id AND m.twitch_channel_id=j.twitch_channel_id
@@ -420,7 +440,7 @@ async function commitValidation(pool, message, payload, metadata, trustedBinding
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const channelState=await client.query("SELECT policy_revision FROM sloptogether.channels WHERE twitch_channel_id=$1 AND is_enabled FOR SHARE",[payload.channelId]);
+    const channelState=await client.query("SELECT policy_revision FROM sloptogether.channels WHERE twitch_channel_id=$1 AND is_enabled FOR UPDATE",[payload.channelId]);
     if(!channelState.rowCount){await client.query("ROLLBACK");await finishStale(pool,message);return false}
     let lockedSegment=null;
     if(["video_base","video_upscale"].includes(payload.stage)){
@@ -455,7 +475,8 @@ async function commitValidation(pool, message, payload, metadata, trustedBinding
         &&row.policy_revision===trustedBinding.channelPolicyRevision&&row.policy_revision===row.channel_policy_revision&&row.scopes.includes("artifact:system_approve")
         &&row.execution_role===(payload.stage==="video_base"?"generation":"upscale"));
     }
-    const attempt = await client.query(`SELECT ja.id,ja.funding_id,f.paid_action_intent_id,j.segment_revision_id,j.interrupt_id,j.twitch_channel_id,j.requested_by,
+    const attempt = await client.query(`SELECT ja.id,ja.funding_id,ja.attempt_deadline_at > clock_timestamp() AS attempt_deadline_active,
+        f.paid_action_intent_id,j.segment_revision_id,j.interrupt_id,j.twitch_channel_id,j.requested_by,
         (SELECT se.twitch_actor_id FROM sloptogether.interrupt_requests ir JOIN sloptogether.subscription_events se ON se.id=ir.trigger_event_id WHERE ir.id=j.interrupt_id) AS interrupt_actor_id,
         a.status AS asset_status,a.storage_key,a.sha256,a.byte_size,a.producer_key_id,a.uploaded_by_twitch_user_id,
         c.owner_twitch_user_id,c.upload_approval_bypass_ids,c.role_based_upload_bypass,c.policy_revision AS channel_policy_revision,
@@ -478,6 +499,10 @@ async function commitValidation(pool, message, payload, metadata, trustedBinding
       await client.query("COMMIT");
       return false;
     }
+    if(row.attempt_deadline_active!==true){
+      await client.query("ROLLBACK");
+      return await recordFailure(pool,message,payload,"worker_attempt_expired")?"expired":false;
+    }
     if (row.input_state !== "clear") {
       await client.query("ROLLBACK");
       return recordFailure(pool, message, payload, "media_input_screen_not_clear");
@@ -496,10 +521,13 @@ async function commitValidation(pool, message, payload, metadata, trustedBinding
       AND (expires_at IS NULL OR expires_at>now()) AND (scope='global' OR twitch_channel_id=$2) LIMIT 1`,[[row.uploaded_by_twitch_user_id,row.requested_by,row.interrupt_actor_id].filter(Boolean),payload.channelId]);
     if(banned.rowCount){await client.query("ROLLBACK");return recordFailure(pool,message,payload,"channel_ban_active")}
     const updated = await client.query(`UPDATE sloptogether.assets SET status=$2,width=$3,height=$4,fps_num=$5,fps_den=$6,
-      frame_count=$7,duration_seconds=$8,validated_at=now() WHERE id=$1 AND status='quarantine' AND sha256=$9 RETURNING id`,
-    [payload.assetId,autoApproved?"approved":"validated",metadata.width, metadata.height, metadata.fpsNum, metadata.fpsDen, metadata.frameCount, metadata.durationSeconds, Buffer.from(payload.sha256, "hex")]);
+      frame_count=$7,duration_seconds=$8,validated_at=now() WHERE id=$1 AND status='quarantine' AND sha256=$9
+        AND EXISTS(SELECT 1 FROM sloptogether.job_attempts ja WHERE ja.id=$10 AND ja.fence=$11 AND ja.state='validating' AND ja.attempt_deadline_at>clock_timestamp()) RETURNING id`,
+    [payload.assetId,autoApproved?"approved":"validated",metadata.width, metadata.height, metadata.fpsNum, metadata.fpsDen, metadata.frameCount, metadata.durationSeconds, Buffer.from(payload.sha256, "hex"),payload.attemptId,payload.fence]);
     if (!updated.rowCount) {
+      const deadline=await client.query("SELECT attempt_deadline_at>clock_timestamp() AS active FROM sloptogether.job_attempts WHERE id=$1 AND fence=$2 AND state='validating'",[payload.attemptId,payload.fence]);
       await client.query("ROLLBACK");
+      if(deadline.rows[0]?.active!==true)return await recordFailure(pool,message,payload,"worker_attempt_expired")?"expired":false;
       return false;
     }
     if(autoApproved){
@@ -516,8 +544,11 @@ async function commitValidation(pool, message, payload, metadata, trustedBinding
         await client.query("UPDATE sloptogether.segment_revisions SET state='ready' WHERE id=$1 AND state IN ('selected','locked','rendering','ready')",[row.segment_revision_id]);
         await client.query("UPDATE sloptogether.segments SET state='ready' WHERE id=$1 AND selected_revision_id=$2 AND state NOT IN ('played','retired')",[lockedSegment.id,row.segment_revision_id]);
       }
-      if(payload.stage==="video_base")await client.query(`INSERT INTO sloptogether.outbox(event_kind,aggregate_id,payload,idempotency_key)
-        VALUES('media.publish_requested',$1,$2::jsonb,$3) ON CONFLICT(idempotency_key) DO NOTHING`,[payload.assetId,JSON.stringify({assetId:payload.assetId,approvalPath}),"publish:"+payload.assetId+":"+payload.sha256]);
+      if(payload.stage==="video_base"){
+        await client.query("SELECT sloptogether.schedule_preair_upscale($1)",[payload.assetId]);
+        await client.query(`INSERT INTO sloptogether.outbox(event_kind,aggregate_id,payload,idempotency_key)
+          VALUES('media.publish_requested',$1,$2::jsonb,$3) ON CONFLICT(idempotency_key) DO NOTHING`,[payload.assetId,JSON.stringify({assetId:payload.assetId,approvalPath}),"publish:"+payload.assetId+":"+payload.sha256]);
+      }
     }
     await client.query(`INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,action,target_kind,target_id,after_state)
       VALUES($1,$2,$3,'asset',$4,$5::jsonb)`, [row.twitch_channel_id, row.requested_by,autoApproved?"artifact.trusted_approved":"artifact.validated",payload.assetId, JSON.stringify({ attemptId: payload.attemptId, sha256: payload.sha256, approvalPath, ...metadata })]);
@@ -538,7 +569,7 @@ async function releaseForRetry(pool, message) {
     WHERE id=$1 AND delivered_at IS NULL AND leased_until=$2`, [message.id, message.leaseUntil, delay]);
 }
 
-async function validateOne(pool, storage, config, message) {
+export async function validateOne(pool, storage, config, message) {
   let payload;
   try {
     payload = validateOutboxPayload(message.payload);
@@ -554,6 +585,11 @@ async function validateOne(pool, storage, config, message) {
     await finishStale(pool, message);
     return { status: "stale" };
   }
+  // Outbox delivery can lag; the attempt deadline remains authoritative until commit.
+  if(current.attempt_deadline_active!==true){
+    const rejected=await recordFailure(pool,message,payload,"worker_attempt_expired");
+    return rejected?{status:"rejected",code:"worker_attempt_expired"}:{status:"stale"};
+  }
   if (current.input_state !== "clear") {
     await recordFailure(pool, message, payload, "media_input_screen_not_clear");
     return { status: "rejected", code: "media_input_screen_not_clear" };
@@ -567,14 +603,13 @@ async function validateOne(pool, storage, config, message) {
     }
     const probe = await probeFile(config.ffprobe, snapshot.file);
     const metadata = validateMediaMetadata(probe, {
-      width: Number(current.output_width),
-      height: Number(current.output_height),
+      ...expectedArtifactDimensions(current),
       fpsNum: Number(current.output_fps_num),
       fpsDen: Number(current.output_fps_den),
     }, snapshot.bytes, {
       maxBytes: config.maxBytes,
-      minDurationSeconds: config.minDuration,
-      maxDurationSeconds: config.maxDuration,
+      minDurationSeconds: current.interrupt_id ? 9.5 : config.minDuration,
+      maxDurationSeconds: current.interrupt_id ? 10.5 : config.maxDuration,
     });
     await decodeMedia(config.ffmpeg,snapshot.file);
     const trustedBinding=trustedSystemApprovalCandidate(current)
@@ -583,6 +618,7 @@ async function validateOne(pool, storage, config, message) {
         ?{kind:"trusted_uploader",approvalPath:trustedUploaderApprovalPath(current),channelPolicyRevision:current.channel_policy_revision,segmentRevisionId:current.segment_revision_id}
         :null;
     const accepted = await commitValidation(pool, message, payload, metadata, trustedBinding);
+    if(accepted==="expired")return {status:"rejected",code:"worker_attempt_expired"};
     return { status: accepted ? "validated" : "stale" };
   } catch (error) {
     if (error instanceof InvalidMediaError) {
@@ -631,9 +667,19 @@ export function createMediaValidator(env = process.env) {
   }
 
   async function start() {
+    let databaseFailureCount = 0;
     while (!stopping) {
-      const result = await runOnce();
-      if (result === null && !stopping) await new Promise((resolve) => setTimeout(resolve, config.pollMs));
+      try {
+        const result = await runOnce();
+        databaseFailureCount = 0;
+        if (result === null && !stopping) await new Promise((resolve) => setTimeout(resolve, config.pollMs));
+      } catch (error) {
+        databaseFailureCount += 1;
+        const delayMs = databaseRetryDelayMs(databaseFailureCount);
+        const code = error instanceof Error ? (error.code || error.name) : "unknown_error";
+        console.error(JSON.stringify({ event: "media_validator_database_retry", code, attempt: databaseFailureCount, delayMs }));
+        if (!stopping) await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
     }
     await storage.destroy();
     await pool.end();

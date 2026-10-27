@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "fc072f7f3abea1cc10f293fc27b36c179ee9da0567d18edf1193c0b70d584e37",
+  "artifact_digest": "911188efad5aea329bdf2ede5f55f994931927285b915944bfde7140de3375d4",
   "asset_digest": "4d2c60ce31de4199beb132ca0e050602bf80ab6b9a0e2044439fe0b7a52646c7",
   "assets": {
     "decoder": {
@@ -44,7 +44,7 @@
       "MODEL_REVISION": "4655337474c1c77fb52e9ac55111552e625e779c"
     }
   },
-  "code_digest": "ffef247d6cdea6dd17537760483953dad73adb5936bbea5c2d9bbc5ff8213112",
+  "code_digest": "b9761794e04fda9cb8537523679b8ddad9cac857ccf5129bdfe35f6c6a349517",
   "compatibility": {
     "comfyui_api": "prompt-history-object_info/1",
     "drama3_package": "comfystream_drama3",
