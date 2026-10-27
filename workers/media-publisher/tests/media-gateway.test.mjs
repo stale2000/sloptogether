@@ -67,11 +67,13 @@ test("gateway storage rejects foreign buckets and unscoped keys before sending",
 
 test("gateway mode requires the scoped ticket key but not raw R2 credentials",()=>{
   const env={DATABASE_URL:"postgresql://app@127.0.0.1/sloptogether",R2_BUCKET_NAME:"sloptogether-media",
-    SLOPTOGETHER_MEDIA_GATEWAY_URL:config.mediaGatewayUrl,SLOPTOGETHER_UPLOAD_TICKET_KEY:ticketKey};
+    SLOPTOGETHER_MEDIA_GATEWAY_URL:config.mediaGatewayUrl,SLOPTOGETHER_PUBLISHER_UPLOAD_TICKET_KEY:ticketKey};
   const parsed=requiredEnvironment(env);
   assert.equal(parsed.mediaGatewayUrl,config.mediaGatewayUrl);
   assert.equal(parsed.bucket,"sloptogether-media");
   assert.equal(parsed.accessKeyId,null);
   assert.equal(parsed.secretAccessKey,null);
+  assert.equal(parsed.uploadTicketKey,ticketKey);
+  assert.throws(()=>requiredEnvironment({...env,SLOPTOGETHER_PUBLISHER_UPLOAD_TICKET_KEY:undefined}),/SLOPTOGETHER_PUBLISHER_UPLOAD_TICKET_KEY_required/);
   assert.throws(()=>requiredEnvironment({...env,SLOPTOGETHER_MEDIA_GATEWAY_URL:"https://attacker.example/worker-media"}),/SLOPTOGETHER_MEDIA_GATEWAY_URL_invalid/);
 });

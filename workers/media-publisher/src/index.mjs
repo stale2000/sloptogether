@@ -27,13 +27,15 @@ const MAX_OUTBOX_BYTES = 128 * 1024 * 1024;
 
 export function requiredEnvironment(env) {
   const mediaGatewayUrl = env.SLOPTOGETHER_MEDIA_GATEWAY_URL || null;
-  const required = ["DATABASE_URL", "R2_BUCKET_NAME", ...(mediaGatewayUrl ? ["SLOPTOGETHER_UPLOAD_TICKET_KEY"] : ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"])];
+  const publisherTicketKey=env.SLOPTOGETHER_PUBLISHER_UPLOAD_TICKET_KEY||env.SLOPTOGETHER_UPLOAD_TICKET_KEY||null;
+  const required = ["DATABASE_URL", "R2_BUCKET_NAME", ...(mediaGatewayUrl ? [] : ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"])];
   for (const name of required) if (!env[name]) throw new Error(`${name}_required`);
   if(mediaGatewayUrl){
     let endpoint;try{endpoint=new URL(mediaGatewayUrl);}catch{throw new Error("SLOPTOGETHER_MEDIA_GATEWAY_URL_invalid");}
     if(endpoint.protocol!=="https:"||endpoint.hostname!=="uploads.clips.gg"||endpoint.pathname!=="/worker-media"||endpoint.username||endpoint.password||endpoint.search||endpoint.hash)
       throw new Error("SLOPTOGETHER_MEDIA_GATEWAY_URL_invalid");
   }
+  if(mediaGatewayUrl&&(!publisherTicketKey||publisherTicketKey.length<32))throw new Error("SLOPTOGETHER_PUBLISHER_UPLOAD_TICKET_KEY_required");
   return {
     databaseUrl: env.DATABASE_URL,
     publicAppUrl: env.PUBLIC_APP_URL || null,
@@ -43,7 +45,7 @@ export function requiredEnvironment(env) {
     secretAccessKey: env.R2_SECRET_ACCESS_KEY || null,
     bucket: env.R2_BUCKET_NAME,
     mediaGatewayUrl,
-    uploadTicketKey: env.SLOPTOGETHER_UPLOAD_TICKET_KEY || null,
+    uploadTicketKey: publisherTicketKey,
     ffmpeg: env.FFMPEG_PATH || "ffmpeg",
     ffprobe: env.FFPROBE_PATH || "ffprobe",
     pollMs: positiveInteger(env.MEDIA_VALIDATOR_POLL_MS, 1500, 100, 60_000),
@@ -73,12 +75,12 @@ export function assertDatabaseTarget(databaseUrl, env = process.env) {
   const url = new URL(databaseUrl);
   if (!url.protocol.startsWith("postgres")) throw new Error("DATABASE_URL_must_use_PostgreSQL");
   const clipsDatabaseUsers={
-    "db.lkyaaokrpbqucjrnhrps.supabase.co":"sloptogether_app",
-    "aws-1-us-east-2.pooler.supabase.com":"sloptogether_app.lkyaaokrpbqucjrnhrps",
+    "db.lkyaaokrpbqucjrnhrps.supabase.co":["sloptogether_app","sloptogether_publisher"],
+    "aws-1-us-east-2.pooler.supabase.com":["sloptogether_app.lkyaaokrpbqucjrnhrps","sloptogether_publisher.lkyaaokrpbqucjrnhrps"],
   };
-  const expectedUser=clipsDatabaseUsers[url.hostname.toLowerCase()];
-  if (expectedUser && (env.SLOPTOGETHER_USE_CLIPSGG_DATABASE !== "true" || url.username !== expectedUser)) {
-    throw new Error("The Clips.gg database requires the explicit opt-in and schema-scoped sloptogether_app login.");
+  const expectedUsers=clipsDatabaseUsers[url.hostname.toLowerCase()];
+  if (expectedUsers && (env.SLOPTOGETHER_USE_CLIPSGG_DATABASE !== "true" || !expectedUsers.includes(url.username))) {
+    throw new Error("The Clips.gg database requires the explicit opt-in and schema-scoped SlopTogether runtime login.");
   }
   return url;
 }
@@ -86,8 +88,8 @@ export function assertDatabaseTarget(databaseUrl, env = process.env) {
 export function databasePoolOptions(databaseUrl,env=process.env){
   const url=assertDatabaseTarget(databaseUrl,env);
   const clipsDatabaseUsers={
-    "db.lkyaaokrpbqucjrnhrps.supabase.co":"sloptogether_app",
-    "aws-1-us-east-2.pooler.supabase.com":"sloptogether_app.lkyaaokrpbqucjrnhrps",
+    "db.lkyaaokrpbqucjrnhrps.supabase.co":["sloptogether_app","sloptogether_publisher"],
+    "aws-1-us-east-2.pooler.supabase.com":["sloptogether_app.lkyaaokrpbqucjrnhrps","sloptogether_publisher.lkyaaokrpbqucjrnhrps"],
   };
   const sharedClipsDb=Object.hasOwn(clipsDatabaseUsers,url.hostname.toLowerCase());
   const ca=env.SLOPTOGETHER_DATABASE_SSL_CA?.replace(/\\n/g,"\n").trim();
