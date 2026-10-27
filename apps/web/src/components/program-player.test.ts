@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { controllerMarkerDecision,hlsPlayerMode,interruptsCrossedByForwardSeek,safeInterruptTransition,seekOrQueue,shouldSkipInterruptSpan } from "./program-player";
+import { consumeInterruptedMomentOnManualSeek,controllerMarkerDecision,hlsPlayerMode,interruptsCrossedByForwardSeek,safeInterruptTransition,seekOrQueue,shouldSkipInterruptSpan } from "./program-player";
 
 describe("seekOrQueue",()=>{
   it("keeps the user's seek for metadata rather than a previous saved position",()=>{
@@ -86,5 +86,20 @@ describe("interruptsCrossedByForwardSeek",()=>{
   it("does not consume alerts on rewind or alerts already marked non-playable",()=>{
     expect(interruptsCrossedByForwardSeek([alert],50,15)).toEqual([]);
     expect(interruptsCrossedByForwardSeek([{...alert,skipPlayback:true}],15,50)).toEqual([]);
+  });
+});
+
+describe("consumeInterruptedMomentOnManualSeek",()=>{
+  it("consumes an in-progress subscriber moment so manual seeking cannot trigger an automatic rewind",()=>{
+    const consumed=new Set<string>();
+    expect(consumeInterruptedMomentOnManualSeek({interruptItemId:"subscriber-item",interruptEndSeconds:45,resumeSeconds:15,
+      controllerEpoch:3,sawInterrupt:true},consumed)).toBe(true);
+    expect(consumed).toEqual(new Set(["subscriber-item"]));
+  });
+
+  it("does not mark an alert consumed when there is no automatic transition in progress",()=>{
+    const consumed=new Set<string>();
+    expect(consumeInterruptedMomentOnManualSeek(null,consumed)).toBe(false);
+    expect(consumed.size).toBe(0);
   });
 });

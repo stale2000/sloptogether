@@ -57,6 +57,20 @@ interface ProgressEvent { itemId: string; seconds: number; manifestRevision: num
 
 export interface ProgramPlayerHandle { seek: (seconds: number) => void }
 
+interface InterruptResumeState {
+  interruptItemId:string;
+  interruptEndSeconds:number;
+  resumeSeconds:number;
+  controllerEpoch:number;
+  sawInterrupt:boolean;
+}
+
+export function consumeInterruptedMomentOnManualSeek(resume:InterruptResumeState|null,consumed:Set<string>):boolean{
+  if(!resume)return false;
+  consumed.add(resume.interruptItemId);
+  return true;
+}
+
 export function seekOrQueue(media:Pick<HTMLMediaElement,"readyState"|"currentTime">|null,seconds:number):number|null{
   if(media&&media.readyState>=1){
     try{media.currentTime=seconds;return null;}catch{/* retry once metadata is ready */}
@@ -118,7 +132,7 @@ export function ProgramPlayer({
   const sourceSwitchingRef=useRef(false);
   const resumeAfterSourceRef=useRef(false);
   const resumePlaybackRef=useRef<(()=>void)|null>(null);
-  const interruptResumeRef=useRef<{interruptItemId:string;interruptEndSeconds:number;resumeSeconds:number;controllerEpoch:number;sawInterrupt:boolean}|null>(null);
+  const interruptResumeRef=useRef<InterruptResumeState|null>(null);
   const lastTriggeredInterruptRef=useRef<string|null>(null);
   const consumedInterruptsRef=useRef(new Set<string>());
   const sourceGenerationRef=useRef(0);
@@ -135,6 +149,8 @@ export function ProgramPlayer({
   const sourceStartPositionRef=useRef(0);
   useImperativeHandle(seekRef,()=>({seek(seconds:number){
     manualSeekRef.current={epoch:markerEpochRef.current,programEpoch:programEpochRef.current};
+    consumeInterruptedMomentOnManualSeek(interruptResumeRef.current,consumedInterruptsRef.current);
+    interruptResumeRef.current=null;
     const currentPosition=videoRef.current?.currentTime??sourceStartPositionRef.current;
     for(const itemId of interruptsCrossedByForwardSeek(spans,currentPosition,seconds))consumedInterruptsRef.current.add(itemId);
     sourceStartPositionRef.current=seconds;

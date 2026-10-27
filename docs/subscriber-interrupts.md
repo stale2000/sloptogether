@@ -8,6 +8,8 @@ Manual local browser verification on `http://localhost:3000/sloptogether/channel
 
 Manual deployed verification on [stale2000's output page](https://www.clips.gg/sloptogether/channels/stale2000/output) confirmed the program/timeline APIs and HLS playlist return HTTP 200, signed R2 segments load, and the 1280×720 video reaches `readyState=4` and plays. The clip 2 jump and video click pause/resume also work on the deployed page. This does not verify subscriber clip insertion, discontinuity handling, or story resume in the browser.
 
+Live Twitch smoke test (October 27, 2026): the Hosted Test Extension accepted a free prompt, opened an election, and recorded an Extension ballot in the production app. The test election was then unlocked with a streamer override; no render job was created and no GPU/provider work was started. The Extension was restored to Hosted Test afterward. The broadcaster completed the `channel:read:subscriptions` OAuth flow without a two-factor prompt, and the control page reports subscription access ready. Production subscriber interrupts remain disabled, the owner generation budget and hourly cap are both `$0`, and there is no EventSub registration for this channel. Do not enable paid interrupts or raise either cap as part of a smoke test; the local signed-EventSub integration test below is the verified job-creation path until a separately budgeted live event test is arranged.
+
 The implemented unavailable/over-budget behavior is `skip`. Text-only acknowledgments are not active because no separate moderation/display consumer exists; legacy settings that selected that fallback are normalized to `skip`.
 
 ## Event source and identity
