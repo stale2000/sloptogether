@@ -32,6 +32,7 @@ from comfystream_sol_refiner_h3.fixed_conditioning import (
     prepare_fixed_conditioning,
 )
 from comfystream_sol_refiner_h3.model_runtime import (
+    HostMemorySampler,
     _RUNTIME as MODEL_RUNTIME,
 )
 from comfystream_sol_refiner_h3.model_runtime import (
@@ -60,6 +61,21 @@ from comfystream_sol_refiner_h3.protocol import (
 
 
 def run(request: WorkerRequest) -> dict[str, object]:
+    memory = HostMemorySampler()
+    memory.start()
+    try:
+        report = _run_request(request)
+    except Exception as error:
+        memory.stop()
+        failure = {"status": "failed", "error_type": type(error).__name__, **memory.report()}
+        print("[sol-refiner] failed-request memory " + json.dumps(failure, sort_keys=True), file=sys.stderr, flush=True)
+        raise
+    memory.stop()
+    report.update(memory.report())
+    return report
+
+
+def _run_request(request: WorkerRequest) -> dict[str, object]:
     import torch
     from diffusers.utils import load_video
 
