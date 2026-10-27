@@ -1003,7 +1003,7 @@ async function storeStoryCandidate(channel:ChannelRow,streamId:string,grant:Work
       const branch=await client.query<{id:string}>("SELECT id FROM sloptogether.branches WHERE twitch_channel_id=$1 AND stream_id=$2 AND is_selected AND archived_at IS NULL FOR UPDATE",[channel.twitch_channel_id,streamId]);
       if(!branch.rows[0])throw new ApiError(409,"selected_branch_unavailable");
       const tail=await client.query<{id:string;ordinal:string;state:string;selected_revision_id:string|null;protected_at:Date|null}>(
-        "SELECT id,ordinal::text,state,selected_revision_id,protected_at FROM sloptogether.segments WHERE branch_id=$1 ORDER BY ordinal DESC LIMIT 1 FOR UPDATE",[branch.rows[0].id]);
+        "SELECT s.id,s.ordinal::text,s.state,s.selected_revision_id,s.protected_at FROM sloptogether.segments s WHERE s.branch_id=$1 ORDER BY s.ordinal DESC LIMIT 1 FOR UPDATE OF s",[branch.rows[0].id]);
       const last=tail.rows[0];
       let reuse=false;
       if(last&&last.state==='open'&&!last.selected_revision_id&&!last.protected_at){

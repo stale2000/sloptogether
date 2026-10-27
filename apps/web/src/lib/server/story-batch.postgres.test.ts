@@ -73,7 +73,9 @@ integration("four-scene story batch PostgreSQL flow",()=>{
       planning_mode,provider_recipe_id,input_sha256,requested_by,state)
       VALUES($1,$2,1,'Initial approved scene',$3,$3,'planned_anchors','fast-h3-trim-5step-vsa20-b1',$4,$5,'ready')`,
       [revisionId,segmentId,initialBoundaryId,Buffer.alloc(32,1),channelId]);
-    await database.query("UPDATE sloptogether.segments SET selected_revision_id=$2,state='played' WHERE id=$1",[segmentId,revisionId]);
+    // Exercise the 9→10→11 boundary: ordering an ordinal cast to text would
+    // choose 9 after 10 and try to insert a duplicate scene 10.
+    await database.query("UPDATE sloptogether.segments SET selected_revision_id=$2,state='played',ordinal=9 WHERE id=$1",[segmentId,revisionId]);
     const keyId=randomUUID();
     credential=`slw_${keyId}.ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-`;
     await database.query(`INSERT INTO sloptogether.application_keys(key_id,secret_hash,key_prefix,issuing_twitch_user_id,twitch_channel_id,
