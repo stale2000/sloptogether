@@ -54,6 +54,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
   let bitsTimer = 0;
   let bitsTargetInFlight = null;
   let authorizedIdentity = null;
+  let authorizedChannelId = null;
   let identityEpoch = 0;
   let streamEpoch = 0;
   let bitsTransactionEpoch = null;
@@ -575,6 +576,11 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     }
     helper.onAuthorized((auth) => {
       const nextIdentity = `${auth.channelId}:${auth.userId || ""}`;
+      if (auth.channelId !== authorizedChannelId) {
+        authorizedChannelId = auth.channelId;
+        selectedStreamSlug = "main";
+        streamEpoch += 1;
+      }
       if (nextIdentity !== authorizedIdentity) {
         if (voteAbortController) voteAbortController.abort();
         voteAbortController = null;

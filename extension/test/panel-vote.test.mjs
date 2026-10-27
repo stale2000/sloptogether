@@ -30,7 +30,7 @@ class Element {
   click() { this.handlers.click?.(); }
 }
 
-function panelHarness({ proposalResponse = { ok:true, json:async()=>({state:"eligible"}) }, streams = [{ slug:"main", displayName:"Main stream", isDefault:true }] } = {}) {
+function panelHarness({ proposalResponse = { ok:true, json:async()=>({state:"eligible"}) }, streams = [{ slug:"main", displayName:"Main stream", isDefault:true }], streamsByToken = null } = {}) {
   const elements = new Map();
   const getElementById = id => {
     if (!elements.has(id)) elements.set(id, new Element());
@@ -56,8 +56,11 @@ function panelHarness({ proposalResponse = { ok:true, json:async()=>({state:"eli
     calls.push({ url, options });
     if (url.startsWith("https://www.clips.gg/sloptogether/api/v1/extension/state?stream=")) {
       const stream = new URL(url).searchParams.get("stream");
+      const availableStreams=streamsByToken?.[options.headers?.["x-extension-jwt"]]??streams;
+      if(!availableStreams.some(item=>item.slug===stream))return Promise.resolve({ok:false,json:async()=>({message:"Stream not found."})});
       return Promise.resolve({ ok: true, json: async () => ({
-        channel: { twitchLogin: "channel" }, streams, activeElection: stream === "late-night" ? otherElection : election, canSubmitPrompts: true,
+        channel: { twitchLogin: options.headers?.["x-extension-jwt"]==="two"?"other-channel":"channel" }, streams:availableStreams,
+        activeElection: stream === "late-night" ? otherElection : election, canSubmitPrompts: true,
       }) });
     }
     if (/\/proposals$/.test(url)) return Promise.resolve(proposalResponse);
@@ -213,4 +216,25 @@ test("a prompt finishing after a stream switch does not clear the new stream's d
   finishPrompt({state:"eligible"});
   await settle();
   assert.equal(panel.elements.get("prompt-input").value,"Late night draft");
+});
+
+test("authorizing a different channel resets a stream that does not exist there", async () => {
+  const main=[{slug:"main",displayName:"Main stream",isDefault:true}];
+  const streamsByToken={
+    one:[...main,{slug:"late-night",displayName:"Late night",isDefault:false}],
+    two:main,
+  };
+  const panel=panelHarness({streams:main,streamsByToken});
+  panel.authorize({channelId:"channel-one",userId:"viewer-one",token:"one"});
+  await settle();
+  panel.elements.get("stream-select").value="late-night";
+  panel.elements.get("stream-select").handlers.change();
+  await settle();
+  assert.equal(panel.elements.get("choices").children[0].dataset.choiceId,"choice-late");
+
+  panel.authorize({channelId:"channel-two",userId:"viewer-two",token:"two"});
+  await settle();
+  assert.ok(panel.calls.some(call=>call.url.endsWith("/extension/state?stream=main")&&call.options.headers["x-extension-jwt"]==="two"));
+  assert.equal(panel.elements.get("choices").children[0].dataset.choiceId,"choice-one");
+  assert.equal(panel.elements.get("error").hidden,true);
 });
