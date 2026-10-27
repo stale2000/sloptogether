@@ -171,15 +171,25 @@ export async function heartbeatPlayback(locator:string,request:Request,streamSlu
     if(body.sequence<=Number(row.event_sequence))throw new ApiError(409,"playback_sequence_stale");
     const manifest=await currentManifest(client,stream.id);
     if(manifest.epoch!==body.programEpoch||body.manifestRevision>manifest.revision)throw new ApiError(409,"playback_manifest_stale");
-    const item=await client.query<{id:string;segment_id:string|null;interrupt_id:string|null;source_pts_start:string|null;duration_seconds:string}>(
-      `SELECT pi.id,pi.segment_id,pi.interrupt_id,pi.source_pts_start,sum(ms.duration_seconds)::text AS duration_seconds
+    const item=await client.query<{id:string;segment_id:string|null;interrupt_id:string|null;source_pts_start:string|null;duration_seconds:string;item_order:string;active_item_order:string|null}>(
+      `SELECT pi.id,pi.segment_id,pi.interrupt_id,pi.source_pts_start,pi.item_order::text,
+          (SELECT active.item_order::text FROM sloptogether.program_items active
+           WHERE active.id=$4 AND active.stream_id=$1 AND active.program_epoch=$2) AS active_item_order,
+          sum(ms.duration_seconds)::text AS duration_seconds
        FROM sloptogether.program_items pi JOIN sloptogether.program_media_segments ms ON ms.program_item_id=pi.id
        WHERE pi.stream_id=$1 AND pi.program_epoch=$2 AND pi.committed_at IS NOT NULL
          AND (pi.id=$3 OR pi.segment_id=$3 OR pi.interrupt_id=$3)
-       GROUP BY pi.id ORDER BY pi.item_order DESC LIMIT 1`,[stream.id,body.programEpoch,body.itemId]);
+       GROUP BY pi.id ORDER BY pi.item_order DESC LIMIT 1`,[stream.id,body.programEpoch,body.itemId,row.active_item_id]);
     const target=item.rows[0];if(!target)throw new ApiError(404,"playback_item_not_committed");
     const localOffset=body.offsetSeconds-Number(target.source_pts_start??0);
     if(localOffset<0||localOffset>Number(target.duration_seconds)+0.5)throw new ApiError(422,"playback_position_out_of_range");
+    await client.query(`UPDATE sloptogether.interrupt_requests pending SET program_state='skipped'
+      FROM sloptogether.program_items passed
+      WHERE passed.interrupt_id=pending.id AND passed.stream_id=$1 AND passed.program_epoch=$2
+        AND passed.committed_at IS NOT NULL AND passed.item_order<$3
+        AND ($4::bigint IS NULL OR passed.item_order>$4::bigint)
+        AND pending.program_state IN ('ready','scheduled')`,
+    [stream.id,body.programEpoch,target.item_order,target.active_item_order]);
     await client.query("UPDATE sloptogether.playback_sessions SET active_item_id=$2,item_offset_seconds=$3,event_sequence=$4,lease_expires_at=now()+interval '25 seconds',updated_at=now() WHERE id=$1",[row.id,target.id,Math.min(localOffset,Number(target.duration_seconds)),body.sequence]);
     if(target.segment_id)await client.query("UPDATE sloptogether.segments SET state='played' WHERE id=$1 AND state='ready'",[target.segment_id]);
     if(target.interrupt_id)await client.query("UPDATE sloptogether.interrupt_requests SET program_state='playing' WHERE id=$1 AND program_state IN ('ready','scheduled')",[target.interrupt_id]);

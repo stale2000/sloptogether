@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { controllerMarkerDecision,hlsPlayerMode,safeInterruptTransition,seekOrQueue,shouldSkipInterruptSpan } from "./program-player";
+import { controllerMarkerDecision,hlsPlayerMode,interruptsCrossedByForwardSeek,safeInterruptTransition,seekOrQueue,shouldSkipInterruptSpan } from "./program-player";
 
 describe("seekOrQueue",()=>{
   it("keeps the user's seek for metadata rather than a previous saved position",()=>{
@@ -74,5 +74,17 @@ describe("safeInterruptTransition",()=>{
     expect(shouldSkipInterruptSpan(span,new Set(["alert-item"]))).toBe(true);
     expect(shouldSkipInterruptSpan({...span,skipPlayback:true},new Set())).toBe(true);
     expect(shouldSkipInterruptSpan(span,new Set())).toBe(false);
+  });
+});
+
+describe("interruptsCrossedByForwardSeek",()=>{
+  const alert={itemId:"alert-item",interruptId:"alert-1",kind:"subscriber_interrupt" as const,outputStartSeconds:30,outputEndSeconds:45};
+  it("consumes alerts passed by a forward seek, but not an alert the viewer seeks into",()=>{
+    expect(interruptsCrossedByForwardSeek([alert],15,50)).toEqual(["alert-item"]);
+    expect(interruptsCrossedByForwardSeek([alert],15,35)).toEqual([]);
+  });
+  it("does not consume alerts on rewind or alerts already marked non-playable",()=>{
+    expect(interruptsCrossedByForwardSeek([alert],50,15)).toEqual([]);
+    expect(interruptsCrossedByForwardSeek([{...alert,skipPlayback:true}],15,50)).toEqual([]);
   });
 });

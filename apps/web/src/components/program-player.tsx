@@ -18,6 +18,13 @@ export function shouldSkipInterruptSpan(span:ProgramSpan|undefined,consumed:Set<
   return Boolean(span?.kind==="subscriber_interrupt"&&(span.skipPlayback||consumed.has(span.itemId??span.interruptId??"")));
 }
 
+export function interruptsCrossedByForwardSeek(spans:ProgramSpan[],fromSeconds:number,toSeconds:number){
+  if(!Number.isFinite(fromSeconds)||!Number.isFinite(toSeconds)||toSeconds<=fromSeconds)return [];
+  return spans.filter(span=>span.kind==="subscriber_interrupt"&&!span.skipPlayback
+    &&span.outputEndSeconds>fromSeconds&&span.outputEndSeconds<=toSeconds)
+    .map(span=>span.itemId??span.interruptId).filter((id):id is string=>Boolean(id));
+}
+
 export function hlsPlayerMode(hasMediaSourceExtensions:boolean,canPlayNatively:boolean){
   return hasMediaSourceExtensions?"hls.js":canPlayNatively?"native":"unsupported";
 }
@@ -116,6 +123,7 @@ export function ProgramPlayer({
   const consumedInterruptsRef=useRef(new Set<string>());
   const sourceGenerationRef=useRef(0);
   const playAttemptGenerationRef=useRef(0);
+  const spans = useMemo(() => program?.programSpans ?? [], [program?.programSpans]);
   useEffect(()=>{autoPlayIntentRef.current=autoPlayIntent},[autoPlayIntent]);
   useEffect(()=>{fallbackRef.current=fallbackItem;},[fallbackItem]);
   const url = program?.playlistUrl || (fallbackItem?.assetUrl ?? null);
@@ -127,16 +135,15 @@ export function ProgramPlayer({
   const sourceStartPositionRef=useRef(0);
   useImperativeHandle(seekRef,()=>({seek(seconds:number){
     manualSeekRef.current={epoch:markerEpochRef.current,programEpoch:programEpochRef.current};
+    const currentPosition=videoRef.current?.currentTime??sourceStartPositionRef.current;
+    for(const itemId of interruptsCrossedByForwardSeek(spans,currentPosition,seconds))consumedInterruptsRef.current.add(itemId);
     sourceStartPositionRef.current=seconds;
     pendingSeekRef.current=seekOrQueue(videoRef.current,seconds);
-  }}),[]);
+  }}),[spans]);
   useEffect(()=>{
     if(manualSeekRef.current&&manualSeekRef.current.programEpoch!==(program?.epoch??null))manualSeekRef.current=null;
     if(!manualSeekRef.current)sourceStartPositionRef.current=program?.playhead?.outputSeconds??0;
   },[program?.epoch,program?.playlistUrl,program?.playhead?.outputSeconds]);
-
-  const spans = useMemo(() => program?.programSpans ?? [], [program?.programSpans]);
-
   useEffect(() => {
     const media = videoRef.current;
     if (!media || !url) return;
@@ -301,7 +308,8 @@ export function ProgramPlayer({
             return;
           }else if(span?.itemId===resume.interruptItemId){resume.sawInterrupt=true;}
         }
-        if(canAutoInterrupt&&autoInterruptId&&lastTriggeredInterruptRef.current!==autoInterruptId&&!interruptResumeRef.current){
+        if(canAutoInterrupt&&autoInterruptId&&lastTriggeredInterruptRef.current!==autoInterruptId
+          &&!consumedInterruptsRef.current.has(autoInterruptId)&&!interruptResumeRef.current){
           const transition=safeInterruptTransition(spans,position,autoInterruptId);
           if(transition){
             lastTriggeredInterruptRef.current=autoInterruptId;

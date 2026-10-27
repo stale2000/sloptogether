@@ -14,6 +14,7 @@ import {claimStoryProducer,claimWorkerLease,submitStoryProposal} from "./worker-
 import {requestPrincipal} from "./principals";
 import {hashWorkerSecret} from "./crypto";
 import {handleEventSubWebhook} from "./subscriber-service";
+import {heartbeatPlayback} from "./program-service";
 
 const url=process.env.SLOPTOGETHER_POLICY_TEST_DATABASE_URL;
 const integration=url?describe:describe.skip;
@@ -103,6 +104,9 @@ integration("Twitch Extension prompt to pull-worker PostgreSQL flow",()=>{
       }
       await database.query("DELETE FROM sloptogether.proposal_rate_reservations WHERE twitch_channel_id=$1",[channelId]);
       await database.query("DELETE FROM sloptogether.outbox WHERE aggregate_id IN (SELECT id::text FROM sloptogether.interrupt_requests WHERE broadcaster_twitch_id=$1)",[channelId]);
+      await database.query("UPDATE sloptogether.playback_sessions SET active_item_id=NULL WHERE twitch_channel_id=$1",[channelId]);
+      await database.query("DELETE FROM sloptogether.program_media_segments WHERE program_item_id IN (SELECT id FROM sloptogether.program_items WHERE twitch_channel_id=$1)",[channelId]);
+      await database.query("DELETE FROM sloptogether.program_items WHERE twitch_channel_id=$1",[channelId]);
       await database.query("UPDATE sloptogether.subscription_events SET interrupt_id=NULL WHERE broadcaster_twitch_id=$1",[channelId]);
       await database.query("DELETE FROM sloptogether.interrupt_requests WHERE broadcaster_twitch_id=$1",[channelId]);
       await database.query("DELETE FROM sloptogether.subscription_events WHERE broadcaster_twitch_id=$1",[channelId]);
@@ -121,8 +125,6 @@ integration("Twitch Extension prompt to pull-worker PostgreSQL flow",()=>{
       await database.query("DELETE FROM sloptogether.segments WHERE twitch_channel_id=$1",[channelId]);
       await database.query("DELETE FROM sloptogether.branches WHERE twitch_channel_id=$1",[channelId]);
       await database.query("DELETE FROM sloptogether.playback_sessions WHERE twitch_channel_id=$1",[channelId]);
-      await database.query("DELETE FROM sloptogether.program_media_segments WHERE program_item_id IN (SELECT id FROM sloptogether.program_items WHERE twitch_channel_id=$1)",[channelId]);
-      await database.query("DELETE FROM sloptogether.program_items WHERE twitch_channel_id=$1",[channelId]);
       await database.query("DELETE FROM sloptogether.program_manifests WHERE twitch_channel_id=$1",[channelId]);
       await database.query("DELETE FROM sloptogether.streams WHERE twitch_channel_id=$1",[channelId]);
       await database.query("DELETE FROM sloptogether.boundary_revisions WHERE twitch_channel_id=$1",[channelId]);
@@ -224,5 +226,43 @@ integration("Twitch Extension prompt to pull-worker PostgreSQL flow",()=>{
       (j.planning_payload->>'durationSeconds')::int AS duration_seconds,(j.planning_payload->>'frameCount')::int AS frame_count
       FROM sloptogether.jobs j JOIN sloptogether.interrupt_requests ir ON ir.id=j.interrupt_id WHERE j.id=$1`,[proposal.jobId]);
     expect(state.rows[0]).toEqual({state:"leased",program_state:"rendering",duration_seconds:10,frame_count:243});
+  },30_000);
+
+  it("marks a ready subscriber clip skipped when the controller seeks past it, but preserves it on rewind",async()=>{
+    if(!channelId)throw new Error("integration_fixture_missing");
+    const streamId=(await database!.query<{id:string}>("SELECT id FROM sloptogether.streams WHERE twitch_channel_id=$1 AND is_default",[channelId])).rows[0]!.id;
+    const segmentId=(await database!.query<{id:string}>("SELECT id FROM sloptogether.segments WHERE twitch_channel_id=$1 ORDER BY ordinal LIMIT 1",[channelId])).rows[0]!.id;
+    const interruptId=(await database!.query<{id:string}>("SELECT id FROM sloptogether.interrupt_requests WHERE broadcaster_twitch_id=$1 ORDER BY created_at DESC LIMIT 1",[channelId])).rows[0]!.id;
+    const storyBeforeId=randomUUID(),interruptItemId=randomUUID(),storyAfterId=randomUUID();
+    await database!.query("UPDATE sloptogether.interrupt_requests SET program_state='ready',asset_id=$2 WHERE id=$1",[interruptId,startAssetId]);
+    await database!.query(`INSERT INTO sloptogether.program_items(id,twitch_channel_id,stream_id,item_kind,segment_id,interrupt_id,asset_id,item_order,source_pts_start,source_pts_end,program_epoch,committed_at)
+      VALUES($1,$4,$5,'story',$6,NULL,$7,0,0,15,1,now()),($2,$4,$5,'subscriber_interrupt',NULL,$8,$7,1,15,30,1,now()),($3,$4,$5,'story',$6,NULL,$7,2,30,45,1,now())`,
+    [storyBeforeId,interruptItemId,storyAfterId,channelId,streamId,segmentId,startAssetId,interruptId]);
+    for(const [programItemId,start] of [[storyBeforeId,0],[interruptItemId,15],[storyAfterId,30]] as const){
+      await database!.query(`INSERT INTO sloptogether.program_media_segments(program_item_id,media_asset_id,media_sequence,duration_seconds,source_pts_start,source_pts_end,sha256)
+        VALUES($1,$2,0,15,$3,$4,$5)`,[programItemId,startAssetId,start,start+15,Buffer.alloc(32,7)]);
+    }
+    await database!.query("UPDATE sloptogether.program_manifests SET manifest_revision=1 WHERE stream_id=$1 AND program_epoch=1",[streamId]);
+    const controlKeyId=randomUUID(),credential=`slw_${controlKeyId}.abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH`;
+    await database!.query(`INSERT INTO sloptogether.application_keys(key_id,secret_hash,key_prefix,issuing_twitch_user_id,twitch_channel_id,
+      display_name,scopes,worker_roles) VALUES($1,$2,$3,$4,$5,'Local playback controller',ARRAY['streamer:control'],ARRAY[]::text[])`,
+    [controlKeyId,hashWorkerSecret(credential),`slw_${controlKeyId}`,channelId,channelId]);
+    const headers={Authorization:`SlopWorker ${credential}`,"Content-Type":"application/json"};
+    await database!.query(`UPDATE sloptogether.playback_sessions SET controller_user_id=$2,controller_epoch=1,event_sequence=0,
+      active_item_id=$3,item_offset_seconds=14,lease_expires_at=now()+interval '1 minute' WHERE stream_id=$1`,[streamId,channelId,storyBeforeId]);
+    const seekPastAlert=()=>heartbeatPlayback(channelId!,new Request("http://127.0.0.1:3000/sloptogether/api/v1/channels/playback/position",{
+      method:"POST",headers,body:JSON.stringify({itemId:storyAfterId,offsetSeconds:31,controllerEpoch:1,programEpoch:1,manifestRevision:1,sequence:1}),
+    }));
+    await expect(seekPastAlert()).resolves.toMatchObject({accepted:true,itemId:storyAfterId});
+    await expect(database!.query<{program_state:string}>("SELECT program_state FROM sloptogether.interrupt_requests WHERE id=$1",[interruptId]))
+      .resolves.toMatchObject({rows:[{program_state:"skipped"}]});
+
+    await database!.query("UPDATE sloptogether.interrupt_requests SET program_state='ready' WHERE id=$1",[interruptId]);
+    await database!.query("UPDATE sloptogether.playback_sessions SET active_item_id=$2,event_sequence=1,item_offset_seconds=1 WHERE stream_id=$1",[streamId,storyAfterId]);
+    await expect(heartbeatPlayback(channelId!,new Request("http://127.0.0.1:3000/sloptogether/api/v1/channels/playback/position",{
+      method:"POST",headers,body:JSON.stringify({itemId:storyBeforeId,offsetSeconds:1,controllerEpoch:1,programEpoch:1,manifestRevision:1,sequence:2}),
+    }))).resolves.toMatchObject({accepted:true,itemId:storyBeforeId});
+    await expect(database!.query<{program_state:string}>("SELECT program_state FROM sloptogether.interrupt_requests WHERE id=$1",[interruptId]))
+      .resolves.toMatchObject({rows:[{program_state:"ready"}]});
   },30_000);
 });
