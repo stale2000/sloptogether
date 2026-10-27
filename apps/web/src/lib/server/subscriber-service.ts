@@ -443,12 +443,10 @@ function parseEnvelope(raw: Buffer, request: Request): EventSubEnvelope {
   const headerVersion = request.headers.get("twitch-eventsub-subscription-version");
   if ((headerType && headerType !== type) || (headerVersion && headerVersion !== "1")) throw new ApiError(403, "eventsub_subscription_mismatch");
   const transport = subscription.transport as Record<string, unknown> | undefined;
-  if (transport?.method !== undefined && transport.method !== "webhook") throw new ApiError(403, "eventsub_transport_invalid");
-  if (transport?.callback !== undefined) {
-    const expected = process.env.TWITCH_EVENTSUB_CALLBACK_URL
-      ?? (process.env.PUBLIC_APP_URL ? process.env.PUBLIC_APP_URL.replace(/\/$/, "") + "/api/v1/webhooks/eventsub" : null);
-    if (!expected || typeof transport.callback !== "string" || transport.callback !== expected) throw new ApiError(403, "eventsub_callback_mismatch");
-  }
+  if (!transport || transport.method !== "webhook") throw new ApiError(403, "eventsub_transport_invalid");
+  const expected = process.env.TWITCH_EVENTSUB_CALLBACK_URL
+    ?? (process.env.PUBLIC_APP_URL ? process.env.PUBLIC_APP_URL.replace(/\/$/, "") + "/api/v1/webhooks/eventsub" : null);
+  if (!expected || typeof transport.callback !== "string" || transport.callback !== expected) throw new ApiError(403, "eventsub_callback_mismatch");
   return value as EventSubEnvelope;
 }
 

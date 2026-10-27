@@ -16,7 +16,7 @@ let database:ReturnType<typeof pool>|null=null;
 function request(messageId:string){
   const timestamp=new Date().toISOString();
   const body=JSON.stringify({
-    subscription:{id:"local-integration",type:"channel.subscribe",version:"1",condition:{broadcaster_user_id:channelId},transport:{method:"webhook"}},
+    subscription:{id:"local-integration",type:"channel.subscribe",version:"1",condition:{broadcaster_user_id:channelId},transport:{method:"webhook",callback:"http://127.0.0.1:3000/sloptogether/api/v1/webhooks/eventsub"}},
     event:{broadcaster_user_id:channelId,user_id:String(BigInt(ownerId)+1n),user_login:"testsubscriber",user_name:"Test Subscriber",is_anonymous:false,is_gift:false},
   });
   const signature=createHmac("sha256",eventSubSecret).update(messageId+timestamp).update(body).digest("hex");
@@ -30,7 +30,7 @@ function verificationRequest(messageId:string){
   const timestamp=new Date().toISOString();
   const challenge="local-twitch-callback-challenge";
   const body=JSON.stringify({subscription:{id:"local-verification",type:"channel.subscribe",version:"1",
-    condition:{broadcaster_user_id:channelId},transport:{method:"webhook"}},challenge});
+    condition:{broadcaster_user_id:channelId},transport:{method:"webhook",callback:"http://127.0.0.1:3000/sloptogether/api/v1/webhooks/eventsub"}},challenge});
   const signature=createHmac("sha256",eventSubSecret).update(messageId+timestamp).update(body).digest("hex");
   return new Request("http://127.0.0.1:3000/sloptogether/api/v1/webhooks/eventsub",{method:"POST",headers:{
     "Content-Type":"application/json","Twitch-Eventsub-Message-Id":messageId,"Twitch-Eventsub-Message-Timestamp":timestamp,
@@ -48,6 +48,7 @@ describeDatabase("subscriber EventSub PostgreSQL concurrency",()=>{
       throw new Error("subscriber_eventsub_test_requires_guarded_scratch_database");
     vi.stubEnv("TWITCH_EVENTSUB_SECRET",eventSubSecret);
     vi.stubEnv("SLOPTOGETHER_SUBSCRIBER_ATTEMPT_RESERVATION_USD","0.25");
+    vi.stubEnv("PUBLIC_APP_URL","http://127.0.0.1:3000/sloptogether");
     database=pool();
     const identity=await database.query(`select current_database() as "databaseName",current_setting('data_directory') as "dataDirectory",
       host(inet_server_addr()) as "serverAddress",inet_server_port() as "serverPort",

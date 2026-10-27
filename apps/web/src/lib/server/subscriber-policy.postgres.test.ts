@@ -18,7 +18,7 @@ let created=false;
 function revocation(messageId:string,type:"channel.subscribe"|"channel.chat.message",subscriptionId:string){
   const timestamp=new Date().toISOString();
   const condition=type==="channel.chat.message"?{broadcaster_user_id:channelId,user_id:ownerId}:{broadcaster_user_id:channelId};
-  const body=JSON.stringify({subscription:{id:subscriptionId,type,version:"1",status:"authorization_revoked",condition,transport:{method:"webhook"}}});
+  const body=JSON.stringify({subscription:{id:subscriptionId,type,version:"1",status:"authorization_revoked",condition,transport:{method:"webhook",callback:"http://127.0.0.1:3000/sloptogether/api/v1/webhooks/eventsub"}}});
   const signature=createHmac("sha256",secret).update(messageId+timestamp).update(body).digest("hex");
   return new Request("http://127.0.0.1:3000/sloptogether/api/v1/webhooks/eventsub",{method:"POST",headers:{
     "Content-Type":"application/json","Twitch-Eventsub-Message-Id":messageId,"Twitch-Eventsub-Message-Timestamp":timestamp,
@@ -29,7 +29,7 @@ function revocation(messageId:string,type:"channel.subscribe"|"channel.chat.mess
 function signedSubscribe(messageId:string){
   const timestamp=new Date().toISOString();
   const event={broadcaster_user_id:channelId,user_id:"9001",user_login:"viewer_9001",user_name:"Local Viewer",is_anonymous:false,is_gift:false};
-  const body=Buffer.from(JSON.stringify({subscription:{id:"local-subscription",type:"channel.subscribe",version:"1",condition:{broadcaster_user_id:channelId},transport:{method:"webhook"}},event}));
+  const body=Buffer.from(JSON.stringify({subscription:{id:"local-subscription",type:"channel.subscribe",version:"1",condition:{broadcaster_user_id:channelId},transport:{method:"webhook",callback:"http://127.0.0.1:3000/sloptogether/api/v1/webhooks/eventsub"}},event}));
   const signature=createHmac("sha256",secret).update(Buffer.concat([Buffer.from(messageId+timestamp),body])).digest("hex");
   return new Request("http://127.0.0.1:3000/sloptogether/api/v1/webhooks/eventsub",{method:"POST",body,headers:{
     "Content-Type":"application/json","Twitch-Eventsub-Message-Id":messageId,"Twitch-Eventsub-Message-Timestamp":timestamp,
@@ -42,7 +42,7 @@ testDatabase("subscriber trust policy PostgreSQL integration",()=>{
     const parsed=new URL(url!);
     if(!["localhost","127.0.0.1","::1"].includes(parsed.hostname)||!parsed.pathname.startsWith("/sloptogether_preair_test_"))
       throw new Error("policy_test_requires_isolated_loopback_database");
-    vi.stubEnv("DATABASE_URL",url!);vi.stubEnv("SLOPTOGETHER_DATABASE_SSL_CA","");vi.stubEnv("TWITCH_EVENTSUB_SECRET",secret);
+    vi.stubEnv("DATABASE_URL",url!);vi.stubEnv("SLOPTOGETHER_DATABASE_SSL_CA","");vi.stubEnv("TWITCH_EVENTSUB_SECRET",secret);vi.stubEnv("PUBLIC_APP_URL","http://127.0.0.1:3000/sloptogether");
     vi.stubEnv("SLOPTOGETHER_SUBSCRIBER_ATTEMPT_RESERVATION_USD","0.25");
     await pool().query("INSERT INTO sloptogether.channels(twitch_channel_id,owner_twitch_user_id,twitch_login,display_name,chat_voting_enabled,owner_budget_cap_usd) VALUES($1,$1,$2,'Policy integration',true,10)",[channelId,`policy_${channelId}`]);
     created=true;
