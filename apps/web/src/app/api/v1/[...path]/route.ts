@@ -15,6 +15,7 @@ import { cancelComfyGeneration,createComfyFrameGeneration,createComfyPromptGener
 import { listWindowsWorkerRelease,recordWorkerProviderRequest,claimStoryProducer,submitStoryProposal,downloadWorkerAsset,failWorkerLease,requestClipUpscale } from "@/lib/server/worker-service";
 import { jsonError,jsonOk } from "@/lib/server/http";
 import { createStream,getStream,listStreams } from "@/lib/server/stream-service";
+import { createStoryBatch,listStoryBatches } from "@/lib/server/story-batch-service";
 
 type Context={params:Promise<{path:string[]}>};
 
@@ -64,6 +65,8 @@ async function dispatch(request:NextRequest,path:string[]){
       }
       if(p[4]==="proposals"&&p.length===5&&method==="POST")return jsonOk(await submitProposal(locator,request,stream.id),{status:201});
       if(p[4]==="story-proposals"&&p.length===5&&method==="POST")return jsonOk(await submitStoryProposal(locator,request,stream.slug),{status:201});
+      if(p[4]==="story-batches"&&p.length===5&&method==="POST")return jsonOk(await createStoryBatch(locator,request,stream.slug),{status:201});
+      if(p[4]==="story-batches"&&p.length===5&&method==="GET")return jsonOk(await listStoryBatches(locator,request,stream.slug));
       if(p[4]==="elections"&&p[5]&&p[6]==="ballots"&&p.length===7&&method==="POST"){
         const principal=await requestPrincipal(request);if(!principal)throw new ApiError(401,"login_required");
         const parsed=await readJson(request,await import("@sloptogether/contracts").then(x=>x.voteRequestSchema));

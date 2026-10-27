@@ -31,6 +31,45 @@ async function ownerAttemptBudgetBlock(client:PoolClient,channelId:string,cap:st
   return Number(spent.rows[0]?.total??0)+quote>Number(cap) ? "owner_generation_budget_exhausted" : null;
 }
 
+type PendingStoryItem={id:string;position:number;previous_state:string|null;previous_segment_id:string|null};
+
+// The caller holds the channel row lock. Every producer and batch enqueue for
+// this channel follows that lock order, keeping the oldest item authoritative.
+async function nextPendingStoryItem(client:PoolClient,channelId:string,streamId:string):Promise<PendingStoryItem|null>{
+  const result=await client.query<PendingStoryItem>(`SELECT i.id,i.position,prev.state AS previous_state,prev.segment_id AS previous_segment_id
+    FROM sloptogether.story_batch_items i JOIN sloptogether.story_batches b ON b.id=i.batch_id
+    LEFT JOIN sloptogether.story_batch_items prev ON prev.batch_id=i.batch_id AND prev.position=i.position-1
+    WHERE b.twitch_channel_id=$1 AND b.stream_id=$2 AND i.state='pending'
+    ORDER BY b.created_at,b.id,i.position LIMIT 1 FOR UPDATE OF i`,[channelId,streamId]);
+  return result.rows[0]??null;
+}
+
+async function storyItemHasReadyAnchor(client:PoolClient,channelId:string,streamId:string,item:PendingStoryItem):Promise<boolean>{
+  const latest=await client.query<{segment_id:string;revision_state:string;boundary_id:string|null;asset_status:string|null}>(
+    `SELECT s.id AS segment_id,r.state AS revision_state,
+       coalesce(r.requested_end_boundary_revision_id,er.resolved_end_boundary_revision_id) AS boundary_id,a.status AS asset_status
+     FROM sloptogether.branches b JOIN sloptogether.segments s ON s.branch_id=b.id
+     JOIN sloptogether.segment_revisions r ON r.id=s.selected_revision_id
+     LEFT JOIN LATERAL(SELECT resolved_end_boundary_revision_id FROM sloptogether.endpoint_resolutions
+       WHERE segment_revision_id=r.id AND retired_at IS NULL ORDER BY created_at DESC LIMIT 1) er ON true
+     LEFT JOIN sloptogether.boundary_revisions br ON br.id=coalesce(r.requested_end_boundary_revision_id,er.resolved_end_boundary_revision_id)
+       AND br.retired_at IS NULL AND br.twitch_channel_id=$1
+     LEFT JOIN sloptogether.assets a ON a.id=br.asset_id AND a.twitch_channel_id=$1 AND a.media_kind='image'
+     WHERE b.twitch_channel_id=$1 AND b.stream_id=$2 AND b.is_selected AND b.archived_at IS NULL
+     ORDER BY s.ordinal DESC LIMIT 1`,[channelId,streamId]);
+  const tail=latest.rows[0];
+  if(!tail||!['ready','played'].includes(tail.revision_state)||!tail.boundary_id||!['approved','published'].includes(tail.asset_status??''))return false;
+  if(item.position>0&&(item.previous_state!=='scheduled'||item.previous_segment_id!==tail.segment_id))return false;
+  const blocked=await client.query(`SELECT 1 FROM sloptogether.branches b
+    JOIN LATERAL(SELECT s.id,s.state,s.selected_revision_id,s.protected_at FROM sloptogether.segments s
+      WHERE s.branch_id=b.id ORDER BY s.ordinal DESC LIMIT 1) tail ON true
+    WHERE b.twitch_channel_id=$1 AND b.stream_id=$2 AND b.is_selected AND b.archived_at IS NULL
+      AND tail.state IN ('open','voting') AND tail.selected_revision_id IS NULL
+      AND (tail.protected_at IS NOT NULL OR EXISTS(SELECT 1 FROM sloptogether.elections e JOIN sloptogether.proposals p ON p.election_id=e.id
+        WHERE e.segment_id=tail.id AND p.state NOT IN ('rejected','withdrawn','superseded')))`,[channelId,streamId]);
+  return !blocked.rowCount;
+}
+
 const UPSCALE_RECIPE="sol-h3-upscale-pruna-fast";
 const UPSCALE_RECIPE_SHA256="e0b4949fbbc02e31b0dc697fc2bedc5a7a1efe57d5d96fe908013d89a3bf8b8c";
 const SMALL_UPSCALE_RECIPE="sol-h3-upscale-pruna-fast-1184-v1";
@@ -562,7 +601,7 @@ export async function claimStoryProducer(locator:string,request:Request,streamSl
       fence=Number(prior.rows[0]!.fence)+1;leaseId=randomUUID();sequence=1;
       await client.query("INSERT INTO sloptogether.story_producers(id,twitch_channel_id,stream_id,execution_binding_id,fence,last_sequence,lease_expires_at) VALUES($1,$2,$3,$4,$5,0,now()+interval '90 seconds')",[leaseId,channel.twitch_channel_id,stream.id,binding.rows[0]!.id,fence]);
     }
-    const pending=await client.query<{id:string;idempotency_key:string;expected_channel_revision:number;input_payload:{theme?:string;recentStorySummary?:string;recentDialogue?:string;subscriberLabel?:string;interruptId?:string;sceneSeed?:string}}>("SELECT id,idempotency_key,expected_channel_revision,input_payload FROM sloptogether.story_plan_attempts WHERE producer_id=$1 AND producer_fence=$2 AND sequence=$3 AND status='planning' FOR UPDATE",[leaseId,fence,sequence]);
+    const pending=await client.query<{id:string;idempotency_key:string;expected_channel_revision:number;input_payload:{theme?:string;recentStorySummary?:string;recentDialogue?:string;subscriberLabel?:string;interruptId?:string;sceneSeed?:string;batchItemId?:string}}>("SELECT id,idempotency_key,expected_channel_revision,input_payload FROM sloptogether.story_plan_attempts WHERE producer_id=$1 AND producer_fence=$2 AND sequence=$3 AND status='planning' FOR UPDATE",[leaseId,fence,sequence]);
     if(pending.rows[0]){
       const context=pending.rows[0].input_payload;
       let currentAttempt=pending.rows[0].expected_channel_revision===current.rows[0]!.policy_revision;
@@ -586,6 +625,13 @@ export async function claimStoryProducer(locator:string,request:Request,streamSl
             AND state='reserved' AND NOT EXISTS(SELECT 1 FROM sloptogether.job_attempts a WHERE a.funding_id=sloptogether.funding_authorizations.id AND a.claimed_at IS NOT NULL)`,[context.interruptId]);
         }
       }
+      if(currentAttempt&&!context.interruptId){
+        const item=await nextPendingStoryItem(client,channel.twitch_channel_id,stream.id);
+        // Plans created by the former unbounded producer have no authorized
+        // batch item and must not create an unsolicited extra clip.
+        if(!context.batchItemId||item?.id!==context.batchItemId)currentAttempt=false;
+        else if(!await storyItemHasReadyAnchor(client,channel.twitch_channel_id,stream.id,item))return {status:"empty"};
+      }
       if(currentAttempt){
         if(!context.interruptId){
           const blocked=await ownerAttemptBudgetBlock(client,channel.twitch_channel_id,current.rows[0]!.owner_budget_cap_usd);
@@ -602,7 +648,7 @@ export async function claimStoryProducer(locator:string,request:Request,streamSl
           RETURNING claim_token`,[pending.rows[0].id,leaseId,fence,claimToken,sceneSeed]);
         if(!claimed.rows[0])return {status:"empty"};
         await client.query("UPDATE sloptogether.story_producers SET lease_expires_at=now()+interval '90 seconds' WHERE id=$1",[leaseId]);
-        return {leaseId,fence,sequence,idempotencyKey:pending.rows[0].idempotency_key,claimToken:claimed.rows[0].claim_token,interruptId:context.interruptId,storyContext:{taskKind:context.interruptId?"subscriber_interrupt":"story",channelTheme:context.theme??"",recentStorySummary:context.recentStorySummary??"",recentDialogue:context.recentDialogue??"",subscriberLabel:context.subscriberLabel,sceneSeed}};
+        return {leaseId,fence,sequence,idempotencyKey:pending.rows[0].idempotency_key,claimToken:claimed.rows[0].claim_token,interruptId:context.interruptId,batchItemId:context.batchItemId,storyContext:{taskKind:context.interruptId?"subscriber_interrupt":"story",channelTheme:context.theme??"",recentStorySummary:context.recentStorySummary??"",recentDialogue:context.recentDialogue??"",subscriberLabel:context.subscriberLabel,sceneSeed}};
       }
       await client.query("UPDATE sloptogether.story_plan_attempts SET status='failed',claim_token=NULL,claim_expires_at=NULL,updated_at=now() WHERE producer_id=$1 AND producer_fence=$2 AND sequence=$3 AND status='planning'",[leaseId,fence,sequence]);
       await client.query("UPDATE sloptogether.story_producers SET last_sequence=$2,lease_expires_at=now()+interval '90 seconds' WHERE id=$1",[leaseId,sequence]);
@@ -627,12 +673,15 @@ export async function claimStoryProducer(locator:string,request:Request,streamSl
       ORDER BY ir.created_at,ir.id LIMIT 1 FOR UPDATE OF ir SKIP LOCKED`,
       [channel.twitch_channel_id,JSON.stringify(current.rows[0]!.subscriber_interrupt_policy),channel.owner_twitch_user_id,stream.id]);
     const queued=interrupt.rows[0];
+    let batchItem:PendingStoryItem|null=null;
     if(!queued){
+      batchItem=await nextPendingStoryItem(client,channel.twitch_channel_id,stream.id);
+      if(!batchItem||!await storyItemHasReadyAnchor(client,channel.twitch_channel_id,stream.id,batchItem))return {status:"empty"};
       const blocked=await ownerAttemptBudgetBlock(client,channel.twitch_channel_id,current.rows[0]!.owner_budget_cap_usd);
       if(blocked)throw new ApiError(409,blocked);
     }
     const inputPayload={theme:row.story_world_prompt,recentStorySummary:row.recent_story_summary,recentDialogue:row.recent_dialogue,sceneSeed,
-      ...(queued?{interruptId:queued.id,subscriberLabel:queued.subscriber_label}:{} )};
+      ...(queued?{interruptId:queued.id,subscriberLabel:queued.subscriber_label}:{batchItemId:batchItem!.id})};
     await client.query(`INSERT INTO sloptogether.story_plan_attempts(twitch_channel_id,stream_id,producer_id,producer_fence,sequence,idempotency_key,expected_channel_revision,input_payload,claim_token,claim_expires_at)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,now()+interval '60 seconds')`,[channel.twitch_channel_id,stream.id,leaseId,fence,sequence,idempotencyKey,channel.policy_revision,JSON.stringify(inputPayload),claimToken]);
     if(queued){
@@ -640,7 +689,7 @@ export async function claimStoryProducer(locator:string,request:Request,streamSl
       await client.query("UPDATE sloptogether.outbox SET delivered_at=now(),leased_until=NULL WHERE aggregate_id=$1 AND event_kind='subscriber_interrupt.plan' AND delivered_at IS NULL",[queued.id]);
     }
     await client.query("UPDATE sloptogether.story_producers SET lease_expires_at=now()+interval '90 seconds' WHERE id=$1",[leaseId]);
-    return {leaseId,fence,sequence,idempotencyKey,claimToken,interruptId:queued?.id,storyContext:{taskKind:queued?"subscriber_interrupt":"story",channelTheme:row.story_world_prompt,recentStorySummary:row.recent_story_summary,recentDialogue:row.recent_dialogue,subscriberLabel:queued?.subscriber_label,sceneSeed}};
+    return {leaseId,fence,sequence,idempotencyKey,claimToken,interruptId:queued?.id,batchItemId:batchItem?.id,storyContext:{taskKind:queued?"subscriber_interrupt":"story",channelTheme:row.story_world_prompt,recentStorySummary:row.recent_story_summary,recentDialogue:row.recent_dialogue,subscriberLabel:queued?.subscriber_label,sceneSeed}};
   });
 }
 
@@ -744,9 +793,12 @@ export async function submitStoryProposal(locator:string,request:Request,streamS
     const lease=await client.query<{id:string;fence:string;lease_expires_at:Date;last_sequence:string;stream_id:string}>("SELECT id,fence,lease_expires_at,last_sequence,stream_id FROM sloptogether.story_producers WHERE id=$1 AND twitch_channel_id=$2 AND stream_id=$3 AND released_at IS NULL FOR UPDATE",[body.leaseId,channel.twitch_channel_id,stream.id]);
     const row=lease.rows[0];if(!row||Number(row.fence)!==body.fence||row.lease_expires_at.getTime()<=Date.now())throw new ApiError(409,"story_producer_lease_fenced");
     if(body.sequence<=Number(row.last_sequence))throw new ApiError(409,"story_sequence_replayed");
-    const planned=await client.query<{id:string;expected_channel_revision:number;input_payload:{interruptId?:string}}>("SELECT id,expected_channel_revision,input_payload FROM sloptogether.story_plan_attempts WHERE producer_id=$1 AND producer_fence=$2 AND sequence=$3 AND idempotency_key=$4 AND claim_token=$5 AND claim_expires_at>now() AND status='planning' FOR UPDATE",[body.leaseId,body.fence,body.sequence,body.idempotencyKey,body.claimToken]);
+    const planned=await client.query<{id:string;expected_channel_revision:number;input_payload:{interruptId?:string;batchItemId?:string}}>("SELECT id,expected_channel_revision,input_payload FROM sloptogether.story_plan_attempts WHERE producer_id=$1 AND producer_fence=$2 AND sequence=$3 AND idempotency_key=$4 AND claim_token=$5 AND claim_expires_at>now() AND status='planning' FOR UPDATE",[body.leaseId,body.fence,body.sequence,body.idempotencyKey,body.claimToken]);
     if(!planned.rows[0]||planned.rows[0].expected_channel_revision!==currentPolicy.policy_revision)throw new ApiError(409,"story_plan_attempt_not_current");
     if(planned.rows[0].input_payload.interruptId)throw new ApiError(409,"story_plan_interrupt_binding_mismatch");
+    const batchItem=await nextPendingStoryItem(client,channel.twitch_channel_id,stream.id);
+    if(!batchItem||batchItem.id!==planned.rows[0].input_payload.batchItemId)throw new ApiError(409,"story_batch_item_not_current");
+    if(!await storyItemHasReadyAnchor(client,channel.twitch_channel_id,stream.id,batchItem))throw new ApiError(409,"story_batch_anchor_not_ready");
     const quote=reservationUsd("SLOPTOGETHER_GENERATION_ATTEMPT_RESERVATION_USD");
     if(quote===null||Number(currentPolicy.owner_budget_cap_usd)<=0)throw new ApiError(409,"owner_generation_budget_unavailable");
     const spent=await client.query<{total:string}>(`SELECT coalesce(sum(greatest(reserved_usd,coalesce(actual_cost_usd,0))),0)::text AS total
@@ -791,6 +843,8 @@ export async function submitStoryProposal(locator:string,request:Request,streamS
     await client.query(`INSERT INTO sloptogether.job_attempts(id,job_id,attempt_number,fence,client_idempotency_key,state,attempt_deadline_at,input_sha256,funding_id)
       VALUES($1,$2,1,1,$3,'ready',now()+interval '45 minutes',$4,$5)`,[attemptId,jobId,`job:${jobId}:attempt:1`,Buffer.from(screen.digest,"hex"),fundingId]);
     await client.query("UPDATE sloptogether.segments SET selected_revision_id=$2,state='rendering',protected_at=now() WHERE id=$1",[segment.rows[0]!.id,revision.rows[0]!.id]);
+    const scheduled=await client.query("UPDATE sloptogether.story_batch_items SET state='scheduled',segment_id=$2,job_id=$3 WHERE id=$1 AND state='pending' RETURNING id",[batchItem.id,segment.rows[0]!.id,jobId]);
+    if(!scheduled.rowCount)throw new ApiError(409,"story_batch_item_not_current");
     await client.query("UPDATE sloptogether.story_producers SET last_sequence=$2,lease_expires_at=now()+interval '90 seconds' WHERE id=$1",[body.leaseId,body.sequence]);
     await client.query("UPDATE sloptogether.story_plan_attempts SET plan_payload=$2::jsonb,compiled_prompt=$3,screen_id=$4,resulting_segment_id=$5,status=$6,claim_token=NULL,claim_expires_at=NULL,updated_at=now() WHERE producer_id=$1 AND sequence=$7 AND producer_fence=$8 AND claim_token=$9",
       [body.leaseId,JSON.stringify({...body.plan,plannerUsage:body.plannerUsage??null}),prompt,screened.rows[0].id,segment.rows[0]!.id,"rendering",body.sequence,body.fence,body.claimToken]);

@@ -1,0 +1,7 @@
+[worker]
+role = "story-producer"
+channel_id = "YOUR_TWITCH_LOGIN_OR_ID"
+stream_slug = "main"
+state_dir = "~/.sloptogether/story-producer"
+api_base_url = "https://www.clips.gg/sloptogether/api/v1"
+poll_interval_seconds = 5

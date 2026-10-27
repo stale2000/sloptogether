@@ -21,15 +21,19 @@ const channel={twitch_channel_id:"123",owner_twitch_user_id:"42",policy_revision
 const grant={keyId:"producer-key",issuingTwitchUserId:"42",channelId:"123",scopes:["story:write_future"],roles:["story-producer"],recipes:[],paired:false,platform:null};
 const producerLeaseExpires=new Date(Date.now()+60_000);
 const sceneSeed="00000000-0000-4000-8000-000000000011";
+const batchItemId="00000000-0000-4000-8000-000000000016";
 
 function claimClient(activeClaim:boolean,ownerBudgetCapUsd="1.0000",reservedUsd="0"){
   const calls:Array<{sql:string;values?:unknown[]}>=[];
-  const client={query:vi.fn(async(sql:string,values?:unknown[])=>{
+  const client={query:vi.fn(async(sql:string,values?:unknown[]):Promise<{rows:unknown[];rowCount:number}>=>{
     calls.push({sql,values});
     if(sql.includes("SELECT policy_revision,subscriber_interrupt_policy"))return {rows:[{policy_revision:7,subscriber_interrupt_policy:{enabled:false},owner_budget_cap_usd:ownerBudgetCapUsd}],rowCount:1};
     if(sql.includes("SELECT id FROM sloptogether.trusted_executions"))return {rows:[{id:"binding"}],rowCount:1};
     if(sql.includes("SELECT id,fence,last_sequence,lease_expires_at,execution_binding_id"))return {rows:[{id:"producer",fence:"1",last_sequence:"0",lease_expires_at:producerLeaseExpires,execution_binding_id:"binding"}],rowCount:1};
-    if(sql.includes("SELECT id,idempotency_key,expected_channel_revision,input_payload"))return {rows:[{id:"attempt",idempotency_key:"00000000-0000-4000-8000-000000000010",expected_channel_revision:7,input_payload:{theme:"A kind forest",sceneSeed}}],rowCount:1};
+    if(sql.includes("SELECT id,idempotency_key,expected_channel_revision,input_payload"))return {rows:[{id:"attempt",idempotency_key:"00000000-0000-4000-8000-000000000010",expected_channel_revision:7,input_payload:{theme:"A kind forest",sceneSeed,batchItemId}}],rowCount:1};
+    if(sql.includes("FROM sloptogether.story_batch_items i JOIN"))return {rows:[{id:batchItemId,position:0,previous_state:null,previous_segment_id:null}],rowCount:1};
+    if(sql.includes("SELECT s.id AS segment_id,r.state AS revision_state"))return {rows:[{segment_id:"source",revision_state:"ready",boundary_id:"boundary",asset_status:"approved"}],rowCount:1};
+    if(sql.includes("JOIN LATERAL(SELECT s.id,s.state,s.selected_revision_id"))return {rows:[],rowCount:0};
     if(sql.includes("SELECT coalesce(sum(greatest(reserved_usd"))return {rows:[{total:reservedUsd}],rowCount:1};
     if(sql.includes("UPDATE sloptogether.story_plan_attempts")&&sql.includes("RETURNING claim_token"))return activeClaim?{rows:[],rowCount:0}:{rows:[{claim_token:values?.[3]}],rowCount:1};
     return {rows:[],rowCount:1};
@@ -324,6 +328,24 @@ beforeEach(()=>{
 afterEach(()=>{vi.unstubAllEnvs();vi.unstubAllGlobals()});
 
 describe("story producer planning claims",()=>{
+  it.each([
+    {position:1,previous_state:"scheduled",previous_segment_id:"source",revision_state:"locked",boundary_id:null,asset_status:null},
+    {position:1,previous_state:"scheduled",previous_segment_id:"other-segment",revision_state:"ready",boundary_id:"boundary",asset_status:"approved"},
+    {position:1,previous_state:"pending",previous_segment_id:null,revision_state:"ready",boundary_id:"boundary",asset_status:"approved"},
+  ])("waits for the preceding accepted clip before claiming or planning the next one: %j",async scenario=>{
+    const {client}=claimClient(false);
+    const original=client.query.getMockImplementation()!;
+    client.query.mockImplementation(async(sql:string,values?:unknown[])=>{
+      if(sql.includes("FROM sloptogether.story_batch_items i JOIN"))return {rows:[{id:batchItemId,position:scenario.position,previous_state:scenario.previous_state,previous_segment_id:scenario.previous_segment_id}],rowCount:1};
+      if(sql.includes("SELECT s.id AS segment_id,r.state AS revision_state"))return {rows:[{segment_id:"source",revision_state:scenario.revision_state,boundary_id:scenario.boundary_id,asset_status:scenario.asset_status}],rowCount:1};
+      return original(sql,values);
+    });
+    mocks.transaction.mockImplementation(async(work:(db:typeof client)=>Promise<unknown>)=>work(client));
+    await expect(claimStoryProducer("channel",leaseRequest())).resolves.toEqual({status:"empty"});
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("RETURNING claim_token"))).toBe(false);
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.story_plan_attempts"))).toBe(false);
+  });
+
   it.each([false,true])("pins 512×288 when the story producer schedules a render (subscriber=%s)",async(subscriber)=>{
     const bytes=Buffer.from("synthetic-start-image");
     const imageSha=createHash("sha256").update(bytes).digest();
@@ -340,7 +362,10 @@ describe("story producer planning claims",()=>{
       if(sql.includes("SELECT policy_revision,subscriber_interrupt_policy,output_width"))return {rows:[{policy_revision:7,subscriber_interrupt_policy:{enabled:true},output_width:1280,output_height:720}],rowCount:1};
       if(sql.includes("SELECT policy_revision,owner_budget_cap_usd"))return {rows:[{policy_revision:7,owner_budget_cap_usd:"100"}],rowCount:1};
       if(sql.includes("SELECT id,fence,lease_expires_at,last_sequence,stream_id FROM sloptogether.story_producers"))return {rows:[{id:"producer",fence:"1",lease_expires_at:new Date(Date.now()+60_000),last_sequence:"0",stream_id:"stream-main"}],rowCount:1};
-      if(sql.includes("expected_channel_revision,input_payload FROM sloptogether.story_plan_attempts"))return {rows:[{id:"attempt",expected_channel_revision:7,input_payload:subscriber?{interruptId}:{}}],rowCount:1};
+      if(sql.includes("expected_channel_revision,input_payload FROM sloptogether.story_plan_attempts"))return {rows:[{id:"attempt",expected_channel_revision:7,input_payload:subscriber?{interruptId}:{batchItemId}}],rowCount:1};
+      if(sql.includes("FROM sloptogether.story_batch_items i JOIN"))return {rows:[{id:batchItemId,position:0,previous_state:null,previous_segment_id:null}],rowCount:1};
+      if(sql.includes("SELECT s.id AS segment_id,r.state AS revision_state"))return {rows:[{segment_id:"source",revision_state:"ready",boundary_id:"boundary",asset_status:"approved"}],rowCount:1};
+      if(sql.includes("JOIN LATERAL(SELECT s.id,s.state,s.selected_revision_id"))return {rows:[],rowCount:0};
       if(sql.includes("SELECT ir.funding_id,ir.expires_at"))return {rows:[{funding_id:"funding",expires_at:new Date(Date.now()+600_000),trigger_event_id:"event",subscriber_label:"viewer",event_actor_id:null}],rowCount:1};
       if(sql.includes("SELECT coalesce(sum(greatest(reserved_usd"))return {rows:[{total:"0"}],rowCount:1};
       if(sql.includes("SELECT id FROM sloptogether.branches"))return {rows:[{id:"branch"}],rowCount:1};
@@ -413,6 +438,9 @@ describe("story producer planning claims",()=>{
       if(sql.includes("SELECT id FROM sloptogether.trusted_executions"))return {rows:[{id:"binding"}],rowCount:1};
       if(sql.includes("SELECT id,fence,last_sequence,lease_expires_at,execution_binding_id"))return {rows:[{id:"producer",fence:"1",last_sequence:"0",lease_expires_at:producerLeaseExpires,execution_binding_id:"binding"}],rowCount:1};
       if(sql.includes("SELECT id,idempotency_key,expected_channel_revision,input_payload"))return {rows:[],rowCount:0};
+      if(sql.includes("FROM sloptogether.story_batch_items i JOIN"))return {rows:[{id:batchItemId,position:0,previous_state:null,previous_segment_id:null}],rowCount:1};
+      if(sql.includes("SELECT s.id AS segment_id,r.state AS revision_state"))return {rows:[{segment_id:"source",revision_state:"ready",boundary_id:"boundary",asset_status:"approved"}],rowCount:1};
+      if(sql.includes("JOIN LATERAL(SELECT s.id,s.state,s.selected_revision_id"))return {rows:[],rowCount:0};
       if(sql.includes("SELECT c.story_world_prompt"))return {rows:[{story_world_prompt:"A kind forest",recent_story_summary:"A fox arrived",recent_dialogue:"Hello there."}],rowCount:1};
       if(sql.includes("SELECT ir.id,ir.subscriber_label,ir.plan_payload"))return {rows:[],rowCount:0};
       return {rows:[],rowCount:1};

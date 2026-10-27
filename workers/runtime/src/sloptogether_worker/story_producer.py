@@ -6,6 +6,7 @@ import os
 import ssl
 import urllib.error
 import urllib.request
+import uuid
 from typing import Any
 
 from .client import WorkerApi
@@ -52,6 +53,22 @@ SUBSCRIBER_GAGS = (
 )
 SUBSCRIBER_GAG_LIBRARY_VERSION = "subscriber-gags-v1"
 
+# Free fallback scenes form a small repeating progression. Markers are drawn
+# only from the previous generated action; user-provided text is never copied
+# into the rendered prompt. Image conditioning preserves the actual character.
+STORY_STEPS = (
+    ("lantern path", "The same cartoon character follows a lantern path toward a softly glowing hill and points at a distant sparkle.", "Those lights are showing us the way!", "Soft footsteps and a gentle lantern chime."),
+    ("hidden bridge", "The same cartoon character discovers a hidden bridge, steps carefully across, and waves at the colorful landscape beyond.", "A secret bridge! Let's see where it leads.", "A soft wooden creak and a warm breeze."),
+    ("glowing doorway", "The same cartoon character opens a glowing doorway and watches tiny stars swirl into a friendly trail.", "The stars left us another clue!", "A gentle door creak and sparkling chimes."),
+    ("paper stars", "The same cartoon character gathers paper stars into a little map and follows its first bright arrow.", "This map has a new adventure for us!", "Quiet paper rustles and a soft musical note."),
+)
+ROBOT_STEPS = (
+    ("observatory beacon", "The same tiny maintenance robot places the blue crystal in an observatory beacon and watches a constellation brighten.", "The stars found our next place to explore!", "Soft spaceship hum and a gentle starlight chime."),
+    ("moon garden", "The same tiny robot carries the blue crystal through a moon garden, where a glowing flower opens and points toward a hill.", "Even the flowers know where to go!", "Gentle garden chimes and soft robot footsteps."),
+    ("star map table", "The same tiny robot sets the blue crystal on a star map table, revealing a bright path between two friendly moons.", "The map has a new path for us!", "Soft electronic beeps and a warm sparkle."),
+    ("silver telescope", "The same tiny robot holds the blue crystal beside a silver telescope and spots a friendly comet waving in the distance.", "Look, the comet is waving back!", "A quiet telescope hum and a cheerful chime."),
+)
+
 
 class StoryProducer:
     """One bounded structured scene call or a safe, free H3 template."""
@@ -77,6 +94,15 @@ class StoryProducer:
             raise WorkerError("story_lease_invalid", "Story service returned an invalid producer lease.")
         if interrupt_id is not None and not isinstance(interrupt_id, str):
             raise WorkerError("story_lease_invalid", "Story service returned an invalid subscriber request.")
+        if interrupt_id is None:
+            batch_item_id = lease.get("batchItemId")
+            try:
+                if not isinstance(batch_item_id, str) or str(uuid.UUID(batch_item_id)) != batch_item_id.lower():
+                    raise ValueError("invalid batch item")
+            except ValueError:
+                # Old API versions produce unbounded story leases. Do not call
+                # the paid planner or submit work without a finite batch item.
+                raise WorkerError("story_batch_authorization_required", "The server has not authorized a finite story batch.") from None
         plan, usage = self.plan(context)
         prompt = compile_h3_prompt(plan)
         body = {"leaseId": lease_id, "fence": fence, "sequence": sequence, "idempotencyKey": idem,
@@ -167,22 +193,20 @@ class StoryProducer:
         context=StoryProducer._context(value)
         if context.get("taskKind")!="subscriber_interrupt":
             story_context=f"{context.get('theme','')} {context.get('recentStory','')}".casefold()
-            if "robot" in story_context and any(word in story_context for word in ("crystal","spaceship","star map")):
-                return {
-                    "visual_action": "The same tiny maintenance robot follows the star map to a quiet moon garden, gently places the blue crystal in an observatory beacon, and watches a constellation brighten.",
-                    "camera": "One continuous playful wide shot with a gentle push in; no cuts.",
-                    "speaker_character": "a fictional cartoon robot navigator",
-                    "voice_description": "a curious, warm theatrical cartoon voice",
-                    "dialogue": "The stars found our next place to explore!",
-                    "soundscape": "Soft spaceship hum and a gentle starlight chime.",
-                }
+            robot="robot" in story_context and any(word in story_context for word in ("crystal","spaceship","star map"))
+            steps=ROBOT_STEPS if robot else STORY_STEPS
+            recent=context.get("recentStory","").casefold()
+            previous=next((index for index,(marker,*_) in enumerate(steps) if marker in recent),None)
+            seed=context.get("sceneSeed","")
+            index=(previous+1)%len(steps) if previous is not None else int.from_bytes(hashlib.sha256(seed.encode("utf-8")).digest()[:4],"big")%len(steps)
+            _,visual,dialogue,soundscape=steps[index]
             return {
-                "visual_action": "A tiny paper fox discovers a glowing map beneath a fern, follows a dotted path through a handmade forest, and waves at the stars.",
+                "visual_action": visual,
                 "camera": "One continuous playful wide shot with a gentle push in; no cuts.",
-                "speaker_character": "a fictional cartoon forest guide",
+                "speaker_character": "a fictional cartoon robot navigator" if robot else "a fictional cartoon adventurer",
                 "voice_description": "a curious, warm theatrical cartoon voice",
-                "dialogue": "The map says the stars are just around this bend!",
-                "soundscape": "Soft forest ambience and a gentle chime.",
+                "dialogue": dialogue,
+                "soundscape": soundscape,
             }
         return StoryProducer._subscriber_template(context)[0]
 
