@@ -138,8 +138,8 @@ async function createComfyGeneration(locator:string,request:Request,kind:ComfyKi
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,'submitting') RETURNING id,request_id,twitch_channel_id,requested_by,prompt,prompt_sha256,generation_kind,generated_text,state,provider_job_id,output_asset_id,error_code,created_at,updated_at`,
       [id,body.requestId,channel.twitch_channel_id,actor,prompt,promptSha,kind,workflowVersion]);
     await client.query(`INSERT INTO sloptogether.outbox(event_kind,aggregate_id,payload,idempotency_key,available_at)
-      SELECT 'comfy.frame_generation.expire',$1,jsonb_build_object('id',$1),$2,expires_at
-      FROM sloptogether.comfy_frame_generations WHERE id=$1 ON CONFLICT(idempotency_key) DO NOTHING`,[id,"comfy-frame-expire:"+id]);
+      SELECT 'comfy.frame_generation.expire',$1::text,jsonb_build_object('id',$1::text),$2,expires_at
+      FROM sloptogether.comfy_frame_generations WHERE id=$1::uuid ON CONFLICT(idempotency_key) DO NOTHING`,[id,"comfy-frame-expire:"+id]);
     await client.query(`INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,action,target_kind,target_id,after_state)
       VALUES($1,$2,$3,'comfy_cloud_generation',$4,$5::jsonb)`,
       [channel.twitch_channel_id,actor,kind==="frame"?"comfy.frame_generation.requested":"comfy.prompt_generation.requested",id,JSON.stringify({promptSha256:promptSha.toString("hex"),workflowVersion})]);

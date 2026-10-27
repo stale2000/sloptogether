@@ -12,9 +12,11 @@ import {castBallot} from "./voting-service";
 import {submitProposal} from "./proposal-service";
 import {claimStoryProducer,claimWorkerLease,submitStoryProposal} from "./worker-service";
 import {requestPrincipal} from "./principals";
+import * as principalModule from "./principals";
 import {hashWorkerSecret} from "./crypto";
 import {handleEventSubWebhook} from "./subscriber-service";
 import {heartbeatPlayback} from "./program-service";
+import {createComfyFrameGeneration} from "./comfy-frame-service";
 
 const url=process.env.SLOPTOGETHER_POLICY_TEST_DATABASE_URL;
 const integration=url?describe:describe.skip;
@@ -53,7 +55,9 @@ integration("Twitch Extension prompt to pull-worker PostgreSQL flow",()=>{
     for(const [name,value] of Object.entries({DATABASE_URL:url!,TWITCH_EXTENSION_CLIENT_ID:extensionId,
       TWITCH_EXTENSION_SECRET_CURRENT:extensionSecret.toString("base64"),SLOPTOGETHER_KEY_HASH_PEPPER:workerKeyPepper,
       SLOPTOGETHER_UPLOAD_TICKET_KEY:"local-only-upload-ticket-key-0123456789",TWITCH_EVENTSUB_SECRET:eventSubSecret,
-      SLOPTOGETHER_SUBSCRIBER_ATTEMPT_RESERVATION_USD:"0.25",SLOPTOGETHER_GENERATION_ATTEMPT_RESERVATION_USD:"0.01"}))vi.stubEnv(name,value);
+      SLOPTOGETHER_SUBSCRIBER_ATTEMPT_RESERVATION_USD:"0.25",SLOPTOGETHER_GENERATION_ATTEMPT_RESERVATION_USD:"0.01",
+      PUBLIC_APP_URL:"http://localhost:3000/sloptogether",SLOPTOGETHER_COMFY_API_KEY:"local-only-comfy-api-key-0123456789",
+      SLOPTOGETHER_COMFY_FRAME_GENERATION_ENABLED:"true",SLOPTOGETHER_OPENAI_MODERATION_KEY:"local-only-comfy-moderation-key"}))vi.stubEnv(name,value);
     const expectedMarker=process.env.SLOPTOGETHER_EVENTSUB_TEST_GUARD_MARKER;
     if(!expectedMarker||!/^[a-f0-9]{48}$/.test(expectedMarker))throw new Error("extension_worker_flow_guard_marker_missing");
     database=pool();
@@ -65,6 +69,7 @@ integration("Twitch Extension prompt to pull-worker PostgreSQL flow",()=>{
       throw new Error("extension_worker_flow_database_identity_not_allowed");
     const suffix=randomBytes(4).toString("hex");
     channelId=(BigInt("820000000000000")+BigInt(`0x${suffix}`)).toString();
+    vi.stubEnv("SLOPTOGETHER_COMFY_FRAME_GENERATION_CHANNEL_IDS",channelId);
     const authorId=(BigInt(channelId)+1n).toString();
     await database.query(`INSERT INTO sloptogether.channels(twitch_channel_id,owner_twitch_user_id,twitch_login,display_name,upload_approval_bypass_ids)
       VALUES($1,$1,$2,'Local Extension Flow',ARRAY[$3])`,[channelId,`flow_${channelId}`,authorId]);
@@ -104,6 +109,7 @@ integration("Twitch Extension prompt to pull-worker PostgreSQL flow",()=>{
       }
       await database.query("DELETE FROM sloptogether.proposal_rate_reservations WHERE twitch_channel_id=$1",[channelId]);
       await database.query("DELETE FROM sloptogether.outbox WHERE aggregate_id IN (SELECT id::text FROM sloptogether.interrupt_requests WHERE broadcaster_twitch_id=$1)",[channelId]);
+      await database.query("DELETE FROM sloptogether.outbox WHERE aggregate_id IN (SELECT id::text FROM sloptogether.comfy_frame_generations WHERE twitch_channel_id=$1)",[channelId]);
       await database.query("UPDATE sloptogether.playback_sessions SET active_item_id=NULL WHERE twitch_channel_id=$1",[channelId]);
       await database.query("DELETE FROM sloptogether.program_media_segments WHERE program_item_id IN (SELECT id FROM sloptogether.program_items WHERE twitch_channel_id=$1)",[channelId]);
       await database.query("DELETE FROM sloptogether.program_items WHERE twitch_channel_id=$1",[channelId]);
@@ -130,6 +136,7 @@ integration("Twitch Extension prompt to pull-worker PostgreSQL flow",()=>{
       await database.query("DELETE FROM sloptogether.boundary_revisions WHERE twitch_channel_id=$1",[channelId]);
       await database.query("DELETE FROM sloptogether.assets WHERE twitch_channel_id=$1",[channelId]);
       await database.query("DELETE FROM sloptogether.input_screens WHERE twitch_channel_id=$1",[channelId]);
+      await database.query("DELETE FROM sloptogether.comfy_frame_generations WHERE twitch_channel_id=$1",[channelId]);
       await database.query("DELETE FROM sloptogether.funding_authorizations WHERE twitch_channel_id=$1",[channelId]);
       await database.query("DELETE FROM sloptogether.channels WHERE twitch_channel_id=$1",[channelId]);
     }
@@ -264,5 +271,33 @@ integration("Twitch Extension prompt to pull-worker PostgreSQL flow",()=>{
     }))).resolves.toMatchObject({accepted:true,itemId:storyBeforeId});
     await expect(database!.query<{program_state:string}>("SELECT program_state FROM sloptogether.interrupt_requests WHERE id=$1",[interruptId]))
       .resolves.toMatchObject({rows:[{program_state:"ready"}]});
+  },30_000);
+
+  it("manually submits one screened Comfy frame and atomically queues its expiry",async()=>{
+    const owner={id:channelId,twitchUserId:channelId,twitchLogin:`flow_${channelId}`,displayName:"Local Owner",
+      accessToken:"local-test-token",scopes:["openid","user:read:moderated_channels"],expiresAt:new Date(Date.now()+60_000)};
+    const principalSpy=vi.spyOn(principalModule,"requestPrincipal").mockResolvedValue({kind:"session",session:owner});
+    const fetch=vi.fn(async(input:RequestInfo|URL)=>{
+      const url=new URL(String(input));
+      if(url.origin!=="https://cloud.comfy.org")throw new Error("comfy_integration_network_blocked");
+      return new Response(JSON.stringify({id:randomUUID(),status:"queued",outputs:[]}),{status:201});
+    });
+    vi.stubGlobal("fetch",fetch);
+    try{
+      const requestId=randomUUID();
+      const result=await createComfyFrameGeneration(`flow_${channelId}`,new Request("http://localhost:3000/sloptogether/api/v1/channels/frame/comfy-frame-generations",{
+        method:"POST",headers:{Origin:"http://localhost:3000","Content-Type":"application/json"},
+        body:JSON.stringify({requestId,prompt:"A tiny hand-drawn paper crane glowing above a cartoon astronaut."}),
+      }));
+      expect(result).toMatchObject({requestId,kind:"frame",state:"queued"});
+      const generation=await database!.query<{workflow_version:string;state:string}>(
+        "SELECT workflow_version,state FROM sloptogether.comfy_frame_generations WHERE id=$1",[result.id]);
+      expect(generation.rows[0]).toEqual({workflow_version:"z-image-turbo-8step-448x256-v1",state:"queued"});
+      const expiry=await database!.query<{aggregate_id:string;payload:{id:string};idempotency_key:string}>(
+        "SELECT aggregate_id,payload,idempotency_key FROM sloptogether.outbox WHERE event_kind='comfy.frame_generation.expire' AND aggregate_id=$1",[result.id]);
+      expect(expiry.rows[0]).toEqual({aggregate_id:result.id,payload:{id:result.id},idempotency_key:`comfy-frame-expire:${result.id}`});
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(preflight.screenPromptAndImages).toHaveBeenCalledWith({channelId,prompt:"A tiny hand-drawn paper crane glowing above a cartoon astronaut.",images:[]});
+    }finally{principalSpy.mockRestore();}
   },30_000);
 });
