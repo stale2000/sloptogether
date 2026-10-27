@@ -18,7 +18,7 @@ from typing import Any, Callable, Mapping
 
 from .client import Lease, WorkerApi
 from .comfy import MAX_FRAME_BYTES, MAX_VIDEO_BYTES, ComfyClient, build_job_workflow
-from .config import WorkerConfig
+from .config import WorkerConfig, wsl_distro_from_unc_path
 from .errors import WorkerError
 from .models import WorkerJob
 from .recipes import RECIPES, validate_comfy_capabilities, validate_device_recipe, validate_free_vram
@@ -119,7 +119,8 @@ class ComfyRecipeRunner:
         )
         qualified: list[str] = []
         free_memory = detect_gpu_free_memory()
-        system_memory = detect_system_memory()
+        distro=wsl_distro_from_unc_path(str(self.config.comfy_input_dir)) if self.config.platform=="wsl" else None
+        system_memory = detect_system_memory(wsl_distro=distro)
         for recipe_id in recipes:
             validate_device_recipe(recipe_id, capability[0], capability[1], system_memory)
             qualified.append(recipe_id)
@@ -332,10 +333,24 @@ def detect_gpu_free_memory() -> int | None:
         return None
 
 
-def detect_system_memory() -> int | None:
+def detect_system_memory(*, wsl_distro: str | None = None) -> int | None:
     """Return the physical RAM limit visible to this worker, if available."""
     total: int | None = None
     if sys.platform == "win32":
+        if wsl_distro:
+            executable=shutil.which("wsl.exe") or shutil.which("wsl")
+            if not executable:
+                return None
+            try:
+                result=subprocess.run(
+                    [executable,"--distribution",wsl_distro,"--exec","awk","/^MemTotal:/ {print $2}","/proc/meminfo"],
+                    shell=False,check=False,capture_output=True,text=True,timeout=5,
+                )
+                if result.returncode!=0:
+                    return None
+                total=int(result.stdout.strip())*1024
+            except (OSError,subprocess.SubprocessError,ValueError):
+                return None
         class MemoryStatus(ctypes.Structure):
             _fields_ = [
                 ("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
@@ -346,7 +361,7 @@ def detect_system_memory() -> int | None:
             ]
         status = MemoryStatus()
         status.dwLength = ctypes.sizeof(status)
-        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+        if not wsl_distro and ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
             total = int(status.ullTotalPhys)
     else:
         try:

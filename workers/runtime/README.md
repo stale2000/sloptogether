@@ -18,7 +18,7 @@ Only server-allowlisted recipe IDs execute. The worker does not run viewer-provi
 
 Install into a Python 3.12 environment with `python -m pip install .`, then check ComfyUI and node capability with `python -m sloptogether_worker --config worker.toml check`. Pair the device using `python -m sloptogether_worker --config worker.toml pair`, then run `python -m sloptogether_worker --config worker.toml run`.
 
-GPU admission checks the same adapter that ComfyUI sees: the first `CUDA_VISIBLE_DEVICES` entry, or adapter `0` when unset. Set `SLOPTOGETHER_GPU_ID` when ComfyUI uses an explicit `--cuda-device` or a different adapter. For two local GPU roles, point each worker at a ComfyUI instance bound to its own adapter and set the matching ID. The Ada upscale profile requires SM 8.9+, at least 24 GB VRAM, 22 GiB free VRAM, and 128 GiB system RAM; the worker rejects lower-memory hosts before leasing an upscale job.
+GPU admission checks the same adapter that ComfyUI sees: the first `CUDA_VISIBLE_DEVICES` entry, or adapter `0` when unset. Set `SLOPTOGETHER_GPU_ID` when ComfyUI uses an explicit `--cuda-device` or a different adapter. For two local GPU roles, point each worker at a ComfyUI instance bound to its own adapter and set the matching ID. The Ada upscale profile requires SM 8.9+, at least 24 GB VRAM, 22 GiB free VRAM, and 128 GiB system RAM; WSL workers check the selected distro's `/proc/meminfo` limit instead of trusting the larger Windows host total.
 
 On worker startup, if free VRAM is below the pinned recipe's reservation and its ComfyUI queue is idle, the worker unloads ComfyUI's warm models and waits up to 30 seconds for memory to return. Give the worker a dedicated ComfyUI instance; active queued work is never unloaded.
 
