@@ -11,5 +11,6 @@ describe("API error display",()=>{
     expect(isLocalDemoFallbackEnabled("localdemo","true")).toBe(true);
     expect(isLocalDemoFallbackEnabled("channel","true")).toBe(false);
     expect(isLocalDemoFallbackEnabled("localdemo","false")).toBe(false);
+    expect(isLocalDemoFallbackEnabled("localdemo","true","other")).toBe(false);
   });
 });

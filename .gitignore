@@ -8,6 +8,7 @@
 .omx/logs/
 __pycache__/
 *.py[cod]
+*.tsbuildinfo
 *.egg-info/
 sloptogether-stream-running.png
 .next/

@@ -7,50 +7,18 @@ import random
 import shutil
 import tempfile
 import threading
-import time
-import webbrowser
 from pathlib import Path
 from typing import Callable
 
 from .client import Lease, WorkerApi
 from .comfy import ComfyClient
 from .config import WorkerConfig
-from .credential_store import save_secret
 from .errors import ApiError, WorkerError
 from .models import WorkerJob
 from .runner import ComfyRecipeRunner, LeaseHeartbeat
 from .story_producer import StoryProducer
 
 log = logging.getLogger("sloptogether.worker")
-
-
-def pair_device(api: WorkerApi, config: WorkerConfig, *, open_browser: bool = True) -> str:
-    """Link this installation to Twitch without placing credentials on argv."""
-    import platform
-    import uuid
-
-    pairing = api.create_pairing({
-        "installationId": str(uuid.uuid4()),
-        "displayName": ("Windows WSL2 GPU worker" if config.platform == "wsl" else platform.node()[:100] or platform.system()),
-        "platform": config.platform if config.platform in {"windows", "wsl"} else "linux",
-        "roles": [config.role],
-        "clientVersion": "0.1.0",
-    })
-    if open_browser:
-        webbrowser.open(pairing.verification_uri)
-    print(f"Connect worker to Twitch: {pairing.verification_uri}")
-    print(f"Enter this one-time code: {pairing.user_code}")
-    deadline = min(time.time() + 600, __import__("datetime").datetime.fromisoformat(pairing.expires_at.replace("Z", "+00:00")).timestamp())
-    while time.time() < deadline:
-        key = api.poll_pairing(pairing)
-        if key:
-            key_path = config.state_dir / "worker.key"
-            save_secret(key_path, key)
-            api.token = key
-            print("Twitch pairing complete. The key is stored for this operating-system user.")
-            return key
-        time.sleep(3)
-    raise WorkerError("pairing_expired", "Twitch worker pairing expired. Start a new pairing.")
 
 
 class WorkerService:
