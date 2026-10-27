@@ -17,8 +17,9 @@ import { handleEventSubWebhook,handleSubscriberSettings } from "./subscriber-ser
 const secret="local-eventsub-test-secret";
 const event={broadcaster_user_id:"123",user_id:"456",user_login:"viewer_456",user_name:"Viewer",is_anonymous:false,is_gift:false};
 
-function signedEvent(messageId:string,subscriptionId="sub-1"){
-  const body=Buffer.from(JSON.stringify({subscription:{id:subscriptionId,type:"channel.subscribe",version:"1",condition:{broadcaster_user_id:"123"},transport:{method:"webhook"}},event}));
+function signedEvent(messageId:string,subscriptionId="sub-1",callback:string|null="https://clips.gg/sloptogether/api/v1/webhooks/eventsub",method="webhook"){
+  const transport=callback===null?{method}:{method,callback};
+  const body=Buffer.from(JSON.stringify({subscription:{id:subscriptionId,type:"channel.subscribe",version:"1",condition:{broadcaster_user_id:"123"},transport},event}));
   const timestamp=new Date().toISOString();
   const signature=createHmac("sha256",secret).update(Buffer.concat([Buffer.from(messageId+timestamp),body])).digest("hex");
   return new Request("https://clips.gg/sloptogether/api/v1/webhooks/eventsub",{method:"POST",headers:{
@@ -114,6 +115,17 @@ describe("subscriber EventSub admission",()=>{
       .rejects.toMatchObject({status:403,code:"eventsub_subscription_unregistered"});
     expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.subscription_events"))).toBe(false);
     expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.funding_authorizations"))).toBe(false);
+  });
+
+  it("rejects signed notifications whose transport does not name the exact webhook callback",async()=>{
+    configureAdmission();
+    await expect(handleEventSubWebhook(signedEvent("event-bad-callback","sub-1","https://attacker.example/eventsub")))
+      .rejects.toMatchObject({status:403,code:"eventsub_callback_mismatch"});
+    await expect(handleEventSubWebhook(signedEvent("event-missing-callback","sub-1",null)))
+      .rejects.toMatchObject({status:403,code:"eventsub_callback_mismatch"});
+    await expect(handleEventSubWebhook(signedEvent("event-wrong-transport","sub-1","https://clips.gg/sloptogether/api/v1/webhooks/eventsub","websocket")))
+      .rejects.toMatchObject({status:403,code:"eventsub_transport_invalid"});
+    expect(mocks.transaction).not.toHaveBeenCalled();
   });
 
   it("does not reserve money when the hourly cap or minimum gap is reached",async()=>{

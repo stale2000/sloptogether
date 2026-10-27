@@ -178,7 +178,7 @@ integration("Twitch Extension prompt to pull-worker PostgreSQL flow",()=>{
       VALUES($1,$2,$3,ARRAY['local-chat-subscription'])`,[channelId,`chat:${channelId}`,Buffer.alloc(32,3)]);
     const chatMessageId=`local-chat-vote-${randomUUID()}`;const chatTimestamp=new Date().toISOString();
     const chatBody=Buffer.from(JSON.stringify({subscription:{id:"local-chat-subscription",type:"channel.chat.message",version:"1",
-      condition:{broadcaster_user_id:channelId,user_id:channelId},transport:{method:"webhook"}},event:{broadcaster_user_id:channelId,
+      condition:{broadcaster_user_id:channelId,user_id:channelId},transport:{method:"webhook",callback:"http://localhost:3000/sloptogether/api/v1/webhooks/eventsub"}},event:{broadcaster_user_id:channelId,
       broadcaster_user_login:`flow_${channelId}`,chatter_user_id:(BigInt(channelId)+3n).toString(),chatter_user_login:"chat_voter",
       message_id:chatMessageId,message:{text:"!slop vote 1"}}}));
     const chatSignature=createHmac("sha256",eventSubSecret).update(Buffer.concat([Buffer.from(chatMessageId+chatTimestamp),chatBody])).digest("hex");
@@ -218,7 +218,7 @@ integration("Twitch Extension prompt to pull-worker PostgreSQL flow",()=>{
     await database!.query(`INSERT INTO sloptogether.eventsub_config_fingerprints(twitch_channel_id,registration_key,config_fingerprint,subscription_ids)
       VALUES($1,'subscriber-events',$2,ARRAY['local-subscription-flow'])`,[channelId,Buffer.alloc(32,4)]);
     const body=Buffer.from(JSON.stringify({subscription:{id:"local-subscription-flow",type:"channel.subscribe",version:"1",
-      condition:{broadcaster_user_id:channelId},transport:{method:"webhook"}},event:{broadcaster_user_id:channelId,user_id:"987654321",
+      condition:{broadcaster_user_id:channelId},transport:{method:"webhook",callback:"http://localhost:3000/sloptogether/api/v1/webhooks/eventsub"}},event:{broadcaster_user_id:channelId,user_id:"987654321",
       user_login:"local_subscriber",user_name:"Local Subscriber",is_anonymous:false,is_gift:false}}));
     const signature=createHmac("sha256",eventSubSecret).update(Buffer.concat([Buffer.from(messageId+timestamp),body])).digest("hex");
     const eventRequest=new Request("http://127.0.0.1:3000/sloptogether/api/v1/webhooks/eventsub",{method:"POST",body,headers:{

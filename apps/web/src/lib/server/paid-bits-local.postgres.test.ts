@@ -45,7 +45,7 @@ function request(path:string,body:unknown,token:string){return new Request(`http
 function signedEvent(messageId:string,event:Record<string,unknown>|null,type="notification"){
   const time=new Date().toISOString();
   const body=JSON.stringify({subscription:{id:"local-test-subscription",type:"extension.bits_transaction.create",version:"1",
-    condition:{extension_client_id:extensionId},transport:{method:"webhook"}},...(event?{event}:{challenge:"local-test-challenge"})});
+    condition:{extension_client_id:extensionId},transport:{method:"webhook",callback:"http://127.0.0.1:3000/sloptogether/api/v1/webhooks/eventsub"}},...(event?{event}:{challenge:"local-test-challenge"})});
   const signature=createHmac("sha256",eventSecret).update(messageId+time+body).digest("hex");
   return new Request("http://127.0.0.1:3000/sloptogether/api/v1/webhooks/eventsub",{method:"POST",body,headers:{
     "Content-Type":"application/json","twitch-eventsub-message-id":messageId,"twitch-eventsub-message-timestamp":time,
