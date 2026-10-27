@@ -5,7 +5,6 @@ import logging
 import os
 import signal
 import sys
-import threading
 import time
 import uuid
 import webbrowser
@@ -16,10 +15,6 @@ from .config import WorkerConfig
 from .credential_store import save_secret
 from .errors import ApiError, WorkerError
 from .service import WorkerService
-from .story_producer import StoryProducer
-
-_STOP = threading.Event()
-
 
 def parser() -> argparse.ArgumentParser:
     cli = argparse.ArgumentParser(
@@ -90,7 +85,6 @@ def _parse_expiry(value: str) -> float:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    _STOP.clear()
     args = parser().parse_args()
     command = args.command or "run"
     try:
@@ -115,15 +109,12 @@ def main() -> int:
             service.check()
             _pair(config, api, open_browser=True)
         def stop_handler(_signum: int, _frame: object) -> None:
-            _STOP.set()
             service.stop.set()
 
         for signal_name in ("SIGINT", "SIGTERM"):
             signal_value = getattr(signal, signal_name, None)
             if signal_value is not None:
                 signal.signal(signal_value, stop_handler)
-        if config.role == "story-producer":
-            return _run_story_loop(api, config, once=getattr(args, "once", False))
         return service.run(once=getattr(args, "once", False))
     except ApiError as error:
         print(f"{error.code}: {error.message}", file=sys.stderr)
@@ -134,31 +125,6 @@ def main() -> int:
     except (OSError, ValueError) as error:
         print(f"worker_configuration_error: {type(error).__name__}", file=sys.stderr)
         return 2
-
-
-def _run_story_loop(api: WorkerApi, config: WorkerConfig, *, once: bool) -> int:
-    producer = StoryProducer(api, config)
-    failures = 0
-    while not _STOP.is_set():
-        try:
-            submitted = producer.run_once()
-            failures = 0
-            if once:
-                return 0
-            if not submitted:
-                _STOP.wait(config.poll_interval_seconds)
-        except ApiError as error:
-            if error.status in {401, 403}:
-                raise WorkerError("story_producer_scope_revoked", "Owner story-writing permission was revoked.") from None
-            failures += 1
-            if once:
-                raise
-            _STOP.wait(min(60, 2 ** min(failures, 6)))
-        except WorkerError:
-            if once:
-                raise
-            _STOP.wait(config.poll_interval_seconds)
-    return 0
 
 
 if __name__ == "__main__":

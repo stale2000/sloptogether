@@ -17,11 +17,18 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 MAX_SESSION_SECONDS = 2 * 60 * 60
+MAX_SHUTDOWN_RESERVE_SECONDS = 5 * 60
 _STOP = Event()
 
 
 class FalSessionError(RuntimeError):
     pass
+
+
+def _session_time_remaining(monotonic_deadline: float, wall_deadline: float) -> float:
+    # Monotonic time resists wall-clock rollback; wall time covers systems
+    # whose monotonic clock pauses while the operator host is suspended.
+    return min(monotonic_deadline - time.monotonic(), wall_deadline - time.time())
 
 
 def _endpoint_url(value: str) -> str:
@@ -68,9 +75,9 @@ def _heartbeat(app: str, url: str, fal_key: str, interval: float, stop: Event, f
             return
 
 
-def _command(args: list[str]) -> str:
+def _command(args: list[str], *, timeout_seconds: float = 60) -> str:
     try:
-        result = subprocess.run(args, check=True, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(args, check=True, capture_output=True, text=True, timeout=timeout_seconds)
     except (OSError, subprocess.SubprocessError) as error:
         raise FalSessionError(f"fal_command_failed:{args[1] if len(args) > 1 else 'unknown'}") from error
     return result.stdout
@@ -168,7 +175,13 @@ def run_session(
         if parsed.hostname == "fal.run" and parsed.path.split("/")[-1] != app:
             raise FalSessionError("fal_app_url_mismatch")
     started: list[str] = []
-    deadline = time.time() + runtime_seconds
+    # Begin provider teardown before the absolute limit. Short smoke tests
+    # retain at least 90% of their requested time; long sessions reserve at most
+    # five minutes. Provider/network failure can still delay physical shutdown.
+    shutdown_reserve = min(MAX_SHUTDOWN_RESERVE_SECONDS, runtime_seconds // 10)
+    active_seconds = runtime_seconds - shutdown_reserve
+    deadline = time.monotonic() + active_seconds
+    displayed_deadline = time.time() + active_seconds
     primary_error: BaseException | None = None
     heartbeat_stop = Event()
     heartbeat_failures: SimpleQueue[str] = SimpleQueue()
@@ -176,9 +189,23 @@ def run_session(
     ready_events = {app: Event() for app in apps}
     try:
         for app in apps:
+            if _STOP.is_set():
+                raise FalSessionError("fal_session_stopped_during_startup")
+            remaining = _session_time_remaining(deadline, displayed_deadline)
+            if remaining <= 0:
+                raise FalSessionError("fal_worker_wake_deadline_exceeded")
             started.append(app)
-            _command([fal_cli, "apps", "scale", app, "--min-concurrency", "0", "--max-concurrency", "1", "--keep-alive", "60"])
+            _command([fal_cli, "apps", "scale", app, "--min-concurrency", "0", "--max-concurrency", "1", "--keep-alive", "60"],
+                     timeout_seconds=min(60, remaining))
+        if _STOP.is_set():
+            raise FalSessionError("fal_session_stopped_during_startup")
+        if _session_time_remaining(deadline, displayed_deadline) <= 0:
+            raise FalSessionError("fal_worker_wake_deadline_exceeded")
         for app, url in zip(apps, urls, strict=True):
+            if _STOP.is_set():
+                raise FalSessionError("fal_session_stopped_during_startup")
+            if _session_time_remaining(deadline, displayed_deadline) <= 0:
+                raise FalSessionError("fal_worker_wake_deadline_exceeded")
             thread = Thread(target=_heartbeat, args=(app, url, fal_key, heartbeat_seconds, heartbeat_stop, heartbeat_failures, ready_events[app]), daemon=True)
             heartbeat_threads.append(thread)
             thread.start()
@@ -193,15 +220,15 @@ def run_session(
                 failed_app=None
             if failed_app:
                 raise FalSessionError(f"fal_worker_wake_failed:{failed_app}")
-            remaining=deadline-time.time()
+            remaining=_session_time_remaining(deadline, displayed_deadline)
             if remaining<=0:
                 raise FalSessionError("fal_worker_wake_deadline_exceeded")
             for event in ready_events.values():
                 if not event.is_set():
                     event.wait(min(0.1,remaining))
-        print(f"Selected Fal worker(s) are awake until {datetime.fromtimestamp(deadline, timezone.utc).isoformat()} or session stop.", flush=True)
+        print(f"Selected Fal worker(s) are awake until {datetime.fromtimestamp(displayed_deadline, timezone.utc).isoformat()} or session stop.", flush=True)
         while not _STOP.is_set():
-            remaining = deadline - time.time()
+            remaining = _session_time_remaining(deadline, displayed_deadline)
             if remaining <= 0:
                 break
             _STOP.wait(min(1, remaining))

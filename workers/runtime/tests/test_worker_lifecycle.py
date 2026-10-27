@@ -145,6 +145,25 @@ class WorkerLifecycleTest(unittest.TestCase):
             self.assertEqual(error.exception.code, "attempt_revoked")
             api.issue_upload.assert_not_called()
 
+    def test_worker_closes_heartbeat_and_fails_attempt_if_workspace_creation_fails(self) -> None:
+        config = SimpleNamespace(heartbeat_interval_seconds=30)
+        api = Mock()
+        service = WorkerService(config, api=api, comfy=Mock(), report=lambda _message: None)
+        service._state_dir = Mock(return_value=Path("/temporary/state"))
+        lease = Lease("lease-1", 1, {})
+        job = SimpleNamespace(lease_id="lease-1", fence=1, attempt_id="attempt-1")
+        heartbeat = Mock()
+        with patch("sloptogether_worker.service.WorkerJob.from_payload", return_value=job), \
+             patch("sloptogether_worker.service.LeaseHeartbeat", return_value=heartbeat), \
+             patch("sloptogether_worker.service.tempfile.mkdtemp", side_effect=OSError("private path detail")):
+            with self.assertRaises(WorkerError) as error:
+                service._process(lease)
+        self.assertEqual(error.exception.code, "worker_workspace_unavailable")
+        self.assertNotIn("private path detail", str(error.exception))
+        heartbeat.start.assert_called_once_with()
+        heartbeat.close.assert_called_once_with()
+        api.fail_attempt.assert_called_once_with(lease, "worker_workspace_unavailable")
+
     def test_cli_exposes_the_wsl_platform_option(self) -> None:
         args=cli.parser().parse_args(["--platform","wsl","check"])
         self.assertEqual(args.platform,"wsl")
@@ -280,6 +299,18 @@ class WorkerLifecycleTest(unittest.TestCase):
              patch("sloptogether_worker.cli.signal.signal", side_effect=lambda number, handler: handlers.__setitem__(number, handler)):
             self.assertEqual(cli.main(), 0)
 
+    def test_cli_routes_story_producer_through_the_supervised_worker_service(self) -> None:
+        config = SimpleNamespace(role="story-producer")
+        service = SimpleNamespace(stop=threading.Event(), run=Mock(return_value=0))
+        args = SimpleNamespace(command="run", config=None, role=None, headless=True, once=True)
+        with patch("sloptogether_worker.cli.parser", return_value=SimpleNamespace(parse_args=lambda: args)), \
+             patch("sloptogether_worker.cli.WorkerConfig.from_sources", return_value=config), \
+             patch("sloptogether_worker.cli.WorkerApi", return_value=SimpleNamespace(token="owner-key")), \
+             patch("sloptogether_worker.cli.WorkerService", return_value=service), \
+             patch("sloptogether_worker.cli.signal.signal"):
+            self.assertEqual(cli.main(), 0)
+        service.run.assert_called_once_with(once=True)
+
     def test_story_producer_retries_a_transient_service_failure(self) -> None:
         config=SimpleNamespace(role="story-producer",worker_key="owner-key",poll_interval_seconds=0)
         api=SimpleNamespace(token="owner-key")
@@ -293,10 +324,24 @@ class WorkerLifecycleTest(unittest.TestCase):
             if wait_calls>1:service.stop.set()
         service.stop.wait=Mock(side_effect=wait_then_stop)
 
-        with patch("sloptogether_worker.service.StoryProducer",return_value=producer):
+        with patch("sloptogether_worker.service.StoryProducer",return_value=producer), \
+             self.assertLogs("sloptogether.worker", level="WARNING") as logs:
             self.assertEqual(service.run(),0)
 
         self.assertEqual(producer.run_once.call_count,2)
+        self.assertIn("service_unreachable", logs.output[0])
+        self.assertNotIn("temporary failure", logs.output[0])
+
+    def test_story_producer_stops_on_revoked_owner_permission(self) -> None:
+        config=SimpleNamespace(role="story-producer",worker_key="owner-key",poll_interval_seconds=0)
+        service=WorkerService(config,api=SimpleNamespace(token="owner-key"),comfy=Mock(),report=lambda _message:None)
+        producer=Mock()
+        producer.run_once.side_effect=ApiError(403,"story_producer_binding_revoked")
+        with patch("sloptogether_worker.service.StoryProducer",return_value=producer):
+            with self.assertRaises(WorkerError) as error:
+                service.run()
+        self.assertEqual(error.exception.code,"story_producer_scope_required")
+        producer.run_once.assert_called_once_with()
 
     def test_history_polling_honors_monotonic_expiry_and_cancellation(self) -> None:
         client = object.__new__(ComfyClient)

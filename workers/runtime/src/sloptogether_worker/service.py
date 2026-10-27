@@ -81,8 +81,8 @@ class WorkerService:
         if not self.api.token:
             raise WorkerError("worker_pairing_required", "Connect this worker to Twitch before claiming GPU work.")
         capabilities = self.check()
-        self.report("Worker ready. Compatible pinned profiles: " + ", ".join(capabilities))
         if self.config.role == "story-producer":
+            self.report("Story producer ready.")
             producer = StoryProducer(self.api, self.config)
             failures = 0
             while not self.stop.is_set():
@@ -99,14 +99,17 @@ class WorkerService:
                     if once:
                         raise
                     failures += 1
+                    log.warning("Story producer request failed (HTTP %d); retrying.", error.status)
                     self.stop.wait(min(60, 2 ** min(failures, 6)) + random.random())
-                except WorkerError:
+                except WorkerError as error:
                     failures += 1
                     if once:
                         raise
+                    log.warning("Story producer failed (%s); retrying.", error.code)
                     self.stop.wait(min(60, 2 ** min(failures, 6)) + random.random())
             return 0
 
+        self.report("Worker ready. Compatible pinned profiles: " + ", ".join(capabilities))
         failures = 0
         while not self.stop.is_set():
             try:
@@ -145,8 +148,12 @@ class WorkerService:
             raise WorkerError("lease_job_mismatch", "Worker lease does not match the immutable job payload.")
         heartbeat = LeaseHeartbeat(self.api, lease, self.config.heartbeat_interval_seconds)
         heartbeat.start()
-        workspace = Path(tempfile.mkdtemp(prefix=f"attempt-{job.attempt_id[:8]}-", dir=self._state_dir()))
+        workspace: Path | None = None
         try:
+            try:
+                workspace = Path(tempfile.mkdtemp(prefix=f"attempt-{job.attempt_id[:8]}-", dir=self._state_dir()))
+            except OSError:
+                raise WorkerError("worker_workspace_unavailable", "The worker could not create its private job workspace.") from None
             self.report(f"Claimed {job.stage} on channel {job.channel_id}; fence={job.fence}.")
             output, media_facts = self.runner.execute(job, lease, heartbeat, self.api, workspace, cancelled=self.stop.is_set)
             if heartbeat.cancelled.is_set() or self.stop.is_set():
@@ -186,7 +193,8 @@ class WorkerService:
             raise
         finally:
             heartbeat.close()
-            shutil.rmtree(workspace, ignore_errors=True)
+            if workspace is not None:
+                shutil.rmtree(workspace, ignore_errors=True)
 
     def _state_dir(self) -> Path:
         configured = self.config.state_dir.expanduser().absolute()
