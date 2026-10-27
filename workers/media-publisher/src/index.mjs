@@ -24,6 +24,12 @@ const PAID_TURBO_ENABLED = process.env.NODE_ENV === "test";
 const PROBE_TIMEOUT_MS = 30_000;
 const DECODE_TIMEOUT_MS = 90_000;
 const MAX_OUTBOX_BYTES = 128 * 1024 * 1024;
+const GATEWAY_EVENTS = Object.freeze(["media.validate", "media.publish_requested", "storage.delete_staging", "storage.cleanup_snapshot_candidate", "comfy.frame_generation.expire"]);
+const DIRECT_STORAGE_EVENTS = Object.freeze([...GATEWAY_EVENTS, "paid.bits.reconcile_receipt", "paid.turbo.dispatch", "paid.turbo.poll", "provider.reconcile_cancel"]);
+
+export function publisherEventKinds(mediaGatewayUrl) {
+  return mediaGatewayUrl ? GATEWAY_EVENTS : DIRECT_STORAGE_EVENTS;
+}
 
 export function requiredEnvironment(env) {
   const mediaGatewayUrl = env.SLOPTOGETHER_MEDIA_GATEWAY_URL || null;
@@ -214,7 +220,7 @@ export function validateOutboxPayload(value) {
   return { ...payload, fence: Number(payload.fence), sha256: payload.sha256.toLowerCase() };
 }
 
-async function claimOutbox(pool,eventKinds=["media.validate","media.publish_requested","storage.delete_staging","storage.cleanup_snapshot_candidate","paid.bits.reconcile_receipt","paid.turbo.dispatch","paid.turbo.poll","provider.reconcile_cancel","comfy.frame_generation.expire"]) {
+async function claimOutbox(pool,eventKinds=publisherEventKinds(null)) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -641,8 +647,7 @@ export function createMediaValidator(env = process.env) {
   const stop = () => { stopping = true; };
 
   async function runOnce() {
-    const gatewayEvents=["media.validate","media.publish_requested","storage.delete_staging","storage.cleanup_snapshot_candidate","comfy.frame_generation.expire"];
-    const message = await claimOutbox(pool,config.mediaGatewayUrl?gatewayEvents:undefined);
+    const message = await claimOutbox(pool,publisherEventKinds(config.mediaGatewayUrl));
     if (!message) return null;
     try {
       const result = message.eventKind==="storage.delete_staging"
