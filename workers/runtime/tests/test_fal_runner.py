@@ -72,7 +72,7 @@ class FalRunnerTests(unittest.TestCase):
                     environment = base_environment | {
                         "SLOPTOGETHER_WORKER_ROLE": role,
                         f"SLOPTOGETHER_WORKER_KEY_{role.upper()}": f"dummy-{role}-key-for-test",
-                        "SLOPTOGETHER_WORKER_MAX_RUNTIME_SECONDS": "1" if timed else "28800",
+                        "SLOPTOGETHER_WORKER_MAX_RUNTIME_SECONDS": "1" if timed else "7200",
                         "TEST_WORKER_MARKER": str(marker),
                         "TEST_COMFY_MARKER": str(comfy_env_marker),
                         "TEST_COMFY_PID_MARKER": str(comfy_pid_marker),
@@ -164,6 +164,7 @@ class FalRunnerTests(unittest.TestCase):
             "SLOPTOGETHER_FAL_MEDIA_GROUP": "sloptogether-media",
         }
         with patch("sloptogether_worker.fal_runner.os.geteuid", return_value=0), \
+             patch("sloptogether_worker.fal_runner.os.getgrouplist", return_value=[10003]), \
              patch.object(pwd, "getpwnam", side_effect=users.__getitem__), \
              patch.object(grp, "getgrnam", return_value=SimpleNamespace(gr_gid=10003)):
             identities = fal_runner._fal_process_identities(environment)
@@ -171,10 +172,53 @@ class FalRunnerTests(unittest.TestCase):
         self.assertNotEqual(identities[0]["uid"], identities[1]["uid"])
         users["sloptogether-worker"] = SimpleNamespace(pw_uid=10002, pw_gid=10001)
         with patch("sloptogether_worker.fal_runner.os.geteuid", return_value=0), \
+             patch("sloptogether_worker.fal_runner.os.getgrouplist", return_value=[10003]), \
              patch.object(pwd, "getpwnam", side_effect=users.__getitem__), \
              patch.object(grp, "getgrnam", return_value=SimpleNamespace(gr_gid=10003)):
             with self.assertRaisesRegex(ValueError, "fal_process_users_must_be_distinct"):
                 fal_runner._fal_process_identities(environment)
+
+        users["sloptogether-comfy"] = SimpleNamespace(pw_uid=0, pw_gid=10002)
+        with patch("sloptogether_worker.fal_runner.os.geteuid", return_value=0), \
+             patch("sloptogether_worker.fal_runner.os.getgrouplist", return_value=[10003]), \
+             patch.object(pwd, "getpwnam", side_effect=users.__getitem__), \
+             patch.object(grp, "getgrnam", return_value=SimpleNamespace(gr_gid=10003)):
+            with self.assertRaisesRegex(ValueError, "fal_process_identities_must_be_unprivileged"):
+                fal_runner._fal_process_identities(environment)
+        users["sloptogether-comfy"] = SimpleNamespace(pw_uid=10002, pw_gid=10002)
+        users["sloptogether-worker"] = SimpleNamespace(pw_uid=10001, pw_gid=10001)
+        with patch("sloptogether_worker.fal_runner.os.geteuid", return_value=0), \
+             patch("sloptogether_worker.fal_runner.os.getgrouplist", return_value=[10003]), \
+             patch.object(pwd, "getpwnam", side_effect=users.__getitem__), \
+             patch.object(grp, "getgrnam", return_value=SimpleNamespace(gr_gid=0)):
+            with self.assertRaisesRegex(ValueError, "fal_process_identities_must_be_unprivileged"):
+                fal_runner._fal_process_identities(environment)
+        with patch("sloptogether_worker.fal_runner.os.geteuid", return_value=0), \
+             patch("sloptogether_worker.fal_runner.os.getgrouplist", return_value=[0, 10003]), \
+             patch.object(pwd, "getpwnam", side_effect=users.__getitem__), \
+             patch.object(grp, "getgrnam", return_value=SimpleNamespace(gr_gid=10003)):
+            with self.assertRaisesRegex(ValueError, "fal_process_root_supplementary_group_rejected"):
+                fal_runner._fal_process_identities(environment)
+
+    def test_child_environments_remove_all_fal_credentials(self):
+        from sloptogether_worker.fal_runner import _unprivileged_environment
+
+        environment = {"FAL_KEY": "secret", "FAL_KEY_ID": "id", "FAL_KEY_SECRET": "secret",
+                       "FAL_API_TOKEN": "secret", "ANTHROPIC_API_KEY": "secret", "HF_TOKEN": "secret",
+                       "AWS_SECRET_ACCESS_KEY": "secret", "SLOPTOGETHER_UPLOAD_TICKET_KEY": "secret",
+                       "HF_HUB_CACHE": "/data/preferred-hub", "HUGGINGFACE_HUB_CACHE": "/data/legacy-hub",
+                       "HUGGINGFACE_TOKEN": "secret", "HUGGINGFACE_API_KEY": "secret",
+                       "SLOPTOGETHER_COMFY_BEARER": "loopback",
+                       "SLOPTOGETHER_WORKER_PLATFORM": "fal"}
+        for keep_bearer in (False, True):
+            result = _unprivileged_environment(environment, "/tmp/private", preserve_comfy_bearer=keep_bearer)
+            self.assertFalse(any(name.startswith("FAL_") for name in result))
+            for name in ("ANTHROPIC_API_KEY", "HF_TOKEN", "HUGGINGFACE_TOKEN", "HUGGINGFACE_API_KEY", "AWS_SECRET_ACCESS_KEY", "SLOPTOGETHER_UPLOAD_TICKET_KEY"):
+                self.assertNotIn(name, result)
+            self.assertEqual(result["HF_HUB_CACHE"], "/data/preferred-hub")
+            self.assertEqual(result["HUGGINGFACE_HUB_CACHE"], "/data/legacy-hub")
+            self.assertEqual("SLOPTOGETHER_COMFY_BEARER" in result, keep_bearer)
+            self.assertEqual(result["SLOPTOGETHER_WORKER_PLATFORM"], "fal")
 
     def test_worker_process_uses_dedicated_uid_and_shared_input_group(self):
         from unittest.mock import patch as local_patch
@@ -185,6 +229,84 @@ class FalRunnerTests(unittest.TestCase):
             options = fal_runner._worker_process_identity_options(identity)
         self.assertEqual(options, {"user": 10001, "group": 10001, "extra_groups": [44, 10003]})
 
+    def test_cache_access_probe_uses_comfy_identity_without_inheriting_secrets(self):
+        from sloptogether_worker import fal_runner
+        identity = {"name": "sloptogether-comfy", "uid": 10002, "gid": 10002, "media_gid": 10003}
+        with patch("os.getgrouplist", return_value=[44, 10003]), patch("subprocess.run") as run:
+            run.return_value.returncode = 0
+            self.assertTrue(fal_runner._cache_accessible_as_comfy(Path("/data/cache"), identity, os.R_OK | os.W_OK | os.X_OK))
+            self.assertEqual(run.call_args.kwargs["user"], 10002)
+            self.assertEqual(run.call_args.kwargs["group"], 10002)
+            self.assertEqual(run.call_args.kwargs["extra_groups"], [44, 10003])
+            self.assertEqual(set(run.call_args.kwargs["env"]), {"PATH"})
+            run.return_value.returncode = 1
+            self.assertFalse(fal_runner._cache_accessible_as_comfy(Path("/data/cache"), identity, os.R_OK))
+
+    def test_conditioning_identity_uses_pinned_worker_and_scrubbed_environment(self):
+        from sloptogether_worker import fal_runner
+        identity = {"name": "sloptogether-comfy", "uid": 10002, "gid": 10002, "media_gid": 10003}
+        environment = {"SLOPTOGETHER_COMFY_HOME": "/tmp/slop-home", "FAL_KEY_SECRET": "secret", "SLOPTOGETHER_WORKER_KEY_UPSCALE": "secret"}
+        with patch("os.getgrouplist", return_value=[10003]), patch("subprocess.run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = "a" * 64 + ".pt\n"
+            self.assertEqual(fal_runner._conditioning_artifact_name(environment, identity), "a" * 64 + ".pt")
+            self.assertIn(".worker/bin/python", run.call_args.args[0][0])
+            self.assertNotIn("FAL_KEY_SECRET", run.call_args.kwargs["env"])
+            self.assertNotIn("SLOPTOGETHER_WORKER_KEY_UPSCALE", run.call_args.kwargs["env"])
+            self.assertEqual(run.call_args.kwargs["user"], 10002)
+
+    def test_startup_deadline_includes_directory_preparation(self):
+        from sloptogether_worker import fal_runner
+        clock = [0.0]
+        def prepare(_environment, _identities, *, should_stop):
+            self.assertFalse(should_stop())
+            clock[0] = 2.0
+            self.assertTrue(should_stop())
+            raise ValueError("fal_worker_startup_interrupted")
+        environment = {"SLOPTOGETHER_WORKER_ROLE": "generation", "SLOPTOGETHER_WORKER_KEY_GENERATION": "test",
+                       "SLOPTOGETHER_WORKER_MAX_RUNTIME_SECONDS": "1"}
+        with patch.dict(os.environ, environment, clear=True), patch.object(sys, "argv", ["runner", "--", "comfy"]), \
+             patch("signal.signal"), patch("time.monotonic", side_effect=lambda: clock[0]), \
+             patch.object(fal_runner, "_fal_process_identities", return_value=None), \
+             patch.object(fal_runner, "_prepare_fal_directories", side_effect=prepare), \
+             patch("subprocess.Popen") as popen:
+            self.assertEqual(fal_runner.main(), 0)
+            popen.assert_not_called()
+
+    def test_shutdown_signal_is_handled_during_directory_preparation(self):
+        from sloptogether_worker import fal_runner
+        handlers = {}
+        def install(number, handler):
+            previous = handlers.get(number, signal.SIG_DFL)
+            handlers[number] = handler
+            return previous
+        def prepare(_environment, _identities, *, should_stop):
+            handlers[signal.SIGTERM](signal.SIGTERM, None)
+            self.assertTrue(should_stop())
+            raise ValueError("fal_worker_startup_interrupted")
+        environment = {"SLOPTOGETHER_WORKER_ROLE": "generation", "SLOPTOGETHER_WORKER_KEY_GENERATION": "test"}
+        with patch.dict(os.environ, environment, clear=True), patch.object(sys, "argv", ["runner", "--", "comfy"]), \
+             patch("signal.signal", side_effect=install), patch.object(fal_runner, "_fal_process_identities", return_value=None), \
+             patch.object(fal_runner, "_prepare_fal_directories", side_effect=prepare), patch("subprocess.Popen") as popen:
+            self.assertEqual(fal_runner.main(), 128 + signal.SIGTERM)
+            popen.assert_not_called()
+
+    def test_startup_logs_only_known_isolation_codes(self):
+        from contextlib import redirect_stderr
+        from io import StringIO
+        from sloptogether_worker import fal_runner
+        environment = {"SLOPTOGETHER_WORKER_ROLE": "generation", "SLOPTOGETHER_WORKER_KEY_GENERATION": "test"}
+        for error, expected in (("fal_shared_model_cache_unreadable", "fal_shared_model_cache_unreadable"),
+                                ("fal_untrusted_secret_value", "ValueError")):
+            captured = StringIO()
+            with self.subTest(error=error), patch.dict(os.environ, environment, clear=True), \
+                 patch.object(sys, "argv", ["runner", "--", "comfy"]), patch("signal.signal"), \
+                 patch.object(fal_runner, "_fal_process_identities", side_effect=ValueError(error)), redirect_stderr(captured):
+                self.assertEqual(fal_runner.main(), 2)
+            self.assertIn(f"fal_worker_process_isolation_invalid: {expected}", captured.getvalue())
+            if error != expected:
+                self.assertNotIn(error, captured.getvalue())
+
     def test_fal_directories_are_owned_by_comfy_worker_and_shared_media_group(self):
         from unittest.mock import patch as local_patch
         from sloptogether_worker import fal_runner
@@ -193,19 +315,220 @@ class FalRunnerTests(unittest.TestCase):
             {"name": "sloptogether-comfy", "uid": 10002, "gid": 10002, "media_gid": 10003},
             {"name": "sloptogether-worker", "uid": 10001, "gid": 10001, "media_gid": 10003},
         )
+        for role, output_dir in (("generation", "/tmp/slop-generation-output"), ("upscale", "/tmp/slop-upscale-output")):
+            with self.subTest(role=role):
+                env = {
+                    "SLOPTOGETHER_WORKER_ROLE": role,
+                    "SLOPTOGETHER_FAL_MEDIA_GROUP": "sloptogether-media",
+                    "SLOPTOGETHER_COMFY_INPUT_DIR": "/opt/ComfyUI/input",
+                    "SLOPTOGETHER_COMFY_OUTPUT_DIR": output_dir,
+                    "SLOPTOGETHER_COMFY_WRITABLE_DIRS": f"/tmp/slop-comfy-cache:{output_dir}",
+                    "SLOPTOGETHER_COMFY_HOME": "/tmp/sloptogether-test-comfy-home",
+                    "SLOPTOGETHER_WORKER_HOME": "/tmp/sloptogether-test-worker-home",
+                }
+                with local_patch("pathlib.Path.mkdir"), local_patch("pathlib.Path.is_file", return_value=True), \
+                     local_patch("sloptogether_worker.fal_runner._conditioning_artifact_name", return_value="a" * 64 + ".pt"), \
+                     local_patch("sloptogether_worker.fal_runner._stage_conditioning_artifact"), \
+                     local_patch("os.chown") as chown, local_patch("os.chmod") as chmod:
+                    fal_runner._prepare_fal_directories(env, identities)
+                ownership = [call.args for call in chown.call_args_list]
+                permissions = [call.args for call in chmod.call_args_list]
+                self.assertIn((Path("/opt/ComfyUI/input"), 0, 10003), ownership)
+                self.assertIn((Path("/tmp/slop-comfy-cache").resolve(), 10002, 10002), ownership)
+                self.assertIn((Path(output_dir).resolve(), 10002, 10003), ownership)
+                self.assertIn((Path("/tmp/sloptogether-test-worker-home").resolve(), 10001, 10001), ownership)
+                self.assertIn((Path("/opt/ComfyUI/input"), 0o2770), permissions)
+
+    def test_prebuilt_h3_conditioning_copies_only_the_exact_artifact(self):
+        from sloptogether_worker import fal_runner
+        identity = {"name": "sloptogether-comfy", "uid": 10002, "gid": 10002, "media_gid": 10003}
+        with tempfile.TemporaryDirectory(dir="/tmp") as folder:
+            shared = Path(folder) / "shared"
+            shared.mkdir()
+            selected = shared / ("a" * 64 + ".pt")
+            other = shared / ("b" * 64 + ".pt")
+            selected.write_bytes(b"selected conditioning")
+            other.write_bytes(b"unrelated conditioning")
+            selected.chmod(0o600)
+            target = Path(folder) / "private" / selected.name
+            with patch("os.chown") as chown, patch("os.fchown"):
+                fal_runner._stage_conditioning_artifact(selected, target, identity)
+            self.assertEqual(target.read_bytes(), selected.read_bytes())
+            self.assertEqual(selected.stat().st_mode & 0o777, 0o600)
+            self.assertEqual([p.name for p in target.parent.iterdir()], [selected.name])
+            self.assertEqual([call.args[0] for call in chown.call_args_list], [target.parent])
+
+    def test_shared_fal_caches_are_left_unchanged(self):
+        from sloptogether_worker import fal_runner
+
+        identities = (
+            {"name": "sloptogether-comfy", "uid": 10002, "gid": 10002, "media_gid": 10003},
+            {"name": "sloptogether-worker", "uid": 10001, "gid": 10001, "media_gid": 10003},
+        )
+        shared = {Path("/data/.cache/huggingface"), Path("/data/triton")}
         env = {
-            "SLOPTOGETHER_FAL_MEDIA_GROUP": "sloptogether-media",
+            "SLOPTOGETHER_WORKER_ROLE": "generation",
             "SLOPTOGETHER_COMFY_INPUT_DIR": "/opt/ComfyUI/input",
-            "SLOPTOGETHER_COMFY_WRITABLE_DIRS": "/tmp/slop-comfy-cache",
-            "SLOPTOGETHER_COMFY_HOME": "/tmp/slop-comfy-home",
-            "SLOPTOGETHER_WORKER_HOME": "/tmp/slop-worker-home",
+            "SLOPTOGETHER_COMFY_OUTPUT_DIR": "/tmp/slop-upscale-output",
+            "SLOPTOGETHER_COMFY_WRITABLE_DIRS": "/data/.cache/huggingface:/data/triton:/tmp/slop-upscale-output",
+            "SLOPTOGETHER_COMFY_HOME": "/tmp/sloptogether-test-comfy-home",
+            "SLOPTOGETHER_WORKER_HOME": "/tmp/sloptogether-test-worker-home",
+            "HF_HOME": "/data/.cache/huggingface",
+            "TRITON_CACHE_DIR": "/data/triton",
         }
-        with local_patch("pathlib.Path.mkdir"), local_patch("os.chown") as chown, local_patch("os.chmod") as chmod:
+        with patch.object(Path, "exists", lambda path: path in shared), \
+             patch.object(Path, "is_dir", lambda path: path in shared), \
+             patch.object(Path, "mkdir"), patch("os.walk", return_value=[]) as walk, \
+             patch("sloptogether_worker.fal_runner._cache_accessible_as_comfy", return_value=True), \
+             patch("os.chown") as chown, patch("os.chmod") as chmod:
             fal_runner._prepare_fal_directories(env, identities)
-        self.assertIn((Path("/opt/ComfyUI/input"), 0, 10003), [call.args for call in chown.call_args_list])
-        self.assertIn((Path("/tmp/slop-comfy-cache").resolve(), 10002, 10002), [call.args for call in chown.call_args_list])
-        self.assertIn((Path("/tmp/slop-worker-home").resolve(), 10001, 10001), [call.args for call in chown.call_args_list])
-        self.assertIn((Path("/opt/ComfyUI/input"), 0o2770), [call.args for call in chmod.call_args_list])
+
+        for path in shared:
+            self.assertNotIn(path, [call.args[0] for call in chown.call_args_list])
+            self.assertNotIn(path, [call.args[0] for call in chmod.call_args_list])
+            self.assertNotIn(path, [call.args[0] for call in walk.call_args_list])
+        self.assertEqual(env["HF_HOME"], "/data/.cache/huggingface")
+        self.assertEqual(env["TRITON_CACHE_DIR"], "/data/triton")
+
+    def test_missing_shared_caches_use_role_scoped_fallbacks(self):
+        from sloptogether_worker import fal_runner
+
+        identities = (
+            {"name": "sloptogether-comfy", "uid": 10002, "gid": 10002, "media_gid": 10003},
+            {"name": "sloptogether-worker", "uid": 10001, "gid": 10001, "media_gid": 10003},
+        )
+        env = {
+            "SLOPTOGETHER_WORKER_ROLE": "generation",
+            "SLOPTOGETHER_COMFY_INPUT_DIR": "/opt/ComfyUI/input",
+            "SLOPTOGETHER_COMFY_OUTPUT_DIR": "/tmp/slop-upscale-output",
+            "SLOPTOGETHER_COMFY_WRITABLE_DIRS": "/data/.cache/huggingface:/data/triton:/tmp/slop-upscale-output",
+            "SLOPTOGETHER_COMFY_HOME": "/tmp/sloptogether-test-comfy-home",
+            "SLOPTOGETHER_WORKER_HOME": "/tmp/sloptogether-test-worker-home",
+            "HF_HOME": "/data/.cache/huggingface",
+            "TRITON_CACHE_DIR": "/data/triton",
+        }
+        with patch.object(Path, "exists", return_value=False), patch.object(Path, "mkdir"), \
+             patch("os.walk", return_value=[]) as walk, patch("os.chown") as chown, patch("os.chmod"):
+            fal_runner._prepare_fal_directories(env, identities)
+
+        self.assertEqual(env["HF_HOME"], "/data/sloptogether/generation/huggingface")
+        self.assertEqual(env["TRITON_CACHE_DIR"], "/data/sloptogether/generation/triton")
+        self.assertIn((Path(env["HF_HOME"]), 10002, 10002), [call.args for call in chown.call_args_list])
+        self.assertNotIn(Path(env["HF_HOME"]), [call.args[0] for call in walk.call_args_list])
+
+    def test_inaccessible_shared_huggingface_cache_fails_without_mutation(self):
+        from sloptogether_worker import fal_runner
+        identities = (
+            {"name": "sloptogether-comfy", "uid": 10002, "gid": 10002, "media_gid": 10003},
+            {"name": "sloptogether-worker", "uid": 10001, "gid": 10001, "media_gid": 10003},
+        )
+        shared = Path("/data/.cache/huggingface")
+        env = {"SLOPTOGETHER_WORKER_ROLE": "generation", "SLOPTOGETHER_COMFY_WRITABLE_DIRS": str(shared), "HF_HOME": str(shared)}
+        with patch.object(Path, "exists", return_value=True), patch.object(Path, "is_dir", return_value=True), \
+             patch.object(Path, "mkdir"), patch("os.chown") as chown, patch("os.chmod"), \
+             patch("sloptogether_worker.fal_runner._cache_accessible_as_comfy", return_value=False):
+            with self.assertRaisesRegex(ValueError, "fal_shared_huggingface_cache_not_accessible"):
+                fal_runner._prepare_fal_directories(env, identities)
+        self.assertNotIn(shared, [call.args[0] for call in chown.call_args_list])
+
+    def test_unwritable_shared_compiler_cache_uses_private_path(self):
+        from sloptogether_worker import fal_runner
+        identities = (
+            {"name": "sloptogether-comfy", "uid": 10002, "gid": 10002, "media_gid": 10003},
+            {"name": "sloptogether-worker", "uid": 10001, "gid": 10001, "media_gid": 10003},
+        )
+        shared = Path("/data/triton")
+        env = {"SLOPTOGETHER_WORKER_ROLE": "generation", "SLOPTOGETHER_COMFY_WRITABLE_DIRS": str(shared), "TRITON_CACHE_DIR": str(shared)}
+        with patch.object(Path, "exists", return_value=True), patch.object(Path, "is_dir", return_value=True), \
+             patch.object(Path, "mkdir"), patch("os.chown") as chown, patch("os.chmod"), patch("os.walk", return_value=[]), \
+             patch("sloptogether_worker.fal_runner._cache_accessible_as_comfy", return_value=False):
+            fal_runner._prepare_fal_directories(env, identities)
+        self.assertEqual(env["TRITON_CACHE_DIR"], "/data/sloptogether/generation/triton")
+        self.assertNotIn(shared, [call.args[0] for call in chown.call_args_list])
+
+    def test_explicit_hub_override_must_be_readable_by_comfy(self):
+        from sloptogether_worker import fal_runner
+        identities = (
+            {"name": "sloptogether-comfy", "uid": 10002, "gid": 10002, "media_gid": 10003},
+            {"name": "sloptogether-worker", "uid": 10001, "gid": 10001, "media_gid": 10003},
+        )
+        shared = Path("/data/root-owned-hub")
+        env = {"SLOPTOGETHER_WORKER_ROLE": "generation", "SLOPTOGETHER_COMFY_WRITABLE_DIRS": "/tmp/sloptogether-test-cache",
+               "HF_HUB_CACHE": str(shared)}
+        with patch.object(Path, "is_dir", return_value=True), patch.object(Path, "mkdir"), patch("os.walk", return_value=[]), \
+             patch("os.chown") as chown, patch("os.chmod"), \
+             patch("sloptogether_worker.fal_runner._cache_accessible_as_comfy", return_value=False):
+            with self.assertRaisesRegex(ValueError, "fal_shared_model_cache_unreadable"):
+                fal_runner._prepare_fal_directories(env, identities)
+        self.assertNotIn(shared, [call.args[0] for call in chown.call_args_list])
+
+    def test_hub_cache_override_precedence_matches_child_environment(self):
+        from sloptogether_worker import fal_runner
+        identities = (
+            {"name": "sloptogether-comfy", "uid": 10002, "gid": 10002, "media_gid": 10003},
+            {"name": "sloptogether-worker", "uid": 10001, "gid": 10001, "media_gid": 10003},
+        )
+        for preferred in (None, "/data/preferred-hub"):
+            env = {"SLOPTOGETHER_WORKER_ROLE": "generation", "SLOPTOGETHER_COMFY_WRITABLE_DIRS": "/tmp/sloptogether-test-cache",
+                   "HUGGINGFACE_HUB_CACHE": "/data/legacy-hub"}
+            if preferred:
+                env["HF_HUB_CACHE"] = preferred
+            with patch.object(Path, "is_dir", return_value=True), patch.object(Path, "mkdir"), patch("os.walk", return_value=[]), \
+                 patch("os.chown"), patch("os.chmod"), \
+                 patch("sloptogether_worker.fal_runner._cache_accessible_as_comfy", return_value=True) as probe:
+                fal_runner._prepare_fal_directories(env, identities)
+            effective = preferred or env["HUGGINGFACE_HUB_CACHE"]
+            self.assertTrue(any(call.args[0] == Path(effective) for call in probe.call_args_list))
+            child = fal_runner._unprivileged_environment(env, "/tmp/private")
+            self.assertEqual(child.get("HF_HUB_CACHE") or child.get("HUGGINGFACE_HUB_CACHE"), effective)
+
+    def test_upscale_stages_exact_shared_conditioning_into_default_private_home(self):
+        from sloptogether_worker import fal_runner
+        identities = (
+            {"name": "sloptogether-comfy", "uid": 10002, "gid": 10002, "media_gid": 10003},
+            {"name": "sloptogether-worker", "uid": 10001, "gid": 10001, "media_gid": 10003},
+        )
+        name = "a" * 64 + ".pt"
+        env = {"SLOPTOGETHER_WORKER_ROLE": "upscale", "SLOPTOGETHER_COMFY_WRITABLE_DIRS": "/data/.cache/huggingface",
+               "HF_HOME": "/data/.cache/huggingface"}
+        with patch.object(Path, "exists", return_value=True), patch.object(Path, "is_dir", return_value=True), \
+             patch.object(Path, "is_file", return_value=True), patch.object(Path, "mkdir"), patch("os.chown") as chown, \
+             patch("os.chmod"), patch("sloptogether_worker.fal_runner._cache_accessible_as_comfy", return_value=True), \
+             patch("sloptogether_worker.fal_runner._conditioning_artifact_name", return_value=name) as derive, \
+             patch("sloptogether_worker.fal_runner._stage_conditioning_artifact") as stage:
+            fal_runner._prepare_fal_directories(env, identities)
+        source = Path("/data/.cache/huggingface/comfystream/h3-conditioning") / name
+        target = Path(env["SLOPTOGETHER_COMFY_HOME"]) / "conditioning" / name
+        stage.assert_called_once_with(source, target, identities[0])
+        self.assertEqual(env["COMFYSTREAM_SOL_H3_CONDITIONING_ARTIFACT"], str(target))
+        self.assertEqual(derive.call_args.args[0]["SLOPTOGETHER_COMFY_HOME"], str(Path("/tmp/sloptogether-comfy-home").resolve()))
+        self.assertNotIn(source, [call.args[0] for call in chown.call_args_list])
+
+    def test_shared_or_root_home_paths_are_rejected_without_mutating_them(self):
+        from sloptogether_worker import fal_runner
+        identities = (
+            {"name": "sloptogether-comfy", "uid": 10002, "gid": 10002, "media_gid": 10003},
+            {"name": "sloptogether-worker", "uid": 10001, "gid": 10001, "media_gid": 10003},
+        )
+        for home in ("/tmp", "/data/.cache/huggingface", "/opt/ComfyUI"):
+            env = {"SLOPTOGETHER_WORKER_ROLE": "generation", "SLOPTOGETHER_COMFY_WRITABLE_DIRS": "/tmp/sloptogether-test-cache",
+                   "SLOPTOGETHER_COMFY_HOME": home}
+            with self.subTest(home=home), patch.object(Path, "mkdir"), patch("os.walk", return_value=[]), \
+                 patch("os.chown") as chown, patch("os.chmod"):
+                with self.assertRaisesRegex(ValueError, "fal_private_home_required"):
+                    fal_runner._prepare_fal_directories(env, identities)
+                self.assertNotIn(Path(home).resolve(), [call.args[0] for call in chown.call_args_list])
+
+    def test_writable_root_itself_is_rejected(self):
+        from sloptogether_worker import fal_runner
+        identities = (
+            {"name": "sloptogether-comfy", "uid": 10002, "gid": 10002, "media_gid": 10003},
+            {"name": "sloptogether-worker", "uid": 10001, "gid": 10001, "media_gid": 10003},
+        )
+        env = {"SLOPTOGETHER_WORKER_ROLE": "generation", "SLOPTOGETHER_COMFY_WRITABLE_DIRS": "/tmp"}
+        with patch.object(Path, "mkdir"), patch("os.chown"), patch("os.chmod"):
+            with self.assertRaisesRegex(ValueError, "fal_writable_root_rejected"):
+                fal_runner._prepare_fal_directories(env, identities)
 
     def test_process_group_is_killed_even_if_its_leader_has_exited(self):
         from sloptogether_worker import fal_runner

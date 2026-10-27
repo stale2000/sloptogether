@@ -5,6 +5,7 @@ import { principalTwitchId } from "./channels";
 import type { RequestPrincipal } from "./principals";
 import { query } from "./db";
 import { ApiError } from "./http";
+import { getDefaultStreamId,getStreamById } from "./stream-service";
 
 interface SegmentRow extends QueryResultRow {
   id: string;
@@ -31,14 +32,14 @@ const electionSql = [
   "AND NOT EXISTS(SELECT 1 FROM sloptogether.bans pb WHERE pb.twitch_user_id=p.author_twitch_user_id AND pb.revoked_at IS NULL AND (pb.expires_at IS NULL OR pb.expires_at>now()) AND (pb.scope='global' OR pb.twitch_channel_id=$1))",
   "LEFT JOIN sloptogether.ballots b ON b.election_id=e.id AND b.proposal_id=p.id",
   "WHERE e.state='open' AND e.closes_at>now() AND EXISTS",
-  " (SELECT 1 FROM sloptogether.segments s WHERE s.id=e.segment_id AND s.twitch_channel_id=$1)",
+  " (SELECT 1 FROM sloptogether.segments s JOIN sloptogether.branches b ON b.id=s.branch_id WHERE s.id=e.segment_id AND s.twitch_channel_id=$1 AND b.stream_id=$3)",
   "GROUP BY e.id,e.segment_id,e.state,e.closes_at,p.id,p.prompt ORDER BY e.closes_at,p.created_at",
 ].join("\n");
 
 const segmentsSql = [
-  "SELECT s.id,s.ordinal,s.state,coalesce(sr.prompt,'') AS prompt,",
-  "       coalesce(base_asset.duration_seconds,public_asset.duration_seconds) AS duration_seconds,",
-  "       coalesce(base_asset.id,public_asset.id) AS asset_id,",
+  "SELECT s.id,s.ordinal,CASE WHEN s.state='ready' AND public_asset.program_item_id IS NULL THEN 'locked' ELSE s.state END AS state,coalesce(sr.prompt,'') AS prompt,",
+  "       public_asset.duration_seconds AS duration_seconds,",
+  "       public_asset.id AS asset_id,",
   "       public_asset.program_item_id,",
   "       (SELECT derivative.id FROM sloptogether.jobs uj JOIN sloptogether.job_attempts uja ON uja.job_id=uj.id",
   "         JOIN sloptogether.assets derivative ON derivative.id=uja.output_asset_id AND derivative.status='approved'",
@@ -46,25 +47,17 @@ const segmentsSql = [
   "         WHERE uj.parent_asset_id=public_asset.id AND uj.stage='video_upscale' AND uj.state='succeeded' ORDER BY uj.completed_at DESC LIMIT 1) AS upscale_asset_id,",
   "       current_interrupt.interrupt_id AS subscriber_interrupt_id,current_interrupt.item_kind,",
   "       coalesce(votes.count,0)::text AS vote_count,my_ballot.proposal_id AS my_choice_id",
-  "FROM sloptogether.segments s",
+  "FROM sloptogether.segments s JOIN sloptogether.branches stream_branch ON stream_branch.id=s.branch_id",
   "LEFT JOIN sloptogether.segment_revisions sr ON sr.id=s.selected_revision_id",
-  "LEFT JOIN LATERAL (",
-  "  SELECT a.id,a.duration_seconds FROM sloptogether.jobs j",
-  "  JOIN sloptogether.job_attempts ja ON ja.job_id=j.id AND ja.state IN ('succeeded','rejected')",
-  "  JOIN sloptogether.assets a ON a.id=ja.output_asset_id AND a.status IN ('approved','published')",
-  "  JOIN sloptogether.artifact_approvals aa ON aa.asset_id=a.id AND aa.sha256=a.sha256 AND aa.decision='approved'",
-  "  WHERE j.segment_revision_id=sr.id AND j.stage='video_base'",
-  "  ORDER BY ja.finished_at DESC LIMIT 1",
-  ") base_asset ON true",
   "LEFT JOIN LATERAL (",
   "  SELECT pi.id AS program_item_id,a.id,a.duration_seconds FROM sloptogether.program_items pi",
   "  JOIN sloptogether.assets a ON a.id=pi.asset_id AND a.status='published'",
-  "  WHERE pi.segment_id=s.id AND pi.twitch_channel_id=s.twitch_channel_id AND pi.committed_at IS NOT NULL",
+  "  WHERE pi.segment_id=s.id AND pi.stream_id=$3 AND pi.committed_at IS NOT NULL",
   "  ORDER BY pi.program_epoch DESC,pi.item_order DESC LIMIT 1",
   ") public_asset ON true",
   "LEFT JOIN LATERAL (",
   "  SELECT pi.interrupt_id,pi.item_kind FROM sloptogether.program_items pi",
-  "  WHERE pi.segment_id=s.id ORDER BY pi.program_epoch DESC,pi.item_order DESC LIMIT 1",
+  "  WHERE pi.segment_id=s.id AND pi.stream_id=$3 ORDER BY pi.program_epoch DESC,pi.item_order DESC LIMIT 1",
   ") current_interrupt ON true",
   "LEFT JOIN LATERAL (",
   "  SELECT count(*) AS count FROM sloptogether.elections e",
@@ -77,16 +70,16 @@ const segmentsSql = [
   "  JOIN sloptogether.elections e ON e.id=b.election_id",
   "  WHERE e.segment_id=s.id AND e.state='open' AND b.twitch_user_id=$2 LIMIT 1",
   ") my_ballot ON true",
-  "WHERE s.twitch_channel_id=$1 AND s.state<>'retired'",
+  "WHERE s.twitch_channel_id=$1 AND stream_branch.stream_id=$3 AND s.state<>'retired'",
   "ORDER BY s.ordinal LIMIT 80",
 ].join("\n");
 
-export async function getActiveElections(channelId: string, principal: RequestPrincipal | null) {
+export async function getActiveElections(channelId: string, principal: RequestPrincipal | null,streamId:string) {
   const userId = principalTwitchId(principal);
   const result = await query<{
     id:string; segment_id:string; state:string; closes_at:Date;
     choice_id:string; choice_title:string; vote_count:string; my_choice:boolean;
-  }>(electionSql,[channelId,userId]);
+  }>(electionSql,[channelId,userId,streamId]);
   const grouped = new Map<string,{
     id:string; segmentId:string; state:"open"; closesAt:string;
     choices:Array<{id:string;title:string;votes:number;voteCount:number}>; myChoiceId:string|null;myVote:{choiceId:string}|null;
@@ -103,8 +96,10 @@ export async function getActiveElections(channelId: string, principal: RequestPr
   return [...grouped.values()];
 }
 
-export async function getPublicTimeline(channel:ChannelRow,principal:RequestPrincipal|null):Promise<{
+export async function getPublicTimeline(channel:ChannelRow,principal:RequestPrincipal|null,requestedStreamId?:string):Promise<{
   channel:{twitchChannelId:string;twitchLogin:string;displayName:string;visibility:string};
+  stream:{id:string;slug:string;displayName:string;isDefault:boolean};
+  streamId:string;
   segments:PublicChannelSummary["segments"] & Array<Record<string,unknown>>;
   elections:Awaited<ReturnType<typeof getActiveElections>>;
   currentProgramItem:{id:string;segmentId:string|null;kind:"story"|"subscriber_interrupt";assetUrl:string;upscaleUrl?:string;mimeType:string;subscriberLabel?:string;durationSeconds:number}|null;
@@ -112,9 +107,11 @@ export async function getPublicTimeline(channel:ChannelRow,principal:RequestPrin
   revision:number;
 }>{
   const twitchUserId=principalTwitchId(principal);
+  const streamId=requestedStreamId??await getDefaultStreamId(channel.twitch_channel_id);
+  const streamRow=await getStreamById(channel.twitch_channel_id,streamId);
   const [segmentsResult,elections,programResult,playbackResult,manifestResult]=await Promise.all([
-    query<SegmentRow>(segmentsSql,[channel.twitch_channel_id,twitchUserId]),
-    getActiveElections(channel.twitch_channel_id,principal),
+    query<SegmentRow>(segmentsSql,[channel.twitch_channel_id,twitchUserId,streamId]),
+    getActiveElections(channel.twitch_channel_id,principal,streamId),
     query<{id:string;segment_id:string|null;item_kind:string;asset_id:string;duration_seconds:string|null;subscriber_label:string|null;upscale_asset_id:string|null}>(
       `SELECT pi.id,pi.segment_id,pi.item_kind,pi.asset_id,a.duration_seconds,ir.subscriber_label,
        (SELECT derivative.id FROM sloptogether.jobs uj JOIN sloptogether.job_attempts uja ON uja.job_id=uj.id
@@ -124,11 +121,11 @@ export async function getPublicTimeline(channel:ChannelRow,principal:RequestPrin
       "FROM sloptogether.playback_sessions ps JOIN sloptogether.program_items pi ON pi.id=ps.active_item_id "+
       "JOIN sloptogether.assets a ON a.id=pi.asset_id AND a.status='published' "+
       "LEFT JOIN sloptogether.interrupt_requests ir ON ir.id=pi.interrupt_id "+
-      "WHERE ps.twitch_channel_id=$1 AND pi.committed_at IS NOT NULL LIMIT 1",[channel.twitch_channel_id]),
+      "WHERE ps.stream_id=$1 AND pi.stream_id=$1 AND pi.committed_at IS NOT NULL LIMIT 1",[streamId]),
     query<{item_offset_seconds:string;event_sequence:string;controller_user_id:string|null;lease_expires_at:Date|null;controller_epoch:string}>(
       "SELECT item_offset_seconds,event_sequence,controller_user_id,lease_expires_at,controller_epoch "+
-      "FROM sloptogether.playback_sessions WHERE twitch_channel_id=$1",[channel.twitch_channel_id]),
-    query<{program_epoch:string;manifest_revision:string}>("SELECT program_epoch,manifest_revision FROM sloptogether.program_manifests WHERE twitch_channel_id=$1 ORDER BY program_epoch DESC LIMIT 1",[channel.twitch_channel_id]),
+      "FROM sloptogether.playback_sessions WHERE stream_id=$1",[streamId]),
+    query<{program_epoch:string;manifest_revision:string}>("SELECT program_epoch,manifest_revision FROM sloptogether.program_manifests WHERE stream_id=$1 ORDER BY program_epoch DESC LIMIT 1",[streamId]),
   ]);
   const playback=playbackResult.rows[0];
   const items=segmentsResult.rows.map(row=>({
@@ -144,6 +141,8 @@ export async function getPublicTimeline(channel:ChannelRow,principal:RequestPrin
   const programEpoch=Number(manifestResult.rows[0]?.program_epoch??1);
   return {
     channel:{twitchChannelId:channel.twitch_channel_id,twitchLogin:channel.twitch_login,displayName:channel.display_name,visibility:channel.visibility},
+    stream:{id:streamRow.id,slug:streamRow.slug,displayName:streamRow.display_name,isDefault:streamRow.is_default},
+    streamId,
     segments:items as PublicChannelSummary["segments"] & Array<Record<string,unknown>>,
     elections,
     currentProgramItem:current?{

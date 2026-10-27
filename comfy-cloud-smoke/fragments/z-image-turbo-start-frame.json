@@ -1,0 +1,234 @@
+{
+  "_fragment": {
+    "name": "z-image-turbo-start-frame",
+    "description": "Decomposed from comfy-cloud-smoke/templates/z-image-turbo.json. Edit values as named params in a blueprint and rebuild with `comfy workflow compose` \u2014 do not hand-edit the compiled workflow.",
+    "terminal": false,
+    "source": "comfy-cloud-smoke/templates/z-image-turbo.json",
+    "inputs": {},
+    "outputs": {
+      "image": {
+        "type": "IMAGE",
+        "from": "5",
+        "port": 0
+      }
+    },
+    "params": {
+      "load_clip_clip_name": {
+        "type": "STRING",
+        "binds": "2.clip_name",
+        "default": "qwen_3_4b.safetensors"
+      },
+      "load_clip_type": {
+        "type": "STRING",
+        "binds": "2.type",
+        "default": "lumina2"
+      },
+      "load_clip_device": {
+        "type": "STRING",
+        "binds": "2.device",
+        "default": "default"
+      },
+      "load_vae_vae_name": {
+        "type": "STRING",
+        "binds": "3.vae_name",
+        "default": "ae.safetensors"
+      },
+      "load_diffusion_model_unet_name": {
+        "type": "STRING",
+        "binds": "6.unet_name",
+        "default": "z_image_turbo_bf16.safetensors"
+      },
+      "load_diffusion_model_weight_dtype": {
+        "type": "STRING",
+        "binds": "6.weight_dtype",
+        "default": "default"
+      },
+      "clip_text_encode_prompt_text": {
+        "type": "STRING",
+        "binds": "7.text",
+        "default": "A tiny white cartoon robot stands beside a glowing blue crystal in a moonlit garden. A distant observatory sits under a bright constellation. Hand-painted 2D storybook illustration, wide 7:4 composition, keep robot and crystal centered in the middle horizontal band, family-friendly, no text or logos."
+      },
+      "emptysd3latentimage_width": {
+        "type": "INT",
+        "binds": "8.width",
+        "default": 448
+      },
+      "emptysd3latentimage_height": {
+        "type": "INT",
+        "binds": "8.height",
+        "default": 256
+      },
+      "emptysd3latentimage_batch_size": {
+        "type": "INT",
+        "binds": "8.batch_size",
+        "default": 1
+      },
+      "modelsamplingauraflow_shift": {
+        "type": "INT",
+        "binds": "9.shift",
+        "default": 3
+      },
+      "modelsamplingauraflow_sampling": {
+        "type": "STRING",
+        "binds": "9.sampling",
+        "default": "flow"
+      },
+      "ksampler_seed": {
+        "type": "INT",
+        "binds": "10.seed",
+        "default": 0
+      },
+      "ksampler_steps": {
+        "type": "INT",
+        "binds": "10.steps",
+        "default": 8
+      },
+      "ksampler_cfg": {
+        "type": "INT",
+        "binds": "10.cfg",
+        "default": 1
+      },
+      "ksampler_sampler_name": {
+        "type": "STRING",
+        "binds": "10.sampler_name",
+        "default": "res_multistep"
+      },
+      "ksampler_scheduler": {
+        "type": "STRING",
+        "binds": "10.scheduler",
+        "default": "simple"
+      },
+      "ksampler_denoise": {
+        "type": "INT",
+        "binds": "10.denoise",
+        "default": 1
+      }
+    }
+  },
+  "2": {
+    "inputs": {
+      "clip_name": "qwen_3_4b.safetensors",
+      "type": "lumina2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "3": {
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "4": {
+    "inputs": {
+      "conditioning": [
+        "7",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "Conditioning Zero Out"
+    }
+  },
+  "5": {
+    "inputs": {
+      "samples": [
+        "10",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "6": {
+    "inputs": {
+      "unet_name": "z_image_turbo_bf16.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "7": {
+    "inputs": {
+      "text": "A tiny white cartoon robot stands beside a glowing blue crystal in a moonlit garden. A distant observatory sits under a bright constellation. Hand-painted 2D storybook illustration, wide 7:4 composition, keep robot and crystal centered in the middle horizontal band, family-friendly, no text or logos.",
+      "clip": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "8": {
+    "inputs": {
+      "width": 448,
+      "height": 256,
+      "batch_size": 1
+    },
+    "class_type": "EmptySD3LatentImage",
+    "_meta": {
+      "title": "EmptySD3LatentImage"
+    }
+  },
+  "9": {
+    "inputs": {
+      "shift": 3,
+      "sampling": "flow",
+      "model": [
+        "6",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {
+      "title": "ModelSamplingAuraFlow"
+    }
+  },
+  "10": {
+    "inputs": {
+      "seed": 0,
+      "steps": 8,
+      "cfg": 1,
+      "sampler_name": "res_multistep",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "9",
+        0
+      ],
+      "positive": [
+        "7",
+        0
+      ],
+      "negative": [
+        "4",
+        0
+      ],
+      "latent_image": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  }
+}

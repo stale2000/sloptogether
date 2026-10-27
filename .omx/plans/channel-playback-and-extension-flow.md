@@ -20,10 +20,14 @@
 - Each view loads Twitch's Helper before its own script, uses `onAuthorized` for the signed EBS token, `onContext` for theme, and shares state through the API. Test the panel and config view in Developer Rig/Local Test before submission.
 
 ## Bits boundary
-- Use only fixed Extension product SKUs priced in Bits. Do not label Bits as a donation or set a USD amount in the Extension UI.
-- Twitch policy bars exchanging Bits for end-user specified free-form experiences. A Bits action cannot lock a viewer's custom prompt or guarantee it overrides the community-selected scene.
-- Existing compliant direction: a fixed Bits action on a selected, screened scene for one Turbo render attempt. A separate fixed Bits vote on an already-approved poll choice may be considered; it can add support, not guarantee the winner.
-- Viewer-authored prompts remain free to submit, screened, and approved before voting. Keep any paid action bound to its fixed product, verified transaction, immutable scene revision, and single-use lifecycle.
+- Use fixed Extension product SKUs priced in Bits. The fixed SKU represents one defined SlopTogether action: submit one custom prompt for one screened render attempt, with fixed duration/profile and normal moderation. User text supplies content for that action.
+- Bind the prompt to the initiating Extension user, channel, stream, product SKU, transaction ID, policy revision and one-time funding record. Do not dispatch or lock a scene until Twitch confirms the transaction. Replays, late receipts and uncertain submissions must not duplicate spend or unlock another render.
+- Keep prompts and output screened. Follow the broadcaster's review policy; a paid request does not bypass moderation. On rejection, reopen the slot according to the current rules without restoring the consumed attempt.
+- Do not promise a specific output, model latency or quality. Enforce the action's fixed bounds and show pending/rejected/ready state.
+- Twitch policy §6.2.8 is broad, while Twitch publicly showcases Streambombs with a fixed selection plus a personal message and Sound Alerts with Bits-priced viewer-typed TTS. Treat those as precedents for fixed Bits interactions carrying user text, not as blanket approval of arbitrary AI video prompts. Submit the exact SlopTogether interaction through normal Twitch review before enabling the Bits product broadly.
+- Never label Bits as a financial donation in Extension UI. Use accurate Extension terminology and the catalog's fixed Bits amount. Viewer-authored free prompts, chat and website participation remain available without payment.
+- A confirmed Bits prompt lock takes precedence over the vote for its selected slot. Streamer/moderator approval still controls whether its uploaded clip is accepted. Rejection releases the slot for another eligible submission or vote; the consumed payment cannot fund another render.
+
 
 ## Work and acceptance
 1. Route the channel page to playback; trim the directory to channel names and actions.
@@ -31,4 +35,4 @@
 3. Preserve the shared API source of truth and minimal OBS output.
 4. Verify route destinations, playback/seek, moderator separation, Extension API endpoints, packaging, and copy length at desktop and phone/panel sizes.
 
-Open product decision: keep the current fixed Turbo Bits action, or add a fixed Bits vote-support product. The requested custom-prompt lock/guaranteed override is not compatible with Twitch Extension Bits policy.
+Acceptance: ship the fixed Bits prompt-submission SKU with one attempt, safe content checks, and moderator policy. Submit the complete viewer flow through Twitch review before broad enablement; record the review result in the release configuration.

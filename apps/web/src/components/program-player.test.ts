@@ -1,5 +1,39 @@
 import { describe, expect, it } from "vitest";
-import { hlsPlayerMode,safeInterruptTransition,shouldSkipInterruptSpan } from "./program-player";
+import { controllerMarkerDecision,hlsPlayerMode,interruptsCrossedByForwardSeek,safeInterruptTransition,seekOrQueue,shouldSkipInterruptSpan } from "./program-player";
+
+describe("seekOrQueue",()=>{
+  it("keeps the user's seek for metadata rather than a previous saved position",()=>{
+    const media={readyState:0,currentTime:21};
+    expect(seekOrQueue(media,75)).toBe(75);
+    expect(media.currentTime).toBe(21);
+  });
+  it("seeks immediately once metadata is available",()=>{
+    const media={readyState:1,currentTime:21};
+    expect(seekOrQueue(media,75)).toBeNull();
+    expect(media.currentTime).toBe(75);
+  });
+  it("retains the target if the browser cannot seek yet",()=>{
+    const media={readyState:1,get currentTime(){return 21},set currentTime(_value:number){throw new Error("not seekable")}};
+    expect(seekOrQueue(media,75)).toBe(75);
+  });
+});
+
+describe("controllerMarkerDecision",()=>{
+  it("preserves a manual seek when the same saved position arrives late",()=>{
+    expect(controllerMarkerDecision(3,null,3,true,false,null)).toBe("ignore");
+  });
+  it("waits for a pending claim and ignores the echo of our own claim",()=>{
+    expect(controllerMarkerDecision(4,3,3,true,true,null)).toBe("wait");
+    expect(controllerMarkerDecision(4,3,3,true,false,4)).toBe("ignore");
+  });
+  it("applies a new remote controller or streamer override after the claim settles",()=>{
+    expect(controllerMarkerDecision(5,3,3,true,false,4)).toBe("apply");
+    expect(controllerMarkerDecision(5,3,3,true,false,null)).toBe("apply");
+  });
+  it("keeps ignoring repeated markers within an epoch",()=>{
+    expect(controllerMarkerDecision(4,4,3,true,false,4)).toBe("unchanged");
+  });
+});
 
 describe("hlsPlayerMode",()=>{
   it("prefers hls.js when Media Source Extensions are available despite a native HLS hint",()=>{
@@ -40,5 +74,17 @@ describe("safeInterruptTransition",()=>{
     expect(shouldSkipInterruptSpan(span,new Set(["alert-item"]))).toBe(true);
     expect(shouldSkipInterruptSpan({...span,skipPlayback:true},new Set())).toBe(true);
     expect(shouldSkipInterruptSpan(span,new Set())).toBe(false);
+  });
+});
+
+describe("interruptsCrossedByForwardSeek",()=>{
+  const alert={itemId:"alert-item",interruptId:"alert-1",kind:"subscriber_interrupt" as const,outputStartSeconds:30,outputEndSeconds:45};
+  it("consumes alerts passed by a forward seek, but not an alert the viewer seeks into",()=>{
+    expect(interruptsCrossedByForwardSeek([alert],15,50)).toEqual(["alert-item"]);
+    expect(interruptsCrossedByForwardSeek([alert],15,35)).toEqual([]);
+  });
+  it("does not consume alerts on rewind or alerts already marked non-playable",()=>{
+    expect(interruptsCrossedByForwardSeek([alert],50,15)).toEqual([]);
+    expect(interruptsCrossedByForwardSeek([{...alert,skipPlayback:true}],15,50)).toEqual([]);
   });
 });

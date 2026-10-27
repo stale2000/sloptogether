@@ -11,7 +11,7 @@ from queue import SimpleQueue
 from unittest import skipIf
 from unittest.mock import patch
 
-from sloptogether_worker.fal_session import FalSessionError, _heartbeat, run_session
+from sloptogether_worker.fal_session import FalSessionError, _STOP, _heartbeat, run_session
 from threading import Event, Thread
 
 
@@ -97,10 +97,44 @@ class FalSessionTests(unittest.TestCase):
                 commands = [json.loads(line) for line in calls.read_text().splitlines()]
                 self.assertIn(["apps", "scale", "slop-generation", "--min-concurrency", "0", "--max-concurrency", "1", "--keep-alive", "0"], commands)
 
-    def test_runtime_cannot_exceed_eight_hours(self):
-        with self.assertRaisesRegex(FalSessionError, "8_hours"):
+    def test_stop_during_startup_scales_down_without_waiting_for_a_runner(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fal, state, calls = self._fake_fal(root)
+            ping_started = threading.Event()
+            release_ping = threading.Event()
+            errors: list[BaseException] = []
+
+            def slow_ping(*_args, **_kwargs):
+                ping_started.set()
+                release_ping.wait(timeout=2)
+
+            def start_session():
+                try:
+                    run_session("slop-generation", "slop-upscale", generation_url="https://fal.run/test/slop-generation",
+                                upscale_url="https://fal.run/test/slop-upscale", fal_key="dummy-key",
+                                fal_cli=str(fal), runtime_seconds=30)
+                except BaseException as error:
+                    errors.append(error)
+
+            _STOP.clear()
+            with patch.dict(os.environ, {"FAL_TEST_STATE": str(state), "FAL_TEST_CALLS": str(calls)}), \
+                    patch("sloptogether_worker.fal_session._ping_endpoint", side_effect=slow_ping):
+                thread = Thread(target=start_session, daemon=True)
+                thread.start()
+                self.assertTrue(ping_started.wait(timeout=2))
+                _STOP.set()
+                thread.join(timeout=2)
+                release_ping.set()
+                self.assertFalse(thread.is_alive())
+                self.assertTrue(any(isinstance(error, FalSessionError) and "stopped_during_startup" in str(error) for error in errors))
+                self.assertEqual(json.loads(state.read_text()), {"slop-generation": [], "slop-upscale": []})
+            _STOP.clear()
+
+    def test_runtime_cannot_exceed_two_hours(self):
+        with self.assertRaisesRegex(FalSessionError, "2_hours"):
             run_session("generation", "upscale", generation_url="https://fal.run/test/gen",
-                        upscale_url="https://fal.run/test/up", fal_key="dummy-key", runtime_seconds=28801)
+                        upscale_url="https://fal.run/test/up", fal_key="dummy-key", runtime_seconds=7201)
 
     def test_controller_repeats_wake_ping_while_session_is_alive(self):
         stop = Event()

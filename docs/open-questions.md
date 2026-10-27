@@ -2,20 +2,20 @@
 
 Current implementation gaps and external dependencies are tracked in the [October 24 audit](implementation-audit-2026-10-24.md) and [completion plan](../.omx/plans/sloptogether-completion-plan.md). Continuous streams have no fixed clip-count cap; the four clips are only test fixtures. Using the existing Clips.gg database through an isolated schema and scoped login is now a settled decision.
 
-Updated October 23, 2026 after the user's answers. Settled requirements are in [product-decisions.md](product-decisions.md). IDs are retained from the earlier list so references remain understandable; answered questions are no longer presented as unresolved.
+Updated October 27, 2026 after the user's answers and Bits prompt-lock decision. Settled requirements are in [product-decisions.md](product-decisions.md). IDs are retained from the earlier list so references remain understandable; answered questions are no longer presented as unresolved.
 
 ## Business or channel behavior still to choose
 
-Q33 is answered: the owner's test story generator feeds the shared worker/API model, with the same worker program on Windows and Linux/fal and configurable trusted/streamer-control keys. Twitch Extension and chat voting are confirmed. Paid targeting remains unresolved; the single-attempt payment rule and full streamer editorial override remain fixed.
+Q33 is answered: the owner's test story generator feeds the shared worker/API model, with the same worker program on Windows and Linux/fal and configurable trusted/streamer-control keys. Twitch Extension and chat voting are confirmed. Paid prompt lock is settled: one Bits-confirmed prompt attempt locks its slot and outranks votes, with normal moderator review and no regeneration from a rejected transaction. Final Bits count, compute subsidy and Twitch review result remain release checks.
 
 | ID | Priority question | Working proposal |
 |---|---|---|
-| Q34 | Does a payment fund rendering a candidate already selected by voting/mods, or reserve the payer's proposed candidate? | Initially fund one already-selected, screened candidate. Treat paid reservation as a separately defined channel mode subject to the concrete Twitch product review. Both still permit only one billable attempt per payment and require valid timeline boundaries. |
+| Q34 | Does a payment fund rendering a candidate already selected by voting/mods, or reserve the payer's proposed candidate? | Settled: one confirmed Bits Prompt Lock reserves the viewer's screened prompt for an eligible slot and takes precedence over its vote. Bind the exact slot before dispatch; one billable attempt; rejection reopens the slot, and payment cannot be reused. |
 
 | ID | Remaining question | Working proposal / boundary |
 |---|---|---|
-| Q6 | Which precise Bits product/slot-targeting behavior will Twitch approve? | The required product buys one billable Turbo attempt, never repeated regeneration or guaranteed airing. Confirm allowed catalog/targeting with Twitch; this is an external approval question, not a reason to re-ask whether paid generation is wanted. |
-| Q7 | What final Bits amounts and owner margin should be used? | Existing provisional 400/600/1100 Bits examples for 480P/768P/1080P remain planning estimates based on developer receipts and regular provider rates. Operating-risk reserve is not a user retry allowance; set final catalog from measured costs. |
+| Q6 | What will Twitch's review accept for the chosen Bits Prompt Lock? | Submit the fixed-SKU, one-prompt/one-attempt design with screened custom text, paid lock priority over votes, moderator approval and reopen-on-rejection. Existing Bits TTS/personal-message extensions are precedent; acceptance of prompt-driven video remains unverified. |
+| Q7 | What Bit amount and compute funding make the roughly US$1 target sustainable? | Twitch's standard developer share is about US$0.002/Bit; 100 Bits yield about US$0.20 to the app owner. The H3 Max Turbo estimate is for an optional premium SKU, not the default FastH3 path. Measure the FastH3 owner/Fal cost, and price Turbo separately or subsidize it explicitly. |
 | Q8a | What remedy applies to a verified payment that was genuinely never dispatched or cannot be matched to a target? | Explicit unfulfilled-purchase/support reconciliation. A consumed rejected/failed billable attempt is not reusable. Never silently apply old money to a new slot or assume an automatic Twitch refund API. |
 | Q14 | Should Twitch bans mirror into SlopTogether, and should an app ban ever issue a Twitch ban? | App channel/platform bans always deny app work and override whitelists. Optional inbound Twitch-ban sync; outbound Twitch moderation only if separately enabled/authorized. |
 | Q16a | Beyond required spoken subscriber shout-outs, which normal-story soundtrack or user-uploaded audio features are enabled? | Subscriber H3 dialogue/audio is confirmed and must survive upscale/OBS playback. General music/uploads and ordinary-story audio policy remain configurable; text/image moderation does not classify audio. |

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import type { ProgramOutput } from "./api";
 
 export interface ProgramSpan {
@@ -16,6 +16,13 @@ export interface ProgramSpan {
 
 export function shouldSkipInterruptSpan(span:ProgramSpan|undefined,consumed:Set<string>){
   return Boolean(span?.kind==="subscriber_interrupt"&&(span.skipPlayback||consumed.has(span.itemId??span.interruptId??"")));
+}
+
+export function interruptsCrossedByForwardSeek(spans:ProgramSpan[],fromSeconds:number,toSeconds:number){
+  if(!Number.isFinite(fromSeconds)||!Number.isFinite(toSeconds)||toSeconds<=fromSeconds)return [];
+  return spans.filter(span=>span.kind==="subscriber_interrupt"&&!span.skipPlayback
+    &&span.outputEndSeconds>fromSeconds&&span.outputEndSeconds<=toSeconds)
+    .map(span=>span.itemId??span.interruptId).filter((id):id is string=>Boolean(id));
 }
 
 export function hlsPlayerMode(hasMediaSourceExtensions:boolean,canPlayNatively:boolean){
@@ -48,6 +55,22 @@ export interface ProgramManifest {
 
 interface ProgressEvent { itemId: string; seconds: number; manifestRevision: number }
 
+export interface ProgramPlayerHandle { seek: (seconds: number) => void }
+
+export function seekOrQueue(media:Pick<HTMLMediaElement,"readyState"|"currentTime">|null,seconds:number):number|null{
+  if(media&&media.readyState>=1){
+    try{media.currentTime=seconds;return null;}catch{/* retry once metadata is ready */}
+  }
+  return seconds;
+}
+
+export function controllerMarkerDecision(markerEpoch:number,lastEpoch:number|null,manualEpoch:number|null,hasManualSeek:boolean,claimPending:boolean,ownedEpoch:number|null){
+  if(markerEpoch===lastEpoch)return "unchanged";
+  if(hasManualSeek&&claimPending&&markerEpoch!==manualEpoch)return "wait";
+  if(hasManualSeek&&(markerEpoch===manualEpoch||markerEpoch===ownedEpoch))return "ignore";
+  return "apply";
+}
+
 export function ProgramPlayer({
   program,
   fallbackItem,
@@ -59,6 +82,9 @@ export function ProgramPlayer({
   autoInterruptId,
   canAutoInterrupt=false,
   clean = false,
+  seekRef,
+  controllerClaimPending=false,
+  ownedControllerEpoch=null,
 }: {
   program: ProgramManifest | null;
   fallbackItem: ProgramOutput["currentProgramItem"];
@@ -70,6 +96,9 @@ export function ProgramPlayer({
   autoInterruptId?:string;
   canAutoInterrupt?:boolean;
   clean?: boolean;
+  seekRef?: Ref<ProgramPlayerHandle>;
+  controllerClaimPending?: boolean;
+  ownedControllerEpoch?: number | null;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<{ destroy: () => void } | null>(null);
@@ -78,6 +107,13 @@ export function ProgramPlayer({
   const fallbackRef = useRef(fallbackItem);
   const lastPlayheadEpochRef = useRef<number | null>(null);
   const pendingSeekRef=useRef<number|null>(null);
+  const manualSeekRef=useRef<{epoch:number|null;programEpoch:number|null}|null>(null);
+  const markerEpochRef=useRef<number|null>(null);
+  const programEpochRef=useRef<number|null>(null);
+  useEffect(()=>{
+    markerEpochRef.current=program?.playhead?.controllerEpoch??null;
+    programEpochRef.current=program?.epoch??null;
+  },[program?.epoch,program?.playhead?.controllerEpoch]);
   const autoPlayIntentRef=useRef(autoPlayIntent);
   const sourceSwitchingRef=useRef(false);
   const resumeAfterSourceRef=useRef(false);
@@ -87,6 +123,7 @@ export function ProgramPlayer({
   const consumedInterruptsRef=useRef(new Set<string>());
   const sourceGenerationRef=useRef(0);
   const playAttemptGenerationRef=useRef(0);
+  const spans = useMemo(() => program?.programSpans ?? [], [program?.programSpans]);
   useEffect(()=>{autoPlayIntentRef.current=autoPlayIntent},[autoPlayIntent]);
   useEffect(()=>{fallbackRef.current=fallbackItem;},[fallbackItem]);
   const url = program?.playlistUrl || (fallbackItem?.assetUrl ?? null);
@@ -96,10 +133,17 @@ export function ProgramPlayer({
   // mappings; it must not reload/reset the continuous media element.
   const sourceSignature = `${program?.epoch ?? 0}:${program?.playlistUrl ?? ""}`;
   const sourceStartPositionRef=useRef(0);
-  useEffect(()=>{sourceStartPositionRef.current=program?.playhead?.outputSeconds??0},[program?.epoch,program?.playlistUrl,program?.playhead?.outputSeconds]);
-
-  const spans = useMemo(() => program?.programSpans ?? [], [program?.programSpans]);
-
+  useImperativeHandle(seekRef,()=>({seek(seconds:number){
+    manualSeekRef.current={epoch:markerEpochRef.current,programEpoch:programEpochRef.current};
+    const currentPosition=videoRef.current?.currentTime??sourceStartPositionRef.current;
+    for(const itemId of interruptsCrossedByForwardSeek(spans,currentPosition,seconds))consumedInterruptsRef.current.add(itemId);
+    sourceStartPositionRef.current=seconds;
+    pendingSeekRef.current=seekOrQueue(videoRef.current,seconds);
+  }}),[spans]);
+  useEffect(()=>{
+    if(manualSeekRef.current&&manualSeekRef.current.programEpoch!==(program?.epoch??null))manualSeekRef.current=null;
+    if(!manualSeekRef.current)sourceStartPositionRef.current=program?.playhead?.outputSeconds??0;
+  },[program?.epoch,program?.playlistUrl,program?.playhead?.outputSeconds]);
   useEffect(() => {
     const media = videoRef.current;
     if (!media || !url) return;
@@ -200,13 +244,18 @@ export function ProgramPlayer({
     const media=videoRef.current;
     const marker=program?.playhead;
     if(!media||!marker||!Number.isFinite(marker.outputSeconds))return;
-    if(lastPlayheadEpochRef.current===marker.controllerEpoch)return;
+    const decision=controllerMarkerDecision(marker.controllerEpoch,lastPlayheadEpochRef.current,manualSeekRef.current?.epoch??null,
+      manualSeekRef.current!==null,controllerClaimPending,ownedControllerEpoch);
+    if(decision==="unchanged"||decision==="wait")return;
     lastPlayheadEpochRef.current=marker.controllerEpoch;
+    if(decision==="ignore")return;
+    manualSeekRef.current=null;
+    sourceStartPositionRef.current=marker.outputSeconds;
     pendingSeekRef.current=marker.outputSeconds;
     if(media.readyState>=1){
       try{media.currentTime=marker.outputSeconds;pendingSeekRef.current=null;}catch{/* retry when HLS metadata arrives */}
     }
-  },[program?.playhead]);
+  },[program?.playhead,controllerClaimPending,ownedControllerEpoch]);
 
   if (!url || kind === "empty") {
     return <div className="output-awaiting"><div className="start-mark">◌</div><strong>Waiting for an approved scene</strong><span>The source browser will show new channel content when it is ready.</span></div>;
@@ -259,7 +308,8 @@ export function ProgramPlayer({
             return;
           }else if(span?.itemId===resume.interruptItemId){resume.sawInterrupt=true;}
         }
-        if(canAutoInterrupt&&autoInterruptId&&lastTriggeredInterruptRef.current!==autoInterruptId&&!interruptResumeRef.current){
+        if(canAutoInterrupt&&autoInterruptId&&lastTriggeredInterruptRef.current!==autoInterruptId
+          &&!consumedInterruptsRef.current.has(autoInterruptId)&&!interruptResumeRef.current){
           const transition=safeInterruptTransition(spans,position,autoInterruptId);
           if(transition){
             lastTriggeredInterruptRef.current=autoInterruptId;

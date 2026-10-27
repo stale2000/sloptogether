@@ -11,6 +11,9 @@ FILES = {
     "SlopTogetherWorker.exe": Path("dist/SlopTogetherWorker.exe"),
     "worker.example.toml": Path("dist/worker.example.toml"),
     "worker.wsl.example.toml": Path("dist/worker.wsl.example.toml"),
+    "Setup-SlopTogetherWorker.ps1": Path("dist/Setup-SlopTogetherWorker.ps1"),
+    "Install-ComfyStreamerNodes.ps1": Path("dist/Install-ComfyStreamerNodes.ps1"),
+    "ComfyStreamer-Wsl-runtime.zip": Path("dist/ComfyStreamer-Wsl-runtime.zip"),
     "README.txt": Path("dist/README.txt"),
 }
 

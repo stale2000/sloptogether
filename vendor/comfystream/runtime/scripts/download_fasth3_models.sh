@@ -96,6 +96,12 @@ trap cleanup_auth_config EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+# Reuse the WSL user's Hugging Face login when no explicit token was supplied.
+# Capture it into the shell only long enough to write curl's mode-0600 config;
+# never print it or put it in a child process argument.
+if [[ -z "${HF_TOKEN:-}" ]]; then
+  HF_TOKEN="$("$python_bin" -c 'from huggingface_hub import get_token; print(get_token() or "")' 2>/dev/null || true)"
+fi
 if [[ -n "${HF_TOKEN:-}" ]]; then
   if [[ ! "$HF_TOKEN" =~ ^[A-Za-z0-9_-]+$ ]]; then
     echo "HF_TOKEN contains unsupported characters" >&2
@@ -213,54 +219,4 @@ if [[ "${FASTH3_SKIP_FINAL_REHASH:-0}" == "1" ]]; then
   exit 0
 fi
 
-"$python_bin" - "$manifest" "$models_root" <<'PY'
-import hashlib
-import json
-import os
-import sys
-from pathlib import Path
-
-manifest_path = Path(sys.argv[1])
-models_root = Path(sys.argv[2])
-manifest = json.loads(manifest_path.read_text())
-model_paths = manifest.get("model_paths", {})
-errors = []
-for filename, expected in manifest["models"].items():
-    relative = model_paths.get(filename)
-    if relative is not None:
-        relative_path = Path(relative)
-        if (
-            not isinstance(relative, str)
-            or relative_path.is_absolute()
-            or ".." in relative_path.parts
-            or "" in relative_path.parts
-        ):
-            errors.append(f"{filename}: invalid model path in manifest")
-            continue
-        matches = [models_root / relative_path]
-        matches = [path for path in matches if path.is_file()]
-    else:
-        matches = list(models_root.rglob(filename))
-    if len(matches) != 1:
-        errors.append(f"{filename}: expected one file, found {len(matches)}")
-        continue
-    digest = hashlib.sha256()
-    with matches[0].open("rb") as handle:
-        offset = 0
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-            advice = getattr(os, "POSIX_FADV_DONTNEED", None)
-            fadvise = getattr(os, "posix_fadvise", None)
-            if advice is not None and callable(fadvise):
-                try:
-                    fadvise(handle.fileno(), offset, len(block), advice)
-                except OSError:
-                    pass
-            offset += len(block)
-    actual = digest.hexdigest()
-    if actual != expected:
-        errors.append(f"{filename}: expected {expected}, got {actual}")
-if errors:
-    raise SystemExit("\n".join(errors))
-print("FASTH3_MODELS_OK")
-PY
+"$python_bin" "$script_dir/verify_fasth3_models.py" "$manifest" "$models_root" "${FASTH3_TRIM_ONLY:-0}"

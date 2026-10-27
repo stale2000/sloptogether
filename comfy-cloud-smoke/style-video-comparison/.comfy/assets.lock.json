@@ -1,0 +1,26 @@
+{
+  "assets": {
+    "0ca2b9e6_000.png": {
+      "cloud_name": "7948d2a49b53fc3d844db64105795113994bf9727667cd5f067fd86ef1a44ec1.png",
+      "pushed_at": "2026-10-27T05:44:40+00:00",
+      "sha256": "501e21b0dc01108c79ce48da8fc7dc5278ac652aaae0f44f9d3d3527019f08eb",
+      "size": 129549,
+      "where": "cloud"
+    },
+    "79272e58_000.png": {
+      "cloud_name": "0ce5d7ed27dc8353d14643755d3bb5a37b433208e4b180864a2ae6f770423672.png",
+      "pushed_at": "2026-10-27T05:44:40+00:00",
+      "sha256": "e4cd4ca7445ce77e90dbf34b0167d16b6267938fa7aa26448756667b5ad07cc9",
+      "size": 180855,
+      "where": "cloud"
+    },
+    "94bfb673_000.png": {
+      "cloud_name": "14f39f58797b86db489ba9d8d4f1036321d8a96070482f71a56416533dac4d8e.png",
+      "pushed_at": "2026-10-27T05:44:41+00:00",
+      "sha256": "5e52158fada8d2d84a2dff6aaa0e452581b41c4e6b917b8381415dff7d3d6c01",
+      "size": 125323,
+      "where": "cloud"
+    }
+  },
+  "schema": "assets-lock/1"
+}

@@ -2,7 +2,7 @@ import { NextRequest,NextResponse } from "next/server";
 import { ApiError,assertSameOrigin,readJson } from "@/lib/server/http";
 import { requestPrincipal } from "@/lib/server/principals";
 import { findChannel,listPublicChannels } from "@/lib/server/channels";
-import { sessionOverview,publicChannel,createOwnedChannel,readChannelSettings,updateChannelSettings,listReviewQueue,decideReview,decideArtifactReview,resolveReviewInput,resolveGeneratedEndpointInput,issueWorkerKey,listWorkerKeys,revokeWorkerKey } from "@/lib/server/channel-service";
+import { sessionOverview,publicChannel,createOwnedChannel,readChannelSettings,updateChannelSettings,listReviewQueue,decideReview,decideArtifactReview,resolveReviewInput,resolveGeneratedEndpointInput,issueWorkerKey,listWorkerKeys,revokeWorkerKey,reaffirmWorkerTrust } from "@/lib/server/channel-service";
 import { getPublicTimeline } from "@/lib/server/timeline";
 import { castBallot } from "@/lib/server/voting-service";
 import { getProgramManifest, getProgramPlaylist, heartbeatPlayback,claimPlaybackController } from "@/lib/server/program-service";
@@ -14,6 +14,7 @@ import { getExtensionBitsState,createExtensionBitsIntent,recordExtensionBitsRece
 import { cancelComfyGeneration,createComfyFrameGeneration,createComfyPromptGeneration,getComfyFrameGenerationImage,getComfyGeneration,getComfyPromptGenerationText,listComfyGenerations } from "@/lib/server/comfy-frame-service";
 import { listWindowsWorkerRelease,recordWorkerProviderRequest,claimStoryProducer,submitStoryProposal,downloadWorkerAsset,failWorkerLease,requestClipUpscale } from "@/lib/server/worker-service";
 import { jsonError,jsonOk } from "@/lib/server/http";
+import { createStream,getStream,listStreams } from "@/lib/server/stream-service";
 
 type Context={params:Promise<{path:string[]}>};
 
@@ -44,6 +45,33 @@ async function dispatch(request:NextRequest,path:string[]){
   if(p[0]==="channels"&&p.length>=2){
     const locator=p[1]!;
     if(p.length===2&&method==="GET")return jsonOk(await publicChannel(locator));
+    if(p[2]==="streams"&&p.length===3&&method==="GET")return jsonOk(await listStreams(locator));
+    if(p[2]==="streams"&&p.length===3&&method==="POST")return jsonOk(await createStream(locator,request),{status:201});
+    if(p[2]==="streams"&&p[3]&&p.length>=5){
+      const channel=await findChannel(locator);const stream=await getStream(channel.twitch_channel_id,p[3]!);
+      if(p[4]==="timeline"&&p.length===5&&method==="GET"){
+        const timeline=await getPublicTimeline(channel,await requestPrincipal(request),stream.id);
+        return jsonOk({...timeline,activeElection:timeline.elections[0]??null,subscriberInterrupts:await import("@/lib/server/subscriber-service").then(m=>m.getPublicSubscriberState(channel.twitch_channel_id))});
+      }
+      if(p[4]==="program"&&p.length===5&&method==="GET")return jsonOk(await getProgramManifest(locator,stream.slug));
+      if(p[4]==="program"&&p[5]==="playlist.m3u8"&&p.length===6&&method==="GET"){
+        const epochRaw=new URL(request.url).searchParams.get("epoch");const epoch=epochRaw===null?undefined:Number(epochRaw);
+        if(epochRaw!==null&&(!Number.isSafeInteger(epoch)||epoch!<1))throw new ApiError(400,"program_epoch_invalid");
+        const result=await getProgramPlaylist(locator,epoch,stream.slug);
+        return new NextResponse(result.body,{status:200,headers:{"Content-Type":"application/vnd.apple.mpegurl","Cache-Control":"no-store, no-cache, must-revalidate","Access-Control-Allow-Origin":"*","X-Content-Type-Options":"nosniff"}});
+      }
+      if(p[4]==="proposals"&&p.length===5&&method==="POST")return jsonOk(await submitProposal(locator,request,stream.id),{status:201});
+      if(p[4]==="story-proposals"&&p.length===5&&method==="POST")return jsonOk(await submitStoryProposal(locator,request,stream.slug),{status:201});
+      if(p[4]==="elections"&&p[5]&&p[6]==="ballots"&&p.length===7&&method==="POST"){
+        const principal=await requestPrincipal(request);if(!principal)throw new ApiError(401,"login_required");
+        const parsed=await readJson(request,await import("@sloptogether/contracts").then(x=>x.voteRequestSchema));
+        return jsonOk(await castBallot(p[5]!,parsed.choiceId,principal,principal.kind==="extension"?"extension":"website",undefined,stream.id));
+      }
+      if(p[4]==="playback"&&p[5]==="controller"&&p.length===6&&method==="POST")return jsonOk(await claimPlaybackController(locator,request,stream.slug));
+      if(p[4]==="playback"&&p[5]==="position"&&p.length===6&&method==="POST")return jsonOk(await heartbeatPlayback(locator,request,stream.slug));
+      if(p[4]==="moderation"&&p[5]==="queue"&&p.length===6&&method==="GET")return jsonOk(await listReviewQueue(locator,request,stream.id));
+      if(p[4]==="story-producer"&&p[5]==="leases"&&p.length===6&&method==="POST")return jsonOk(await claimStoryProducer(locator,request,stream.slug));
+    }
     if(p[2]==="timeline"&&p.length===3&&method==="GET"){
       const channel=await findChannel(locator);const timeline=await getPublicTimeline(channel,await requestPrincipal(request));
       return jsonOk({...timeline,activeElection:timeline.elections[0]??null,subscriberInterrupts:await import("@/lib/server/subscriber-service").then(m=>m.getPublicSubscriberState(channel.twitch_channel_id))});
@@ -61,6 +89,7 @@ async function dispatch(request:NextRequest,path:string[]){
     if(p[2]==="worker-keys"&&p.length===3&&method==="POST")return jsonOk(await issueWorkerKey(locator,request),{status:201});
     if(p[2]==="worker-keys"&&p.length===3&&method==="GET")return jsonOk(await listWorkerKeys(locator,request));
     if(p[2]==="worker-keys"&&p[3]&&p[4]==="revoke"&&p.length===5&&method==="POST")return jsonOk(await revokeWorkerKey(locator,p[3]!,request));
+    if(p[2]==="worker-keys"&&p[3]&&p[4]==="reaffirm-trust"&&p.length===5&&method==="POST")return jsonOk(await reaffirmWorkerTrust(locator,p[3]!,request));
     if(p[2]==="proposals"&&p.length===3&&method==="POST")return jsonOk(await submitProposal(locator,request),{status:201});
     if(p[2]==="assets"&&p[3]==="upload-ticket"&&method==="POST")return jsonOk(await issueAssetUpload(locator,request),{status:201});
     if(p[2]==="upload-grant"&&p.length===4&&method==="POST")return jsonOk(await issueAssetUpload(locator,request),{status:201});

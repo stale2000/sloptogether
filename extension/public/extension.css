@@ -73,6 +73,7 @@ h1 { margin: 0; font-size: 16px; font-weight: 730; letter-spacing: -.02em; }
 .ballot { margin-top: 13px; }
 h2 { margin: 0; font-size: 14px; font-weight: 700; }
 .turbo { margin-top: 13px; padding: 10px; border: 1px solid var(--line); border-left: 3px solid var(--purple); border-radius: 4px; background: var(--surface); }
+#turbo { display: none !important; }
 .turbo .helper { margin-bottom: 7px; }
 .turbo-products { display: grid; gap: 6px; }
 .turbo-product { display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 4px; background: var(--field); text-align: left; cursor: pointer; }
@@ -83,6 +84,8 @@ h2 { margin: 0; font-size: 14px; font-weight: 700; }
 .helper,.note { color: var(--soft); font-size: 10px; line-height: 1.45; }
 .helper { margin: 6px 0 9px; }
 .choices { display: grid; gap: 6px; }
+.stream-picker { display: grid; gap: 5px; margin-top: 10px; color: var(--soft); font-size: 10px; font-weight: 650; }
+.stream-picker select { width: 100%; min-height: 38px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 4px; background: var(--field); color: var(--ink); font: inherit; }
 .choice { display: flex; width: 100%; min-height: 44px; align-items: center; gap: 8px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); text-align: left; cursor: pointer; }
 .choice:hover { border-color: var(--purple); }
 .choice[aria-pressed="true"] { border-color: var(--purple); box-shadow: inset 3px 0 var(--purple); }

@@ -34,9 +34,10 @@ async function fetchComfyPromptText(channelSlug:string,generationId:string){
   return apiFetch<{text:string}>(`/channels/${encodeURIComponent(channelSlug)}/comfy-generations/${encodeURIComponent(generationId)}/prompt`);
 }
 
-export function ChannelWorkspace({ channelSlug }: { channelSlug: string }) {
-  const data = useChannelTimeline(channelSlug);
-  const program=useChannelProgram(channelSlug);
+export function ChannelWorkspace({ channelSlug,streamSlug="main" }: { channelSlug: string;streamSlug?:string }) {
+  const data = useChannelTimeline(channelSlug,streamSlug);
+  const program=useChannelProgram(channelSlug,streamSlug);
+  const streamApi=`/channels/${encodeURIComponent(channelSlug)}/streams/${encodeURIComponent(streamSlug)}`;
   const programReady=program.state==="ready"&&Boolean(program.value.playlistUrl);
   const channelId=data.state==="ready"?data.value.channel.twitchChannelId:null;
   const [moderationState,setModerationState] = useState<ModerationState>("checking");
@@ -76,7 +77,7 @@ export function ChannelWorkspace({ channelSlug }: { channelSlug: string }) {
       const authorized=Boolean(session.channels?.some(item=>item.twitchChannelId===channelId&&(item.role==="broadcaster"||item.role==="moderator")));
       setCanUseComfyTools(authorized);
       if(!authorized)return;
-      const comfy=await apiFetch<{available:{frame:boolean;prompt:boolean};generations:ComfyGeneration[]}>(`/channels/${encodeURIComponent(channelSlug)}/comfy-generations`);
+        const comfy=await apiFetch<{available:{frame:boolean;prompt:boolean};generations:ComfyGeneration[]}>(`/channels/${encodeURIComponent(channelSlug)}/comfy-generations`);
       if(!active)return;
       setComfyFrameEnabled(comfy.available.frame);setComfyPromptEnabled(comfy.available.prompt);
       setComfyGenerations(comfy.generations);
@@ -169,7 +170,7 @@ export function ChannelWorkspace({ channelSlug }: { channelSlug: string }) {
   const submitVote = async (electionId: string, choice: ElectionChoice) => {
     setVoted(choice.id); setVoteError(null); setVoteNote(null);
     try {
-      await apiFetch(`/elections/${encodeURIComponent(electionId)}/ballots`, { method: "POST", body: JSON.stringify({ choiceId: choice.id }) });
+      await apiFetch(`${streamApi}/elections/${encodeURIComponent(electionId)}/ballots`, { method: "POST", body: JSON.stringify({ choiceId: choice.id }) });
       setVoteNote("Your vote was recorded. You can change it while voting is open.");
     } catch (error) {
       setVoteError(displayProblem(error));
@@ -210,7 +211,7 @@ export function ChannelWorkspace({ channelSlug }: { channelSlug: string }) {
       };
       const imageAssetId=imageFile?await uploadFrame(imageFile,"proposal_start_frame","start frame"):undefined;
       const endFrameAssetId=endImageFile?await uploadFrame(endImageFile,"proposal_end_frame","end frame"):undefined;
-      await apiFetch(`/channels/${encodeURIComponent(channelSlug)}/proposals`, {
+      await apiFetch(`${streamApi}/proposals`, {
         method: "POST",
         body: JSON.stringify({ prompt, imageAssetId, endFrameAssetId, planningMode }),
       });
@@ -231,21 +232,21 @@ export function ChannelWorkspace({ channelSlug }: { channelSlug: string }) {
       <main className="shell page-main">
         <div className="workspace-heading">
           <div>
-            <Breadcrumbs items={[{ label: "Channels", href: "/" }, { label: channelSlug }]} />
+            <Breadcrumbs items={[{ label: "Channels", href: "/" }, { label: channelSlug,href:`/channels/${channelSlug}` }, { label: streamSlug }]} />
             {data.state === "ready" ? (
               <PageTitle
-                eyebrow="CHANNEL PROGRAM"
-                title={data.value.channel.displayName}
-                description={`@${data.value.channel.twitchLogin} · shared live story`}
+                eyebrow="CHANNEL STREAM"
+                title={data.value.stream.displayName}
+                description={`@${data.value.channel.twitchLogin}`}
                 action={<LiveBadge live={programReady||data.value.playback.sourceController !== "offline"&&!!data.value.currentProgramItem} text={programReady?"PROGRAM READY":data.value.currentProgramItem?"BROWSER SOURCE READY":"WAITING FOR FIRST CLIP"} />}
               />
             ) : (
-              <PageTitle eyebrow="CHANNEL PROGRAM" title={`@${channelSlug}`} description="Live story, shared with chat." />
+              <PageTitle eyebrow="CHANNEL STREAM" title={streamSlug} description={`@${channelSlug}`} />
             )}
           </div>
           <div className="heading-actions">
-            <Link className="button secondary small" href={`/channels/${channelSlug}/moderate`}>Review queue</Link>
-            <Link className="button secondary small" href={`/channels/${channelSlug}/output`} target="_blank" rel="noopener noreferrer">Open OBS output ↗</Link>
+            <Link className="button secondary small" href={`/channels/${channelSlug}/streams/${streamSlug}/moderate`}>Review queue</Link>
+            <Link className="button secondary small" href={`/channels/${channelSlug}/streams/${streamSlug}/output`} target="_blank" rel="noopener noreferrer">Open OBS output ↗</Link>
           </div>
         </div>
 
@@ -266,12 +267,12 @@ export function ChannelWorkspace({ channelSlug }: { channelSlug: string }) {
               <div className="video-meta">
                 <span className="program-tag">{data.value.currentProgramItem?.kind === "subscriber_interrupt" ? "✦ Subscriber interstitial" : "◉ Current story"}</span>
                 <span>16:9 · OBS Window Capture</span>
-                <Link href={`/channels/${channelSlug}/output`} target="_blank" rel="noopener noreferrer" className="subtle-link">Open clean output ↗</Link>
+                <Link href={`/channels/${channelSlug}/streams/${streamSlug}/output`} target="_blank" rel="noopener noreferrer" className="subtle-link">Open clean output ↗</Link>
                 {data.value.currentProgramItem?.upscaleUrl?<a href={data.value.currentProgramItem.upscaleUrl} target="_blank" rel="noopener noreferrer" className="subtle-link">Open approved upscale ↗</a>:null}
               </div>
               <div className="timeline-heading">
                 <div><SectionLabel suffix={<span className="tiny-count">{data.value.segments.length} SCENES</span>}>UP NEXT</SectionLabel><h2>The story keeps moving.</h2></div>
-                <Link href={`/channels/${channelSlug}/output`} className="subtle-link mono">OPEN SOURCE ↗</Link>
+                <Link href={`/channels/${channelSlug}/streams/${streamSlug}/output`} className="subtle-link mono">OPEN SOURCE ↗</Link>
               </div>
               {data.value.segments.length ? <ol className="scene-list">
                 {data.value.segments.map((segment, index) => <li className={`scene-card${data.value.currentProgramItem?.segmentId === segment.id ? " scene-current" : ""}`} key={segment.id}>
@@ -295,7 +296,7 @@ export function ChannelWorkspace({ channelSlug }: { channelSlug: string }) {
                 {voteNote ? <p className="inline-success" role="status">{voteNote}</p> : null}
                 <p className="inline-help">Votes are free. A selected idea still passes the channel&apos;s review rules.</p>
               </div>)}
-              {!data.value.elections?.some((election) => election.state === "open") ? <div className="panel"><SectionLabel>COMMUNITY VOTE</SectionLabel><h2>Nothing is up for a vote yet.</h2><p className="panel-copy">When an eligible scene is ready, Extension, chat and site ballots show the same channel election.</p><div className="command-line"><code>!slop vote &lt;choice&gt;</code><span>CHAT</span></div><Link className="text-link" href={`/channels/${channelSlug}/moderate`}>Check the review queue <span>↗</span></Link></div> : null}
+              {!data.value.elections?.some((election) => election.state === "open") ? <div className="panel"><SectionLabel>COMMUNITY VOTE</SectionLabel><h2>Nothing is up for a vote yet.</h2><p className="panel-copy">When an eligible scene is ready, Extension, chat and site ballots show the same stream election.</p><div className="command-line"><code>!slop vote &lt;choice&gt;</code><span>CHAT</span></div><Link className="text-link" href={`/channels/${channelSlug}/streams/${streamSlug}/moderate`}>Check the review queue <span>↗</span></Link></div> : null}
 
               <form className="panel proposal-card" onSubmit={(event) => { event.preventDefault(); void sendProposal(new FormData(event.currentTarget)); }}>
                 <SectionLabel suffix={<span className="free-pill">{moderationState==="ready"?"FREE TO PROPOSE":"SUBMISSIONS PAUSED"}</span>}>YOUR IDEA</SectionLabel>

@@ -16,10 +16,7 @@ export const workerStageSchema = z.enum([
   "upscale",
 ]);
 
-export const h3PlanSchema = z.object({
-  kind: z.enum(["story", "subscriber_interrupt"]),
-  durationSeconds: z.number().int().min(5).max(15),
-  subscriberLabel: z.string().max(32).optional(),
+const h3PlanFieldsSchema = z.object({
   visualAction: z.string().trim().min(1).max(1200),
   camera: z.string().trim().min(1).max(320),
   speakerId: z.string().regex(/^S[1-9][0-9]?$/),
@@ -30,7 +27,17 @@ export const h3PlanSchema = z.object({
   music: z.enum(["none", "channel_approved"]),
 }).strict();
 
-export const h3StoryPromptPlanSchema = h3PlanSchema.omit({kind:true,durationSeconds:true,subscriberLabel:true});
+export const h3PlanSchema = h3PlanFieldsSchema.extend({
+  kind: z.enum(["story", "subscriber_interrupt"]),
+  durationSeconds: z.number().int().min(5).max(15),
+  subscriberLabel: z.string().max(32).optional(),
+}).strict().superRefine((plan,context)=>{
+  if(plan.kind==="subscriber_interrupt"&&plan.durationSeconds!==10){
+    context.addIssue({code:"custom",path:["durationSeconds"],message:"Subscriber interrupt clips must be 10 seconds."});
+  }
+});
+
+export const h3StoryPromptPlanSchema = h3PlanFieldsSchema;
 export type H3StoryPromptPlan = z.infer<typeof h3StoryPromptPlanSchema>;
 
 export function compileH3StoryPrompt(plan:H3StoryPromptPlan):string{

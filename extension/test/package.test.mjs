@@ -36,7 +36,8 @@ test("packages exactly the Twitch Extension assets with CDN-safe paths", () => {
     assert.match(files["extension.css"], /font-family: Figtree/);
     assert.ok(files.fontBytes > 10_000);
     assert.match(files["panel.js"], /context\?\.theme === "light"/);
-    assert.match(files["panel.js"], /fetch\(`\$\{API\}\/channels\/\$\{encodeURIComponent\(currentAuthorization\.channelId\)\}\/proposals`/);
+    assert.match(files["panel.js"], /fetch\(`\$\{API\}\/channels\/\$\{encodeURIComponent\(currentChannelLogin\|\|currentAuthorization\.channelId\)\}\/streams\/\$\{encodeURIComponent\(selectedStreamSlug\)\}\/proposals`/);
+    assert.match(files["panel.js"], /\/extension\/state\?stream=/);
     assert.match(files["panel.js"], /const requestEpoch = identityEpoch;[\s\S]*?if \(requestEpoch !== identityEpoch\) return;/);
   } finally {
     rmSync(directory, { recursive: true, force: true });

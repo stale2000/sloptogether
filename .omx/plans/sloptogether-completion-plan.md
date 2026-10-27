@@ -1,25 +1,23 @@
 # SlopTogether completion plan
 
-Updated October 24, 2026, America/Los_Angeles. This is the full execution/acceptance plan following [the implementation audit](../../docs/implementation-audit-2026-10-24.md). For the short prioritized snapshot of what's still outstanding, see [the remaining-work plan](sloptogether-remaining-work.md). The original product specification remains useful for feature contracts; this document supersedes its outdated deployment assumptions and readiness claims.
+Historical full acceptance plan, originally October 24, 2026. Current status and execution order are in the [October 27 execution plan](../../docs/completion-plan-2026-10-27.md) and [remaining-work index](sloptogether-remaining-work.md). The October 25 review is historical. Use the [test specification](sloptogether-test-spec.md) for release gates; paragraphs below describe requirements, not completed acceptance.
 
 ## Objective and current baseline
 
-Deliver the public multi-channel Twitch application at `clips.gg/sloptogether`, with a browser program suitable for OBS capture, genuine background generation/upscale workers, moderation and user participation. Preserve all existing Clips.gg data/features. The four-clip local program is also exposed through a gated smoke route for live playback verification.
-
-Current production baseline (checked October 24): `https://www.clips.gg/sloptogether` and its API are live; production health reports database, R2, OpenAI preflight, and Twitch OAuth configured. Playback, moderation, and Extension panel/config routes return 200. The production-only `NEXT_PUBLIC_LOCAL_DEMO_ENABLED` flag is on; `/channels/localdemo/output` now plays four HLS clips totaling about one minute. Live browser verification passed for playback, clip jumps, seeking, and center-click pause/resume. Twitch OAuth start redirects to Twitch with the registered `SlopTogether Web` client and exact production callback; an actual user consent/session has not been completed. The Twitch Extension is registered as version `0.0.1` in Local Test and its testing asset base points to `https://www.clips.gg/sloptogether/extension/`; its signing secret is stored in Vercel production, while Bits support remains off. The database-backed public channel list is empty and Comfy generation is off. No SlopTogether Fal app or GPU runner exists; generation/upscale build contexts were staged locally under `/tmp/sloptogether-fal-apps-20261024`, the Fal secret store is empty, and no GPU was started. The four-clip stream is still a fixture. R2 credentials and the moderation key were added to Vercel and redeployed, but a real channel upload/render path has not been exercised. The scoped database credential replacement remains stored in Vercel secrets; do not copy it into source control.
+Deliver the public multi-channel Twitch app at clips.gg/sloptogether, preserving existing Clips.gg features and data. The latest production check has eight committed playable spans, about 120.67 seconds. Real FastH3 base and pre-air SoL upscale jobs have reached browser HLS; some approvals were manual. The separate latest style comparison bypassed the product queue. Continuous fresh generation, the local multiple-stream release, actual ten-second subscription alerts, broader Extension acceptance, Bits and Windows/4090 remain open. Both SlopTogether Fal apps were stopped after testing. Use the October 27 execution plan and Fal runbook for current evidence.
 
 ## Continuous stream contract
 
 The product has **no fixed clip-count or stream-duration limit**. Three or four clips are only a small smoke test. A channel must keep accepting future proposals/anchors, selecting or locking slots, generating, reviewing and publishing while its existing program plays. Owner story production is optional; viewer selection and other authorized producers can supply future scenes through the same interfaces.
 
 - Maintain a configurable generation horizon in **seconds ahead of the live marker**: low-water, target and maximum lookahead. Refill eligible work as the browser advances; do not stop after a predetermined number of jobs.
-- Keep one fenced producer lease per channel and independent generation/upscale leases. Work can be completed by different trusted or volunteer workers; optional upscaling must not block base-quality playback.
+- Keep one fenced producer lease per stream and independent generation/upscale leases. Work can be completed by different trusted or volunteer workers; optional upscaling must not block base-quality playback.
 - Preserve canonical boundary identities and immutable locked slots when filling the future. New clips append without reloading the player, resetting time, or changing already committed media mappings.
 - Make queue depth, expected time to readiness, moderation holds, unavailable workers and budget exhaustion visible in controls. Refill must respect locks, authorizations and single-use paid attempts.
 - When work is late, hold the last approved frame and resume when usable media arrives. A starvation condition is not evidence of a healthy continuous stream.
 - Bound browser memory, HLS buffers and live-manifest response size for long sessions. Preserve older clips through indexed history/seek APIs and stable source mappings rather than loading the entire stream into every browser poll indefinitely.
 - Stream state survives browser, producer and worker restarts. Reconnecting workers resume eligible jobs using leases/fences, without duplicate paid submissions or losing the playhead.
-- The eight-hour GPU shutdown instruction applies to the authorized **test compute session**. It is not an eight-hour product stream limit. Production supervision must allow streams to continue across worker replacement and routine credential/session renewal.
+- Every authorized Fal GPU session has a hard **two-hour maximum**, with an external shutdown controller and earlier stop when work finishes. This is a compute-session constraint; the product supports streams without a fixed duration limit. Never silently extend a test deadline or automatically start another test session.
 
 Acceptance therefore has two levels: four clips prove the initial smoke path; sustained refill, append, recovery and bounded-resource checks prove the continuous-stream implementation.
 
@@ -60,7 +58,7 @@ Start GPU use only after steps 1 and 3 supply working endpoints and credentials.
 
 1. Complete generated Fal app configuration: reachable API URL, channel ID, role, immutable recipe IDs, exact upload/download host allowlists and separate generation/upscale keys. Inject credentials only into their matching private apps.
 2. Regenerate durable build contexts from the committed source and validate their manifests. Deploy private generation/upscale applications with zero minimum concurrency and at most one runner each.
-3. Establish the absolute session shutdown deadline before waking a GPU, respecting the user's existing eight-hour limit. Start the supervisor before or atomically with the wake requests; idle scale-down is a fallback. Do not extend the deadline silently.
+3. Establish the absolute session shutdown deadline before waking a GPU, respecting the user's hard two-hour maximum. Start the supervisor before or atomically with the wake requests; idle scale-down is a fallback. Do not extend the deadline silently.
 4. Wake generation first. Wait for image/model startup, node/profile compatibility and successful authenticated API polling before reporting ready. Submit one ordinary FastH3 job through the app and observe lease → pinned Comfy graph → output conformance → signed upload → validation → trusted approval → HLS commit.
 5. Wake upscale only when that base clip is ready. Queue one ordinary SoL job; verify preserved audio, parent lineage, dimensions, review/trust policy and separate approved derivative.
 6. Expose last claim, last completion and last failure. Fix API/upload/model/node failures from runner logs; do not mark workers ready solely from `/system_stats`.
@@ -109,5 +107,13 @@ These are deployment/product dependencies to resolve when reached, not reasons t
 The existing product decisions on shared database, 15-second 16:9 browser output, Windows contribution roles, trusted owner workers, moderation, voting and single-use paid attempts are settled and should not be asked again.
 
 ## Completion evidence
+
+### Multiple streams per channel
+
+- The channel page lists all stream slugs and allows the broadcaster to create another.
+- Each stream has an independent branch, proposal/election target, producer lease, published timeline, HLS manifest and browser playhead.
+- Old channel output/participation/moderation routes remain compatible by redirecting to `main`.
+- Extension viewers can select a stream before voting or submitting a prompt; channel auth/policy and worker keys remain shared.
+- Verify two streams on one Twitch channel can render and seek independently while the other stream's timeline and playhead remain unchanged. Confirm legacy Twitch chat and paid Turbo continue to use `main`; subscriber interrupts remain `main` until routed explicitly.
 
 Maintain a small ledger per milestone: source revision, environment, command/request identity, observed state, result and remaining limitation. Label each item as source/unit evidence, local fixture evidence, live provider evidence or real product-flow evidence. Completion requires the corresponding product-flow exit checks; a passing source/helper suite does not qualify a deployed worker or a public release.

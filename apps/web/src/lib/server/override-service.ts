@@ -11,6 +11,8 @@ import { signedPrivateReadUrl } from "./storage";
 import { abandonStoryProducerPlans, lockRevokedWorkerSegments, retireRevokedWorkerJobs } from "./worker-revocation";
 import { cancelPendingInterrupts } from "./subscriber-service";
 import { reservationUsd } from "./reservation";
+import { BASE_GENERATION_SIZE } from "./generation-profile";
+import { getDefaultStreamId } from "./stream-service";
 
 type Segment = {id:string;branch_id:string;ordinal:string;state:string;selected_revision_id:string|null;protected_at:Date|null};
 type Revision = {id:string;segment_id:string;revision:number;prompt:string;visual_prompt:string|null;dialogue:string|null;start_boundary_revision_id:string;requested_end_boundary_revision_id:string|null;planning_mode:"planned_anchors"|"continuation";provider_recipe_id:string;seed:string|null;target_funding_id:string|null;input_sha256:Buffer;state:string};
@@ -28,7 +30,7 @@ function commandFrom(raw:Record<string,unknown>):StreamerOverride{
 
 function digest(value:unknown){return createHash("sha256").update(JSON.stringify(value)).digest();}
 
-async function schedulePulledGeneration(client:PoolClient,channelId:string,revisionId:string,requestedBy:string,inputScreenId:string,reserveOwnerBudget:boolean){
+export async function schedulePulledGeneration(client:PoolClient,channelId:string,revisionId:string,requestedBy:string,inputScreenId:string,reserveOwnerBudget:boolean){
   const revision=await client.query<{segment_id:string;planning_mode:string;provider_recipe_id:string;input_sha256:Buffer;start_boundary_revision_id:string;requested_end_boundary_revision_id:string|null}>(
     "SELECT segment_id,planning_mode,provider_recipe_id,input_sha256,start_boundary_revision_id,requested_end_boundary_revision_id FROM sloptogether.segment_revisions WHERE id=$1 FOR UPDATE",[revisionId]);
   const row=revision.rows[0];if(!row)throw new ApiError(404,"generation_revision_not_found");
@@ -60,7 +62,7 @@ async function schedulePulledGeneration(client:PoolClient,channelId:string,revis
   const dependency=await client.query<{id:string}>("SELECT id FROM sloptogether.endpoint_resolutions WHERE resolved_end_boundary_revision_id=$1 AND retired_at IS NULL ORDER BY created_at DESC LIMIT 1",[row.start_boundary_revision_id]);
   await client.query(`INSERT INTO sloptogether.jobs(id,twitch_channel_id,segment_revision_id,stage,execution_mode,state,recipe_id,recipe_sha256,input_sha256,requested_by,funding_id,dependency_resolution_id,planning_payload,result_deadline_at)
     VALUES($1,$2,$3,'video_base','pull_worker','ready',$4,$5,$6,$7,$8,$9,$10::jsonb,now()+interval '45 minutes')`,
-    [jobId,channelId,revisionId,row.provider_recipe_id,Buffer.from("9a2d5d19fb22b7e55d29c8e6048c4c421c5b73b044b7cc010188efe7df9ccaef","hex"),row.input_sha256,requestedBy,fundingId,dependency.rows[0]?.id??null,JSON.stringify({inputScreenId})]);
+    [jobId,channelId,revisionId,row.provider_recipe_id,Buffer.from("9a2d5d19fb22b7e55d29c8e6048c4c421c5b73b044b7cc010188efe7df9ccaef","hex"),row.input_sha256,requestedBy,fundingId,dependency.rows[0]?.id??null,JSON.stringify({inputScreenId,...BASE_GENERATION_SIZE})]);
   if(dependency.rows[0])await client.query("INSERT INTO sloptogether.endpoint_resolution_dependencies(resolution_id,dependent_job_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[dependency.rows[0].id,jobId]);
   await client.query(`INSERT INTO sloptogether.job_attempts(id,job_id,attempt_number,fence,client_idempotency_key,state,attempt_deadline_at,input_sha256,funding_id)
     VALUES($1,$2,1,1,$3,'ready',now()+interval '45 minutes',$4,$5)`,[attemptId,jobId,`job:${jobId}:attempt:1`,row.input_sha256,fundingId]);
@@ -155,6 +157,7 @@ async function fenceWork(client:PoolClient,channelId:string,revisionId:string|nu
 
 export async function applyStreamerOverride(locator:string,request:Request){
   const channel=await findChannel(locator);const principal=await requestPrincipal(request);
+  const streamId=await getDefaultStreamId(channel.twitch_channel_id);
   const actor=await requireStreamerController(channel,principal);
   if(await isBanned(channel.twitch_channel_id,actor))throw new ApiError(403,"channel_ban_active");
   if(principal?.kind==="session")assertSameOrigin(request);
@@ -303,15 +306,15 @@ export async function applyStreamerOverride(locator:string,request:Request){
       const current=await client.query<{id:string;item_order:string;program_epoch:string;source_pts_start:string|null;duration_seconds:string}>(
         `SELECT pi.id,pi.item_order,pi.program_epoch,pi.source_pts_start,coalesce(a.duration_seconds,0)::text AS duration_seconds
          FROM sloptogether.program_items pi JOIN sloptogether.assets a ON a.id=pi.asset_id
-         WHERE pi.twitch_channel_id=$1 AND pi.committed_at IS NOT NULL AND (pi.id=$2::uuid OR pi.segment_id=$3::uuid)
-         ORDER BY pi.program_epoch DESC,pi.item_order DESC LIMIT 1`,[channel.twitch_channel_id,body.itemId??null,body.targetSegmentId??null]);
+         WHERE pi.stream_id=$1 AND pi.committed_at IS NOT NULL AND (pi.id=$2::uuid OR pi.segment_id=$3::uuid)
+         ORDER BY pi.program_epoch DESC,pi.item_order DESC LIMIT 1`,[streamId,body.itemId??null,body.targetSegmentId??null]);
       let item=current.rows[0];if(!item)throw new ApiError(404,"program_item_not_found");
       if(body.action==="skip_program_item"){
-        const next=await client.query<typeof item>(`SELECT pi.id,pi.item_order,pi.program_epoch,pi.source_pts_start,coalesce(a.duration_seconds,0)::text AS duration_seconds FROM sloptogether.program_items pi JOIN sloptogether.assets a ON a.id=pi.asset_id WHERE pi.twitch_channel_id=$1 AND pi.program_epoch=$2 AND pi.item_order>$3 AND pi.committed_at IS NOT NULL ORDER BY pi.item_order LIMIT 1`,[channel.twitch_channel_id,item.program_epoch,item.item_order]);
+        const next=await client.query<typeof item>(`SELECT pi.id,pi.item_order,pi.program_epoch,pi.source_pts_start,coalesce(a.duration_seconds,0)::text AS duration_seconds FROM sloptogether.program_items pi JOIN sloptogether.assets a ON a.id=pi.asset_id WHERE pi.stream_id=$1 AND pi.program_epoch=$2 AND pi.item_order>$3 AND pi.committed_at IS NOT NULL ORDER BY pi.item_order LIMIT 1`,[streamId,item.program_epoch,item.item_order]);
         if(!next.rows[0])throw new ApiError(409,"next_program_item_not_ready");item=next.rows[0];
       }
       const offset=body.action==="skip_program_item"?0:body.offsetSeconds??0;if(offset>Number(item.duration_seconds))throw new ApiError(422,"playback_position_out_of_range");
-      const playback=await client.query<{controller_epoch:string}>("UPDATE sloptogether.playback_sessions SET active_item_id=$2,item_offset_seconds=$3,controller_user_id=$4,controller_epoch=controller_epoch+1,event_sequence=0,lease_expires_at=now(),updated_at=now() WHERE twitch_channel_id=$1 RETURNING controller_epoch",[channel.twitch_channel_id,item.id,offset,actor]);
+      const playback=await client.query<{controller_epoch:string}>("UPDATE sloptogether.playback_sessions SET active_item_id=$2,item_offset_seconds=$3,controller_user_id=$4,controller_epoch=controller_epoch+1,event_sequence=0,lease_expires_at=now(),updated_at=now() WHERE stream_id=$1 RETURNING controller_epoch",[streamId,item.id,offset,actor]);
       await client.query("INSERT INTO sloptogether.outbox(event_kind,aggregate_id,payload,idempotency_key) VALUES('playback.seek_requested',$1,$2::jsonb,$3) ON CONFLICT(idempotency_key) DO NOTHING",[channel.twitch_channel_id,JSON.stringify({itemId:item.id,offsetSeconds:offset,programEpoch:Number(item.program_epoch),controllerEpoch:Number(playback.rows[0]?.controller_epoch??1)}),"seek:"+body.idempotencyKey]);
       result={...result,itemId:item.id,offsetSeconds:offset,playbackCommandPending:true};
     }

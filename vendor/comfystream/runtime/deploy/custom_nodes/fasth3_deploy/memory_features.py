@@ -24,18 +24,15 @@ class FeatureState(TypedDict):
     flags: dict[str, bool]
     calls: dict[str, int]
     memory_diagnostic: bool
-    trace_metrics: bool
     mechanism_metrics: dict[str, MechanismMetric]
     memory_boundaries: NotRequired[dict[str, dict[str, int | bool]]]
-    metric_reports: NotRequired[list[dict[str, object]]]
-    untraced_forwards: NotRequired[int]
 
 
 _state: ContextVar[FeatureState | None] = ContextVar('fasth3_memory_features', default=None)
 
 
 @contextmanager
-def feature_scope(flags: Mapping[str, bool] | None = None, *, memory_diagnostic: bool = False, trace_metrics: bool = False) -> Iterator[FeatureState]:
+def feature_scope(flags: Mapping[str, bool] | None = None, *, memory_diagnostic: bool = False) -> Iterator[FeatureState]:
     """Bind validated request-scoped memory/inference feature flags."""
     if flags is None:
         flags = {}
@@ -55,7 +52,6 @@ def feature_scope(flags: Mapping[str, bool] | None = None, *, memory_diagnostic:
         "flags": resolved,
         "calls": {},
         "memory_diagnostic": bool(memory_diagnostic),
-        "trace_metrics": bool(trace_metrics),
         "mechanism_metrics": {},
     }
     token = _state.set(state)
@@ -114,12 +110,6 @@ def annotate(report: dict[str, object]) -> dict[str, object]:
     state = _state.get()
     if state is None:
         return report
-    if state.get('trace_metrics'):
-        merged = {r['report_path']:r for r in cast(list[dict[str, object]], report.get('inference_metrics', []))}
-        merged.update({r['report_path']:r for r in state.get('metric_reports', [])})
-        report['inference_metrics'] = list(merged.values())
-        report['diagnostic_only'] = True
-        report['untraced_forwards'] = state.get('untraced_forwards', 0)
     report['run_knobs'] = dict(cast(Mapping[str, object], report.get('run_knobs') or {}), **state['flags'])
     counts = dict(cast(Mapping[str, int], report.get('memory_feature_calls') or {}))
     # Each phase's state starts fresh. Use the incoming report as the base;

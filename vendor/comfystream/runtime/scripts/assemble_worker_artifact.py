@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -36,6 +37,16 @@ SOURCE_SUFFIXES = {
 }
 SOURCE_JSON_NAMES = {"VENDORED.json", "runtime.json"}
 EXCLUDED_DIRECTORIES = {"__pycache__", ".worker", ".venv", "build", "dist", "examples"}
+# These upstream engineering notes are retained in the source snapshot for
+# provenance, but are not operator documentation and do not belong in a worker
+# runtime artifact.
+EXCLUDED_RELEASE_DOCS = {
+    "ADAPTIVE_ATTENTION_PLAN.md",
+    "ADAPTIVE_ATTENTION_RESEARCH.md",
+    "DMAD_BENCHMARK.md",
+    "PERFORMANCE.md",
+    "QUICKSTART.md",
+}
 
 
 def encoded(value: object) -> bytes:
@@ -63,11 +74,32 @@ def source_files(root: Path, relative: Path) -> list[Path]:
             raise ValueError(f"source symlink is forbidden: {path}")
         if not path.is_file():
             continue
+        if path.name in EXCLUDED_RELEASE_DOCS:
+            continue
         if path.suffix == ".json" and path.name not in SOURCE_JSON_NAMES:
             continue
         if path.suffix in SOURCE_SUFFIXES or path.name in {"LICENSE", "NOTICE"}:
             result.append(path.relative_to(root))
     return result
+
+
+def tracked_executable_modes(root: Path) -> dict[str, bool]:
+    """Read executable bits from Git so Windows checkouts retain Linux modes."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-s", "--", "."],
+            check=True, capture_output=True, text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return {}
+    modes: dict[str, bool] = {}
+    for line in result.stdout.splitlines():
+        metadata, separator, name = line.partition("\t")
+        if not separator:
+            continue
+        mode = metadata.split(maxsplit=1)[0]
+        modes[Path(name).as_posix()] = mode == "100755"
+    return modes
 
 
 def artifact_inputs(root: Path, profile: str) -> tuple[dict[Path, bytes], dict[str, JsonValue]]:
@@ -79,6 +111,7 @@ def artifact_inputs(root: Path, profile: str) -> tuple[dict[Path, bytes], dict[s
     if profile in {"fasth3", "vast"}:
         roots.extend((
             Path("scripts/download_fasth3_models.sh"),
+            Path("scripts/verify_fasth3_models.py"),
             Path("deploy/fal/fasth3-b1/entrypoint.sh"),
             Path("deploy/fal/fasth3-b1/pyproject.toml"),
             Path("deploy/fal/fasth3-b1/uv.lock"),
@@ -106,6 +139,14 @@ def artifact_inputs(root: Path, profile: str) -> tuple[dict[Path, bytes], dict[s
         ))
     files = {path: (root / path).read_bytes() for source in roots
              for path in source_files(root, source)}
+    tracked_modes = tracked_executable_modes(root)
+
+    def executable(path: Path) -> bool:
+        name = path.as_posix()
+        if name in tracked_modes:
+            return tracked_modes[name]
+        return bool((root / path).stat().st_mode & 0o111)
+
     environment = json.loads(files[ENVIRONMENT])
     assets = {key: environment[key] for key in ("models", "model_paths", "model_revisions")}
     receipt = Path("deploy/fal/fasth3-b1/shared-model-stat-receipt.json")
@@ -140,8 +181,7 @@ def artifact_inputs(root: Path, profile: str) -> tuple[dict[Path, bytes], dict[s
         }
     # The environment file contains model hashes as well as runtime pins. Hash
     # runtime pins separately so a model-only manifest change is not code drift.
-    code_files = {str(path): {"sha256": digest(data), "executable": bool(
-        (root / path).stat().st_mode & 0o111)} for path, data in files.items()
+    code_files = {str(path): {"sha256": digest(data), "executable": executable(path)} for path, data in files.items()
         if path not in {ENVIRONMENT, receipt}}
     runtime = {key: value for key, value in environment.items() if key not in assets}
     compatibility = {"comfyui_api": "prompt-history-object_info/1"}
@@ -159,8 +199,7 @@ def artifact_inputs(root: Path, profile: str) -> tuple[dict[Path, bytes], dict[s
         "assets": assets,
         "runtime": runtime,
         "compatibility": compatibility,
-        "files": {str(path): {"sha256": digest(data), "executable": bool(
-            (root / path).stat().st_mode & 0o111)} for path, data in sorted(files.items())},
+        "files": {str(path): {"sha256": digest(data), "executable": executable(path)} for path, data in sorted(files.items())},
     }
     manifest["artifact_digest"] = digest(encoded(manifest))
     return files, manifest
@@ -217,7 +256,7 @@ def check_artifact(destination: Path, root: Path, profile: str) -> None:
                 f"stale worker artifact: {relative}; expected sha256={digest(content)}, "
                 f"found sha256={digest(actual_content)}{detail}; assemble it again"
             )
-        if actual_mode != mode:
+        if os.name != "nt" and actual_mode != mode:
             raise ValueError(
                 f"stale worker artifact mode: {relative}; expected {mode:o}, "
                 f"found {actual_mode:o}; assemble it again"

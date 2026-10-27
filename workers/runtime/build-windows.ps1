@@ -33,7 +33,11 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Windows worker packaging failed." }
     Copy-Item worker.example.toml dist/worker.example.toml -Force
     Copy-Item worker.wsl.example.toml dist/worker.wsl.example.toml -Force
+    Copy-Item Setup-SlopTogetherWorker.ps1 dist/Setup-SlopTogetherWorker.ps1 -Force
+    Copy-Item Install-ComfyStreamerNodes.ps1 dist/Install-ComfyStreamerNodes.ps1 -Force
     Copy-Item README.md dist/README.txt -Force
+    & $VenvPython package_comfy_wsl_runtime.py --output (Join-Path $Root "dist/ComfyStreamer-Wsl-runtime.zip")
+    if ($LASTEXITCODE -ne 0) { throw "Pinned ComfyStreamer WSL runtime packaging failed." }
     & $VenvPython package_worker_bundle.py --root $Root
     if ($LASTEXITCODE -ne 0) { throw "Windows worker bundle creation failed." }
     Write-Output "Worker executable: $Root/dist/SlopTogetherWorker.exe"

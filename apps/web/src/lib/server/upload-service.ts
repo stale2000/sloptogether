@@ -28,7 +28,7 @@ const attemptSql=`SELECT a.id,a.job_id,a.fence,a.state,a.worker_device_id,a.exec
   FROM sloptogether.job_attempts a JOIN sloptogether.jobs j ON j.id=a.job_id
   LEFT JOIN sloptogether.trusted_executions te ON te.id=a.execution_binding_id AND te.twitch_channel_id=j.twitch_channel_id
   LEFT JOIN LATERAL(SELECT s.id,s.effective_state FROM sloptogether.input_screens s
-    WHERE s.twitch_channel_id=j.twitch_channel_id AND s.expires_at>now() AND
+    WHERE s.twitch_channel_id=j.twitch_channel_id AND (s.expires_at IS NULL OR s.expires_at>now()) AND
       (s.id::text=(j.planning_payload->>'inputScreenId') OR EXISTS(
         SELECT 1 FROM sloptogether.proposals p WHERE p.segment_revision_id=j.segment_revision_id AND p.input_screen_id=s.id)
         OR EXISTS(SELECT 1 FROM sloptogether.story_plan_attempts sp WHERE sp.resulting_segment_id=(SELECT segment_id FROM sloptogether.segment_revisions WHERE id=j.segment_revision_id) AND sp.screen_id=s.id))

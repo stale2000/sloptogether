@@ -16,7 +16,7 @@ from urllib.error import URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
-MAX_SESSION_SECONDS = 8 * 60 * 60
+MAX_SESSION_SECONDS = 2 * 60 * 60
 _STOP = Event()
 
 
@@ -150,7 +150,7 @@ def run_session(
     if not generation_app or not upscale_app or generation_app == upscale_app:
         raise FalSessionError("fal_apps_must_be_distinct")
     if type(runtime_seconds) is not int or not 1 <= runtime_seconds <= MAX_SESSION_SECONDS:
-        raise FalSessionError("fal_session_runtime_must_be_between_1_second_and_8_hours")
+        raise FalSessionError("fal_session_runtime_must_be_between_1_second_and_2_hours")
     if type(heartbeat_seconds) is not int or not 5 <= heartbeat_seconds <= 45:
         raise FalSessionError("fal_heartbeat_must_be_between_5_and_45_seconds")
     if not fal_key or len(fal_key) > 8192 or any(character.isspace() for character in fal_key):
@@ -180,6 +180,8 @@ def run_session(
             thread.start()
         print("Fal apps launched; waiting for generation and upscale to wake.", flush=True)
         while not all(event.is_set() for event in ready_events.values()):
+            if _STOP.is_set():
+                raise FalSessionError("fal_session_stopped_during_startup")
             try:
                 failed_app=heartbeat_failures.get_nowait()
             except Empty:
@@ -218,12 +220,12 @@ def run_session(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run two private SlopTogether Fal workers for at most eight hours.")
+    parser = argparse.ArgumentParser(description="Run two private SlopTogether Fal workers for at most two hours.")
     parser.add_argument("generation_app", help="Isolated generation app alias")
     parser.add_argument("upscale_app", help="Isolated upscale app alias")
     parser.add_argument("--generation-url", required=True, help="Private generation endpoint URL")
     parser.add_argument("--upscale-url", required=True, help="Private upscale endpoint URL")
-    parser.add_argument("--runtime-seconds", type=int, default=MAX_SESSION_SECONDS, help="Maximum active GPU session, up to 28800 seconds")
+    parser.add_argument("--runtime-seconds", type=int, default=MAX_SESSION_SECONDS, help="Maximum active GPU session, up to 7200 seconds")
     parser.add_argument("--fal-cli", default="fal", help="Fal CLI executable")
     args = parser.parse_args(argv)
     fal_key = os.environ.get("FAL_KEY", "")

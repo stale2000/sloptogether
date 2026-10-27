@@ -14,6 +14,8 @@ import { appAccessToken,twitchCredentials } from "./twitch";
 import { castBallot } from "./voting-service";
 import { recordVerifiedExtensionBitsEvent } from "./paid-bits-service";
 import { reservationUsd } from "./reservation";
+import { carryForwardTrustedExecutions } from "./trusted-policy";
+import { getStream } from "./stream-service";
 
 const DEFAULT_SETTINGS: InterruptSettings = {
   enabled: false,
@@ -57,6 +59,16 @@ function settingsFrom(value: unknown): InterruptSettings {
     ?{...value,fallback:"skip"}:value;
   const parsed = interruptSettingsSchema.safeParse(normalized);
   return parsed.success ? parsed.data : { ...DEFAULT_SETTINGS };
+}
+
+function requireSubscriberFunding(settings:InterruptSettings,ownerBudgetCapUsd:number|string){
+  if(!settings.enabled)return;
+  const quote=reservationUsd("SLOPTOGETHER_SUBSCRIBER_ATTEMPT_RESERVATION_USD");
+  if(quote===null)throw new ApiError(503,"subscriber_reservation_not_configured","Subscriber render pricing is not configured.");
+  if(Number(ownerBudgetCapUsd)+0.000001<quote)
+    throw new ApiError(409,"subscriber_budget_cap_too_low","Raise the channel owner budget to at least the per-interrupt reservation.");
+  if(settings.hourlySpendCapUsd+0.000001<quote)
+    throw new ApiError(409,"subscriber_hourly_cap_too_low","Set the hourly render cap to at least the per-interrupt reservation.");
 }
 
 async function ownerAuthorized(client: { query(text: string, values: unknown[]): Promise<{ rowCount: number | null }> }, ownerId: string): Promise<boolean> {
@@ -130,6 +142,24 @@ export async function disableChatVoteSubscription(channel:ChannelRow,client:Pool
   await deleteRegistrationFingerprint(client,channel.twitch_channel_id,"chat:"+channel.owner_twitch_user_id);
 }
 
+/** Persist an already-authorized subscriber policy under the channel lock. */
+export async function persistSubscriberSettings(client:PoolClient,channelId:string,actor:string,settings:InterruptSettings){
+  const current=await client.query<{owner_twitch_user_id:string;owner_budget_cap_usd:string}>(
+    "SELECT owner_twitch_user_id,owner_budget_cap_usd FROM sloptogether.channels WHERE twitch_channel_id=$1 AND is_enabled FOR UPDATE",[channelId]);
+  if(!current.rows[0])throw new ApiError(404,"channel_not_found");
+  if(await isBanned(channelId,actor,client))throw new ApiError(403,"channel_ban_active");
+  if(settings.enabled&&!await ownerAuthorized(client,current.rows[0].owner_twitch_user_id))
+    throw new ApiError(409,"subscription_authorization_required","The broadcaster must connect Twitch with subscription access before enabling generated shout-outs.");
+  requireSubscriberFunding(settings,current.rows[0].owner_budget_cap_usd);
+  const updated=await client.query<{policy_revision:number}>(`UPDATE sloptogether.channels SET subscriber_interrupt_policy=$2::jsonb,
+    policy_revision=policy_revision+1,updated_at=now() WHERE twitch_channel_id=$1 RETURNING policy_revision`,[channelId,JSON.stringify(settings)]);
+  if(!updated.rows[0])throw new ApiError(404,"channel_not_found");
+  await carryForwardTrustedExecutions(client,channelId,updated.rows[0].policy_revision);
+  if(!settings.enabled)await cancelPendingInterrupts(client,channelId);
+  await client.query(`INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,action,target_kind,target_id,policy_revision,after_state)
+    VALUES($1,$2,'subscriber_interrupt.settings','channel',$1,$3,$4::jsonb)`,[channelId,actor,updated.rows[0].policy_revision,JSON.stringify(settings)]);
+}
+
 export async function handleSubscriberSettings(locator: string, request: Request, action: "read" | "update") {
   const channel = await findChannel(locator);
   const principal = await requestPrincipal(request);
@@ -141,29 +171,10 @@ export async function handleSubscriberSettings(locator: string, request: Request
     const session=settings.enabled?await currentSession(request):null;
     if(settings.enabled&&(!session||session.twitchUserId!==channel.owner_twitch_user_id||!session.scopes.includes("channel:read:subscriptions")))
       throw new ApiError(409,"subscription_authorization_required","The broadcaster must reconnect with subscription access before enabling generated shout-outs.");
+    requireSubscriberFunding(settings,channel.owner_budget_cap_usd);
     await withEventSubLifecycleLock(channel.twitch_channel_id,async client=>{
       if(settings.enabled)await ensureSubscriptionEvents(channel.twitch_channel_id,client);
-      await transactionOnClient(client,async client=>{
-        const current = await client.query<{ owner_twitch_user_id: string }>(
-          "SELECT owner_twitch_user_id FROM sloptogether.channels WHERE twitch_channel_id=$1 FOR UPDATE",
-          [channel.twitch_channel_id],
-        );
-        if (!current.rows[0]) throw new ApiError(404, "channel_not_found");
-        if (settings.enabled && !await ownerAuthorized(client, current.rows[0].owner_twitch_user_id)) {
-          throw new ApiError(409, "subscription_authorization_required", "The broadcaster must connect Twitch with subscription access before enabling generated shout-outs.");
-        }
-        await client.query(
-          `UPDATE sloptogether.channels SET subscriber_interrupt_policy=$2::jsonb,
-           policy_revision=policy_revision+1,updated_at=now() WHERE twitch_channel_id=$1`,
-          [channel.twitch_channel_id, JSON.stringify(settings)],
-        );
-        if (!settings.enabled) await cancelPendingInterrupts(client, channel.twitch_channel_id);
-        await client.query(
-          `INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,action,target_kind,target_id,after_state)
-           VALUES($1,$2,'subscriber_interrupt.settings','channel',$1,$3::jsonb)`,
-          [channel.twitch_channel_id, actor, JSON.stringify(settings)],
-        );
-      });
+      await transactionOnClient(client,client=>persistSubscriberSettings(client,channel.twitch_channel_id,actor,settings));
       if(!settings.enabled)await disableSubscriberEventSubscriptions(channel.twitch_channel_id,client);
     });
   }
@@ -325,13 +336,19 @@ export async function getPublicSubscriberState(channelId: string) {
 export async function getExtensionState(request: Request) {
   const extension = verifyExtensionRequest(request);
   const channel = await findChannel(extension.channelId);
+  const requestedSlug=new URL(request.url).searchParams.get("stream")?.toLowerCase()??"main";
+  const stream=await getStream(channel.twitch_channel_id,requestedSlug);
+  const streamRows=await query<{id:string;slug:string;display_name:string;is_default:boolean}>(
+    "SELECT id,slug,display_name,is_default FROM sloptogether.streams WHERE twitch_channel_id=$1 ORDER BY is_default DESC,created_at,id",[channel.twitch_channel_id]);
   const [elections, subscriberInterrupts] = await Promise.all([
-    getActiveElections(channel.twitch_channel_id, { kind: "extension", extension }),
+    getActiveElections(channel.twitch_channel_id, { kind: "extension", extension },stream.id),
     getPublicSubscriberState(channel.twitch_channel_id),
   ]);
   const canSubmitPrompts=await canContribute(channel,{kind:"extension",extension});
   return {
     channel: { twitchChannelId: channel.twitch_channel_id, twitchLogin: channel.twitch_login, displayName: channel.display_name },
+    stream:{id:stream.id,slug:stream.slug,displayName:stream.display_name},
+    streams:streamRows.rows.map(item=>({id:item.id,slug:item.slug,displayName:item.display_name,isDefault:item.is_default})),
     elections,
     activeElection: elections[0] ?? null,
     subscriberInterrupts,
@@ -432,6 +449,11 @@ function parseEnvelope(raw: Buffer, request: Request): EventSubEnvelope {
 
 function subscriberLabel(event: Record<string, unknown>): string {
   if (event.is_anonymous === true) return "A generous mystery hero";
+  const displayName=event.user_name;
+  if(typeof displayName==="string"){
+    const safeDisplayName=Array.from(displayName).filter(character=>/[\p{L}\p{N}_ -]/u.test(character)).join("").trim().slice(0,32);
+    if(safeDisplayName)return safeDisplayName;
+  }
   const login = event.user_login;
   return typeof login === "string" && /^[a-zA-Z0-9_]{1,25}$/.test(login) ? login : "A community hero";
 }
@@ -498,18 +520,25 @@ export async function handleEventSubWebhook(request: Request): Promise<Response>
       const registrationKey=envelope.subscription.type===CHAT_EVENT_TYPE?"chat:"+channel.rows[0]?.owner_twitch_user_id:"subscriber-events";
       const registration=await client.query<{subscription_ids:string[]}>("SELECT subscription_ids FROM sloptogether.eventsub_config_fingerprints WHERE twitch_channel_id=$1 AND registration_key=$2 FOR UPDATE",[channelId,registrationKey]);
       const currentRegistration=registration.rows[0]?.subscription_ids.includes(envelope.subscription.id)??false;
-      const receiptWritten = await client.query(
+      const receiptWritten = await client.query<{id:string}>(
         `INSERT INTO sloptogether.audit_log(twitch_channel_id,action,target_kind,target_id,reason,after_state,idempotency_key)
          VALUES($1,'eventsub.revoked','eventsub_subscription',$2,$3,$4::jsonb,$5)
          ON CONFLICT(twitch_channel_id,idempotency_key) DO NOTHING RETURNING id`,
         [channelId, envelope.subscription.id, String(envelope.subscription.status ?? "revoked").slice(0, 100), JSON.stringify({ type: envelope.subscription.type, currentRegistration }), "eventsub-revocation:" + receipt.messageId],
       );
-      if(receiptWritten.rowCount&&currentRegistration&&envelope.subscription.type===CHAT_EVENT_TYPE)
-        await client.query("UPDATE sloptogether.channels SET chat_voting_enabled=false,policy_revision=policy_revision+1,updated_at=now() WHERE twitch_channel_id=$1",[channelId]);
+      let fencedRevision:number|undefined;
+      if(receiptWritten.rowCount&&currentRegistration&&envelope.subscription.type===CHAT_EVENT_TYPE){
+        const updated=await client.query<{policy_revision:number}>("UPDATE sloptogether.channels SET chat_voting_enabled=false,policy_revision=policy_revision+1,updated_at=now() WHERE twitch_channel_id=$1 RETURNING policy_revision",[channelId]);
+        fencedRevision=updated.rows[0]?.policy_revision;
+      }
       if(receiptWritten.rowCount&&currentRegistration&&EVENT_TYPES.includes(envelope.subscription.type as SubscriptionEventType)){
-        await client.query("UPDATE sloptogether.channels SET subscriber_interrupt_policy=jsonb_set(subscriber_interrupt_policy,'{enabled}','false'::jsonb),policy_revision=policy_revision+1,updated_at=now() WHERE twitch_channel_id=$1",[channelId]);
+        const updated=await client.query<{policy_revision:number}>("UPDATE sloptogether.channels SET subscriber_interrupt_policy=jsonb_set(subscriber_interrupt_policy,'{enabled}','false'::jsonb),policy_revision=policy_revision+1,updated_at=now() WHERE twitch_channel_id=$1 RETURNING policy_revision",[channelId]);
+        fencedRevision=updated.rows[0]?.policy_revision;
         await cancelPendingInterrupts(client,channelId);
       }
+      // Revocations remain a trust fence: record their revision for diagnosis,
+      // but never carry trusted execution grants across them.
+      if(fencedRevision!==undefined)await client.query("UPDATE sloptogether.audit_log SET policy_revision=$2 WHERE id=$1",[receiptWritten.rows[0]!.id,fencedRevision]);
       if(receiptWritten.rowCount&&currentRegistration)await deleteRegistrationFingerprint(client,channelId,registrationKey);
     }));
     return new Response(null, { status: 204 });
@@ -535,15 +564,15 @@ export async function handleEventSubWebhook(request: Request): Promise<Response>
       let electionId:string|null=null;
       if(isChoiceId){
         const election=await query<{id:string}>(`SELECT e.id FROM sloptogether.proposals p JOIN sloptogether.elections e ON e.id=p.election_id
-          JOIN sloptogether.segments s ON s.id=e.segment_id JOIN sloptogether.input_screens i ON i.id=p.input_screen_id
+          JOIN sloptogether.segments s ON s.id=e.segment_id JOIN sloptogether.branches br ON br.id=s.branch_id JOIN sloptogether.input_screens i ON i.id=p.input_screen_id
           WHERE p.id=$1 AND p.state='eligible' AND p.segment_revision_id IS NOT NULL AND i.effective_state='clear' AND (i.expires_at IS NULL OR i.expires_at>now())
-            AND s.twitch_channel_id=$2 AND e.state='open' AND e.closes_at>now()
+            AND s.twitch_channel_id=$2 AND br.stream_id=(SELECT id FROM sloptogether.streams WHERE twitch_channel_id=$2 AND is_default) AND e.state='open' AND e.closes_at>now()
             AND NOT EXISTS(SELECT 1 FROM sloptogether.bans b WHERE b.twitch_user_id=p.author_twitch_user_id AND b.revoked_at IS NULL
               AND (b.expires_at IS NULL OR b.expires_at>now()) AND (b.scope='global' OR b.twitch_channel_id=$2))`,[requested,channelId]);
         electionId=election.rows[0]?.id??null;
       }else{
-        const election=await query<{id:string}>(`SELECT e.id FROM sloptogether.elections e JOIN sloptogether.segments s ON s.id=e.segment_id
-          WHERE s.twitch_channel_id=$1 AND e.state='open' AND e.closes_at>now() AND EXISTS(SELECT 1 FROM sloptogether.proposals p
+        const election=await query<{id:string}>(`SELECT e.id FROM sloptogether.elections e JOIN sloptogether.segments s ON s.id=e.segment_id JOIN sloptogether.branches br ON br.id=s.branch_id
+          WHERE s.twitch_channel_id=$1 AND br.stream_id=(SELECT id FROM sloptogether.streams WHERE twitch_channel_id=$1 AND is_default) AND e.state='open' AND e.closes_at>now() AND EXISTS(SELECT 1 FROM sloptogether.proposals p
             JOIN sloptogether.input_screens i ON i.id=p.input_screen_id WHERE p.election_id=e.id AND p.state='eligible' AND p.segment_revision_id IS NOT NULL
               AND i.effective_state='clear' AND (i.expires_at IS NULL OR i.expires_at>now())
               AND NOT EXISTS(SELECT 1 FROM sloptogether.bans b WHERE b.twitch_user_id=p.author_twitch_user_id AND b.revoked_at IS NULL
@@ -641,7 +670,7 @@ async function admitSubscriptionEvent(channelId: string, type: SubscriptionEvent
     );
     const label = subscriberLabel(event);
     const expiresAt = new Date(eventAt.getTime() + settings.eventMaxAgeSeconds * 1000);
-    const planPayload = { kind: "subscriber_interrupt", policyRevision: channel.policy_revision, eventType: type, subscriberLabel: label, giftCount: type === "channel.subscription.gift" && typeof event.total === "number" ? Math.max(1, Math.min(1000, Math.trunc(event.total))) : null, requireAudio: true, durationSeconds: 15, reservationUsd: quote };
+    const planPayload = { kind: "subscriber_interrupt", policyRevision: channel.policy_revision, eventType: type, subscriberLabel: label, giftCount: type === "channel.subscription.gift" && typeof event.total === "number" ? Math.max(1, Math.min(1000, Math.trunc(event.total))) : null, requireAudio: true, durationSeconds: 10, frameCount: 243, reservationUsd: quote };
     await client.query(
       `INSERT INTO sloptogether.interrupt_requests(id,broadcaster_twitch_id,trigger_event_id,idempotency_key,subscriber_label,plan_payload,program_state,funding_id,expires_at)
        VALUES($1,$2,$3,$4,$5,$6::jsonb,'queued',$7,$8)`,
