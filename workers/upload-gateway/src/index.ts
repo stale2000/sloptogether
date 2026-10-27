@@ -3,6 +3,7 @@ interface Env {
   APP_ORIGIN: string;
   UPLOAD_GATEWAY_SECRET: string;
   UPLOAD_TICKET_KEY: string;
+  PUBLISHER_UPLOAD_TICKET_KEY?: string;
 }
 
 interface R2Bucket {
@@ -91,6 +92,16 @@ async function verifySignedPayload(value: string, secret: string): Promise<Recor
   const ticket = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
   if (!ticket || typeof ticket !== "object" || Array.isArray(ticket)) throw new Error("ticket_invalid");
   return ticket as Record<string, unknown>;
+}
+
+function unverifiedTicketPurpose(value:string){
+  if(value.length>MAX_TICKET_CHARS)throw new Error("ticket_invalid");
+  const separator=value.indexOf(".");
+  if(separator<1||separator!==value.lastIndexOf("."))throw new Error("ticket_invalid");
+  const bytes=decodeBase64url(value.slice(0,separator));
+  const ticket=JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(bytes)) as unknown;
+  if(!ticket||typeof ticket!=="object"||Array.isArray(ticket))throw new Error("ticket_invalid");
+  return (ticket as Record<string,unknown>).purpose;
 }
 
 async function verifyTicket(value: string, secret: string): Promise<UploadTicket> {
@@ -211,10 +222,11 @@ async function serveWorkerMedia(request: Request, env: Env): Promise<Response> {
   const value = request.headers.get("x-worker-artifact-ticket") ?? "";
   let ticket: WorkerMediaTicket | PublisherMediaTicket;
   try {
-    const payload = await verifySignedPayload(value, env.UPLOAD_TICKET_KEY);
-    ticket = payload.purpose === "media_publisher"
-      ? await verifyPublisherMediaTicket(value, env.UPLOAD_TICKET_KEY)
-      : await verifyWorkerMediaTicket(value, env.UPLOAD_TICKET_KEY);
+    const publisher=unverifiedTicketPurpose(value)==="media_publisher";
+    const secret=publisher?(env.PUBLISHER_UPLOAD_TICKET_KEY||env.UPLOAD_TICKET_KEY):env.UPLOAD_TICKET_KEY;
+    ticket = publisher
+      ? await verifyPublisherMediaTicket(value, secret)
+      : await verifyWorkerMediaTicket(value, secret);
   }
   catch { return response(403, { error: "worker_media_ticket_invalid" }, null); }
   if (ticket.purpose === "media_publisher") return servePublisherMedia(request, env, ticket);

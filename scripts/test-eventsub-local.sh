@@ -44,7 +44,7 @@ printf "create table public.sloptogether_eventsub_test_guard(marker text not nul
 assert_scratch_database
 for migration in "$repo_root"/db/migrations/[0-9][0-9][0-9]_*.sql; do
   case "$(basename "$migration")" in
-    018_*|019_*) continue ;;
+    018_*|019_*|023_*) continue ;;
     0[0-1][0-9]_*|020_*|021_*|022_*) ;;
     *) continue ;;
   esac

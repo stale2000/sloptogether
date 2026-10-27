@@ -9,6 +9,7 @@
     "typecheck": "npm --workspace apps/web run typecheck",
     "test": "npm --workspace apps/web run test && node --test scripts/local-demo-guard.test.mjs scripts/static-local-demo.test.mjs extension/test/*.test.mjs",
     "media-test": "node --test workers/media-publisher/tests/*.test.mjs",
+    "media-worker:production": "node --env-file=workers/media-publisher/.env.production.local workers/media-publisher/src/index.mjs",
     "worker-test": "PYTHONPATH=workers/runtime/src python3.12 -B -m unittest discover -s workers/runtime/tests",
     "media-worker": "node workers/media-publisher/src/index.mjs",
     "media-worker:local": "node --env-file=workers/media-publisher/.env.local workers/media-publisher/src/index.mjs",
