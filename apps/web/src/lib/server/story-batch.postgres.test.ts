@@ -199,13 +199,141 @@ print(json.dumps({"jobId": job.job_id, "stage": job.stage,
       (SELECT count(*)::text FROM sloptogether.story_batch_items WHERE batch_id=$1 AND state='pending') AS pending,
       (SELECT count(*)::text FROM sloptogether.jobs WHERE twitch_channel_id=$2 AND stage='video_base') AS jobs`,[batchId,channelId]);
     expect(final.rows[0]).toEqual({scheduled:"4",pending:"0",jobs:"4"});
+    let secondBatchId="";
     const secondSpy=vi.spyOn(principalModule,"requestPrincipal").mockResolvedValue({kind:"session",session});
     try{
       const next=await createStoryBatch(channelId,ownerRequest(randomUUID()));
       expect(next).toMatchObject({requested:4,scheduled:0,pending:4});
       expect(next.batchId).not.toBe(batchId);
+      secondBatchId=next.batchId;
     }finally{secondSpy.mockRestore();}
     const afterSecondClick=await database!.query<{jobs:string}>("SELECT count(*)::text AS jobs FROM sloptogether.jobs WHERE twitch_channel_id=$1 AND stage='video_base'",[channelId]);
     expect(afterSecondClick.rows[0]).toEqual({jobs:"4"});
+
+    // A job that never found a worker must not consume its reservation or
+    // permanently block the remaining three requested items.
+    const firstPlan=await claimStoryProducer(channelId,workerRequest("channels/test/streams/main/story-producer/leases"));
+    if (!("leaseId" in firstPlan) || !firstPlan.leaseId) throw new Error("second_batch_plan_missing");
+    const submit=(plan:typeof firstPlan)=>submitStoryProposal(channelId,workerRequest("channels/test/streams/main/story-proposals",{
+      leaseId:plan.leaseId,fence:plan.fence,sequence:plan.sequence,idempotencyKey:plan.idempotencyKey,claimToken:plan.claimToken,
+      plan:scene,compiledH3Prompt:compileH3StoryPrompt(scene),plannerUsage:{provider:"template",inputTokens:0,outputTokens:0},
+    }));
+    await expect(submit(firstPlan)).resolves.toMatchObject({accepted:true,jobScheduled:true});
+    const old=await database!.query<{job_id:string;funding_id:string;segment_id:string;revision_id:string}>(`SELECT i.job_id,j.funding_id,i.segment_id,j.segment_revision_id AS revision_id FROM sloptogether.story_batch_items i
+      JOIN sloptogether.jobs j ON j.id=i.job_id WHERE i.batch_id=$1 AND i.position=0`,[secondBatchId]);
+    const oldJob=old.rows[0]!;
+    await database!.query("UPDATE sloptogether.jobs SET result_deadline_at=now()-interval '1 second' WHERE id=$1",[oldJob.job_id]);
+    await database!.query("UPDATE sloptogether.job_attempts SET attempt_deadline_at=now()-interval '1 second' WHERE job_id=$1",[oldJob.job_id]);
+    const assertUnchanged=async()=>{
+      const current=await database!.query(`SELECT j.state AS job_state,f.state AS funding_state,i.state AS item_state
+        FROM sloptogether.story_batch_items i JOIN sloptogether.jobs j ON j.id=i.job_id
+        JOIN sloptogether.funding_authorizations f ON f.id=j.funding_id WHERE i.batch_id=$1 AND i.position=0`,[secondBatchId]);
+      expect(current.rows[0]).toMatchObject({job_state:"ready",funding_state:"reserved",item_state:"scheduled"});
+    };
+    // An unrelated recipe or a trusted binding that excludes Trim must not
+    // make a waiting producer redo paid screening.
+    await expect(claimWorkerLease(workerRequest("workers/leases?role=generation",{supportedRecipes:[]}))).resolves.toEqual({status:"empty"});
+    await assertUnchanged();
+    await database!.query("UPDATE sloptogether.trusted_executions SET recipe_ids=ARRAY['other-recipe'] WHERE twitch_channel_id=$1 AND execution_role='generation'",[channelId]);
+    await expect(claimWorkerLease(workerRequest("workers/leases?role=generation",{supportedRecipes:["fast-h3-trim-5step-vsa20-b1"]}))).resolves.toEqual({status:"empty"});
+    await assertUnchanged();
+    await database!.query("UPDATE sloptogether.trusted_executions SET recipe_ids=ARRAY[]::text[] WHERE twitch_channel_id=$1 AND execution_role='generation'",[channelId]);
+    // A worker at its two-attempt limit cannot trigger replacement either.
+    await database!.query(`UPDATE sloptogether.job_attempts SET state='leased',lease_expires_at=now()+interval '1 hour',
+      attempt_deadline_at=now()+interval '1 hour',execution_binding_id=(SELECT id FROM sloptogether.trusted_executions
+        WHERE twitch_channel_id=$2 AND execution_role='generation' LIMIT 1)
+      WHERE job_id IN (SELECT job_id FROM sloptogether.story_batch_items WHERE batch_id=$1 AND position<2)`,[batchId,channelId]);
+    await expect(claimWorkerLease(workerRequest("workers/leases?role=generation",{supportedRecipes:["fast-h3-trim-5step-vsa20-b1"]}))).resolves.toEqual({status:"empty"});
+    await assertUnchanged();
+    await database!.query(`UPDATE sloptogether.job_attempts SET state='succeeded'
+      WHERE job_id IN (SELECT job_id FROM sloptogether.story_batch_items WHERE batch_id=$1 AND position<2)`,[batchId]);
+    // Inconsistent consumption evidence is never treated as unused funding.
+    for(const [consumed,cost] of [[true,0],[false,0.01]] as const){
+      await database!.query("UPDATE sloptogether.funding_authorizations SET consumed_at=CASE WHEN $2 THEN now() ELSE NULL END,actual_cost_usd=$3 WHERE id=$1",[oldJob.funding_id,consumed,cost]);
+      await expect(claimWorkerLease(workerRequest("workers/leases?role=generation",{supportedRecipes:["fast-h3-trim-5step-vsa20-b1"]}))).resolves.toEqual({status:"empty"});
+      await assertUnchanged();
+    }
+    await database!.query("UPDATE sloptogether.funding_authorizations SET consumed_at=NULL,actual_cost_usd=NULL WHERE id=$1",[oldJob.funding_id]);
+    // Banned worker issuers or banned requesters must not cause a fresh
+    // screening attempt, even for an otherwise compatible trusted binding.
+    const otherUser=(BigInt(channelId)+1000n).toString(),otherKeyId=randomUUID();
+    const otherCredential=`slw_${otherKeyId}.ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-`;
+    await database!.query(`INSERT INTO sloptogether.application_keys(key_id,secret_hash,key_prefix,issuing_twitch_user_id,twitch_channel_id,
+      display_name,scopes,worker_roles) VALUES($1,$2,$3,$4,$5,'Other local worker',ARRAY['worker:generation'],ARRAY['generation'])`,
+      [otherKeyId,hashWorkerSecret(otherCredential),`slw_${otherKeyId}`,otherUser,channelId]);
+    await database!.query(`INSERT INTO sloptogether.trusted_executions(twitch_channel_id,key_id,issuer_twitch_user_id,execution_role,policy_revision)
+      SELECT $1,$2,$3,'generation',policy_revision FROM sloptogether.channels WHERE twitch_channel_id=$1`,[channelId,otherKeyId,otherUser]);
+    const otherPoll=()=>new Request("http://127.0.0.1:3000/sloptogether/api/v1/workers/leases?role=generation",{method:"POST",
+      headers:{Authorization:`SlopWorker ${otherCredential}`,"Content-Type":"application/json"},
+      body:JSON.stringify({supportedRecipes:["fast-h3-trim-5step-vsa20-b1"]})});
+    const ban=async(user:string)=>database!.query<{id:string}>(`INSERT INTO sloptogether.bans(twitch_user_id,twitch_channel_id,scope,issued_by)
+      VALUES($1,$2,'channel',$2) RETURNING id`,[user,channelId]);
+    const issuerBan=await ban(otherUser);
+    await expect(claimWorkerLease(otherPoll())).resolves.toEqual({status:"empty"});
+    await assertUnchanged();
+    await database!.query("UPDATE sloptogether.bans SET revoked_at=now() WHERE id=$1",[issuerBan.rows[0]!.id]);
+    const requesterBan=await ban(channelId);
+    await expect(claimWorkerLease(otherPoll())).resolves.toEqual({status:"empty"});
+    await assertUnchanged();
+    await database!.query("UPDATE sloptogether.bans SET revoked_at=now() WHERE id=$1",[requesterBan.rows[0]!.id]);
+    // A streamer-selected replacement revision must not be undone by stale
+    // cleanup, even when the original job was never claimed.
+    const overrideRevision=randomUUID();
+    await database!.query(`INSERT INTO sloptogether.segment_revisions(id,segment_id,revision,prompt,start_boundary_revision_id,
+      planning_mode,provider_recipe_id,input_sha256,requested_by,state)
+      SELECT $1,segment_id,revision+1,'Streamer override',start_boundary_revision_id,planning_mode,provider_recipe_id,input_sha256,requested_by,'locked'
+      FROM sloptogether.segment_revisions WHERE id=$2`,[overrideRevision,oldJob.revision_id]);
+    await database!.query("UPDATE sloptogether.segments SET selected_revision_id=$2 WHERE id=$1",[oldJob.segment_id,overrideRevision]);
+    await expect(claimWorkerLease(workerRequest("workers/leases?role=generation",{supportedRecipes:["fast-h3-trim-5step-vsa20-b1"]}))).resolves.toEqual({status:"empty"});
+    const protectedOverride=await database!.query(`SELECT s.selected_revision_id,j.state AS job_state,f.state AS funding_state,i.state AS item_state
+      FROM sloptogether.story_batch_items i JOIN sloptogether.jobs j ON j.id=i.job_id
+      JOIN sloptogether.funding_authorizations f ON f.id=j.funding_id JOIN sloptogether.segments s ON s.id=i.segment_id
+      WHERE i.batch_id=$1 AND i.position=0`,[secondBatchId]);
+    expect(protectedOverride.rows[0]).toMatchObject({selected_revision_id:overrideRevision,job_state:"ready",funding_state:"reserved",item_state:"scheduled"});
+    // Restore the synthetic fixture so the independent safe-recovery case
+    // below can exercise its original selected revision.
+    await database!.query("UPDATE sloptogether.segments SET selected_revision_id=$2 WHERE id=$1",[oldJob.segment_id,oldJob.revision_id]);
+    // An idle producer alone must not repeatedly re-screen and replan while
+    // no generation worker is available.
+    await expect(claimStoryProducer(channelId,workerRequest("channels/test/streams/main/story-producer/leases"))).resolves.toEqual({status:"empty"});
+    const [workerAfterDeadline,secondWorkerAfterDeadline,concurrentPlan]=await Promise.all([
+      claimWorkerLease(workerRequest("workers/leases?role=generation",{supportedRecipes:["fast-h3-trim-5step-vsa20-b1"]})),
+      claimWorkerLease(workerRequest("workers/leases?role=generation",{supportedRecipes:["fast-h3-trim-5step-vsa20-b1"]})),
+      claimStoryProducer(channelId,workerRequest("channels/test/streams/main/story-producer/leases")),
+    ]);
+    expect(workerAfterDeadline).toMatchObject({status:"empty"});
+    expect(secondWorkerAfterDeadline).toMatchObject({status:"empty"});
+    const recoveredPlan="leaseId" in concurrentPlan && concurrentPlan.leaseId ? concurrentPlan :
+      await claimStoryProducer(channelId,workerRequest("channels/test/streams/main/story-producer/leases"));
+    expect(recoveredPlan).toMatchObject({batchItemId:expect.any(String)});
+    const abandoned=await database!.query(`SELECT j.state AS job_state,a.state AS attempt_state,a.claimed_at,f.state AS funding_state,
+      i.state AS item_state,i.job_id FROM sloptogether.jobs j JOIN sloptogether.job_attempts a ON a.job_id=j.id
+      JOIN sloptogether.funding_authorizations f ON f.id=j.funding_id
+      JOIN sloptogether.story_batch_items i ON i.batch_id=$2 AND i.position=0 WHERE j.id=$1`,[oldJob.job_id,secondBatchId]);
+    expect(abandoned.rows[0]).toMatchObject({job_state:"expired",attempt_state:"expired",claimed_at:null,funding_state:"released",item_state:"pending",job_id:null});
+    if (!("leaseId" in recoveredPlan) || !recoveredPlan.leaseId) throw new Error("recovered_batch_plan_missing");
+    await expect(submit(recoveredPlan)).resolves.toMatchObject({accepted:true,jobScheduled:true});
+    const replacement=await database!.query<{job_id:string;funding_state:string}>(`SELECT i.job_id,f.state AS funding_state
+      FROM sloptogether.story_batch_items i JOIN sloptogether.jobs j ON j.id=i.job_id
+      JOIN sloptogether.funding_authorizations f ON f.id=j.funding_id WHERE i.batch_id=$1 AND i.position=0`,[secondBatchId]);
+    expect(replacement.rows[0]).toMatchObject({job_id:expect.any(String),funding_state:"reserved"});
+    expect(replacement.rows[0]!.job_id).not.toBe(oldJob.job_id);
+
+    // Once a worker claims the replacement, expiry may not recycle the slot
+    // or release the funding as an unused attempt.
+    const claimed=await claimWorkerLease(workerRequest("workers/leases?role=generation",{supportedRecipes:["fast-h3-trim-5step-vsa20-b1"]}));
+    expect(claimed).toMatchObject({status:"leased",job:{jobId:replacement.rows[0]!.job_id}});
+    await database!.query("UPDATE sloptogether.jobs SET result_deadline_at=now()-interval '1 second' WHERE id=$1",[replacement.rows[0]!.job_id]);
+    await database!.query("UPDATE sloptogether.job_attempts SET attempt_deadline_at=now()-interval '1 second' WHERE job_id=$1",[replacement.rows[0]!.job_id]);
+    await expect(claimStoryProducer(channelId,workerRequest("channels/test/streams/main/story-producer/leases"))).resolves.toEqual({status:"empty"});
+    const spent=await database!.query(`SELECT i.state AS item_state,j.state AS job_state,f.state AS funding_state
+      FROM sloptogether.story_batch_items i JOIN sloptogether.jobs j ON j.id=i.job_id
+      JOIN sloptogether.funding_authorizations f ON f.id=j.funding_id WHERE i.batch_id=$1 AND i.position=0`,[secondBatchId]);
+    expect(spent.rows[0]).toMatchObject({item_state:"scheduled",job_state:"leased",funding_state:"consumed_uncertain"});
+    await expect(claimWorkerLease(workerRequest("workers/leases?role=generation",{supportedRecipes:["fast-h3-trim-5step-vsa20-b1"]}))).resolves.toEqual({status:"empty"});
+    const expiredClaimed=await database!.query(`SELECT i.state AS item_state,j.state AS job_state,f.state AS funding_state
+      FROM sloptogether.story_batch_items i JOIN sloptogether.jobs j ON j.id=i.job_id
+      JOIN sloptogether.funding_authorizations f ON f.id=j.funding_id WHERE i.batch_id=$1 AND i.position=0`,[secondBatchId]);
+    expect(expiredClaimed.rows[0]).toMatchObject({item_state:"scheduled",job_state:"failed",funding_state:"consumed_failed"});
   },30_000);
 });

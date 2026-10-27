@@ -331,6 +331,15 @@ export async function claimWorkerLease(request:Request){
       WHERE te.issuer_twitch_user_id=$1 AND a.state IN ('leased','running','uploaded','validating')
         AND a.lease_expires_at>now() AND a.attempt_deadline_at>now()`,[grant.issuingTwitchUserId]);
     if(Number(active.rows[0]?.count??0)>=2)return {status:"empty"};
+    // Only an available, authorized worker advertising this recipe can
+    // trigger a replan. Idle producers and incompatible workers must not
+    // repeatedly trigger paid input screening.
+    if(role==="generation"&&offeredRecipes.includes(LEGACY_GENERATION_RECIPE)&&!await isBanned(grant.channelId,grant.issuingTwitchUserId,client)){
+      const eligible=await client.query(`SELECT 1 FROM sloptogether.trusted_executions
+        WHERE twitch_channel_id=$1 AND key_id=$2 AND execution_role='generation' AND revoked_at IS NULL
+          AND (cardinality(recipe_ids)=0 OR $3=ANY(recipe_ids)) LIMIT 1`,[grant.channelId,grant.keyId,LEGACY_GENERATION_RECIPE]);
+      if(eligible.rowCount)await recoverUnclaimedStoryBatchJobs(client,grant.channelId);
+    }
     const result=await client.query<{id:string;twitch_channel_id:string;segment_revision_id:string|null;interrupt_id:string|null;stage:string;recipe_id:string;recipe_sha256:Buffer;input_sha256:Buffer;planning_payload:Record<string,unknown>;prompt:string|null;start_boundary_revision_id:string|null;start_frame_asset_id:string|null;end_boundary_revision_id:string|null;end_frame_asset_id:string|null;source_asset_id:string|null;funding_id:string|null;width:number;height:number;output_width:number;output_height:number;fps_num:number;fps_den:number;frame_count:number;attempt_id:string;fence:string;deadline:Date;execution_binding_id:string}>(
       `SELECT j.id,j.twitch_channel_id,j.segment_revision_id,j.interrupt_id,j.stage,j.recipe_id,j.recipe_sha256,j.input_sha256,j.planning_payload,j.funding_id,
           coalesce(j.planning_payload->>'prompt',sr.prompt) AS prompt,
@@ -390,6 +399,51 @@ export async function claimWorkerLease(request:Request){
       [grant.channelId,grant.issuingTwitchUserId,grant.keyId,job.id,JSON.stringify({attemptId:job.attempt_id,fence,stage})]);
     return {status:"leased",leaseId:job.attempt_id,fence,sequence:1,job:{...payload,leaseId:job.attempt_id},leaseExpiresAt:new Date(Date.now()+60_000).toISOString(),attemptDeadlineAt:deadline};
   });
+}
+
+/** Recover only an unspent, still-current story batch slot after its deadline. */
+async function recoverUnclaimedStoryBatchJobs(client:PoolClient,channelId:string){
+  const expired=await client.query<{item_id:string;job_id:string;attempt_id:string;funding_id:string;revision_id:string;segment_id:string}>(`
+    SELECT i.id AS item_id,j.id AS job_id,a.id AS attempt_id,f.id AS funding_id,r.id AS revision_id,s.id AS segment_id
+    FROM sloptogether.story_batch_items i
+    JOIN sloptogether.story_batches b ON b.id=i.batch_id
+    JOIN sloptogether.jobs j ON j.id=i.job_id AND j.twitch_channel_id=b.twitch_channel_id
+    JOIN sloptogether.job_attempts a ON a.job_id=j.id AND a.funding_id=j.funding_id
+    JOIN sloptogether.funding_authorizations f ON f.id=j.funding_id AND f.twitch_channel_id=j.twitch_channel_id
+    JOIN sloptogether.segment_revisions r ON r.id=j.segment_revision_id
+    JOIN sloptogether.segments s ON s.id=r.segment_id AND s.id=i.segment_id AND s.selected_revision_id=r.id
+    JOIN sloptogether.branches branch ON branch.id=s.branch_id AND branch.stream_id=b.stream_id
+    WHERE b.twitch_channel_id=$1 AND i.state='scheduled' AND j.state='ready' AND j.stage='video_base'
+      AND j.execution_mode='pull_worker' AND j.interrupt_id IS NULL AND j.recipe_id='fast-h3-trim-5step-vsa20-b1'
+      AND a.state='ready' AND a.attempt_number=1 AND a.claimed_at IS NULL AND a.execution_binding_id IS NULL
+      AND a.provider_request_id IS NULL AND a.output_asset_id IS NULL AND a.lease_expires_at IS NULL
+      AND f.source='owner_budget' AND f.state='reserved' AND f.action_intent_id=j.id
+      AND f.consumed_at IS NULL AND coalesce(f.actual_cost_usd,0)=0
+      AND s.state='rendering' AND r.state='locked' AND branch.is_selected AND branch.archived_at IS NULL
+      AND (j.result_deadline_at<=now() OR a.attempt_deadline_at<=now())
+      AND NOT EXISTS(SELECT 1 FROM sloptogether.job_attempts other WHERE other.job_id=j.id AND other.id<>a.id)
+      AND NOT EXISTS(SELECT 1 FROM sloptogether.jobs other WHERE other.funding_id=f.id AND other.id<>j.id)
+      AND NOT EXISTS(SELECT 1 FROM sloptogether.job_attempts other WHERE other.funding_id=f.id AND other.id<>a.id)
+      AND NOT EXISTS(SELECT 1 FROM sloptogether.program_items pi WHERE pi.segment_id=s.id AND pi.committed_at IS NOT NULL)
+      AND NOT EXISTS(SELECT 1 FROM sloptogether.segments later WHERE later.branch_id=s.branch_id AND later.ordinal>s.ordinal)
+      AND NOT EXISTS(SELECT 1 FROM sloptogether.story_batch_items later WHERE later.batch_id=i.batch_id AND later.position>i.position AND later.state='scheduled')
+      AND NOT EXISTS(SELECT 1 FROM sloptogether.paid_action_intents paid WHERE paid.segment_revision_id=r.id)
+      AND NOT EXISTS(SELECT 1 FROM sloptogether.bans banned WHERE banned.twitch_user_id=j.requested_by AND banned.revoked_at IS NULL
+        AND (banned.expires_at IS NULL OR banned.expires_at>now()) AND (banned.scope='global' OR banned.twitch_channel_id=$1))
+    ORDER BY b.created_at,b.id,i.position FOR UPDATE OF i,j,a,f,s,r SKIP LOCKED`,[channelId]);
+  for(const row of expired.rows){
+    await client.query("UPDATE sloptogether.job_attempts SET state='expired',fence=fence+1,finished_at=now(),error_code='unclaimed_deadline_expired' WHERE id=$1 AND state='ready' AND claimed_at IS NULL",[row.attempt_id]);
+    await client.query("UPDATE sloptogether.jobs SET state='expired',completed_at=now() WHERE id=$1 AND state='ready'",[row.job_id]);
+    const released=await client.query(`UPDATE sloptogether.funding_authorizations SET state='released',settled_at=now()
+      WHERE id=$1 AND state='reserved' AND consumed_at IS NULL AND coalesce(actual_cost_usd,0)=0
+        AND NOT EXISTS(SELECT 1 FROM sloptogether.job_attempts WHERE funding_id=$1 AND claimed_at IS NOT NULL)`,[row.funding_id]);
+    if(!released.rowCount)throw new ApiError(409,"story_batch_funding_changed");
+    await reopenFailedRevision(client,row.revision_id,"Unclaimed worker job expired.");
+    await client.query(`UPDATE sloptogether.story_plan_attempts SET status='failed',updated_at=now()
+      WHERE resulting_segment_id=$1 AND input_payload->>'batchItemId'=$2 AND status='rendering'`,[row.segment_id,row.item_id]);
+    const reset=await client.query("UPDATE sloptogether.story_batch_items SET state='pending',segment_id=NULL,job_id=NULL WHERE id=$1 AND state='scheduled' AND job_id=$2 RETURNING id",[row.item_id,row.job_id]);
+    if(!reset.rowCount)throw new ApiError(409,"story_batch_item_not_current");
+  }
 }
 
 async function expireWorkerLeases(client:import("pg").PoolClient,channelId:string){
