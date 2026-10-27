@@ -41,7 +41,16 @@ SUBSCRIBER_GAGS = (
     ("snail_knight", "A tiny cartoon knight rides an oversized snail past a cheering parade of flowers and flags.", "{name} just subscribed! The victory parade arrives at snail speed!", "Gentle hoof taps and a tiny triumphant trumpet."),
     ("cloud_cape", "A cartoon hero rides a cloud elevator, rises through the sky, and emerges wearing a comically huge cape.", "{name} just subscribed! The cloud elevator delivers heroic fashion!", "Soft cloud whoosh and a cape flutter."),
     ("gift_avalanche", "A cartoon mascot opens one present and a harmless pile of gift boxes tumbles into a waving tower.", "{name} just subscribed! Your gift pile is trying to wave back!", "Light cardboard rustle and soft bouncing thumps."),
+    ("star_mail", "A cartoon space courier opens a glowing envelope; a tiny paper constellation unfolds and circles a waving astronaut.", "{name}, your star mail just arrived with a tiny constellation inside!", "Soft paper flutter and a gentle star chime."),
+    ("jellyfish_conductor", "A cartoon astronaut conducts a small orchestra of floating jellyfish as they drift into a sparkling formation.", "{name} just subscribed! The jellyfish orchestra is ready for the moonlight show!", "Gentle underwater bubbles and a soft musical shimmer."),
+    ("pancake_rover", "A tiny cartoon moon rover carries a stack of pancakes to an astronaut and flips one neatly onto a plate.", "{name} just subscribed! The moon rover brought breakfast right on schedule!", "Soft rover wheels and one warm pancake plop."),
+    ("bubble_submarine", "A friendly cartoon submarine rises inside a giant bubble, floats past the moon, and lands gently in a pool.", "{name}, your submarine floated all the way to the party!", "Quiet submarine hum and delicate bubble pops."),
+    ("comet_paint", "A cartoon artist paints a comet's tail with a glowing brush, turning it into a bright rainbow arc.", "{name} just subscribed! That comet has the brightest paint job in space!", "Soft brush swishes and a sparkling chime."),
+    ("teacup_telescope", "A cartoon wizard peers through a teacup telescope and spots a tiny duck-shaped constellation drifting overhead.", "{name}, the teacup telescope found a duck-shaped constellation for you!", "A gentle magic sparkle and a quiet kettle whistle."),
+    ("snack_satellite", "A friendly cartoon satellite opens its snack compartment and sends one cookie slowly toward a waving astronaut.", "{name} just subscribed! The satellite is delivering an emergency space cookie!", "Soft satellite beeps and a tiny wrapper crinkle."),
+    ("garden_tractor", "A cartoon moon tractor plants one oversized flower whose petals open into a row of glowing lanterns.", "{name}, the moon tractor planted you a tiny lantern garden!", "Gentle tractor putter and a warm flower chime."),
 )
+SUBSCRIBER_GAG_LIBRARY_VERSION = "subscriber-gags-v1"
 
 
 class StoryProducer:
@@ -83,7 +92,8 @@ class StoryProducer:
         fallback = self._fallback(scene_context)
         if scene_context["taskKind"] == "subscriber_interrupt":
             scene, template_id = self._subscriber_template(scene_context)
-            return scene, {"provider": "template", "templateId": template_id, "inputTokens": 0, "outputTokens": 0}
+            return scene, {"provider": "template", "templateId": template_id, "templateVersion": SUBSCRIBER_GAG_LIBRARY_VERSION,
+                "inputTokens": 0, "outputTokens": 0}
         if not self.api_key:
             return fallback, {"provider": "template", "fallback": "planner_key_unavailable", "inputTokens": 0, "outputTokens": 0}
         request_body = {

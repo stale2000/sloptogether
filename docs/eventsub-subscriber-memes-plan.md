@@ -85,6 +85,16 @@ Starter ideas:
 | Knight parade | A tiny knight enters riding an oversized snail with a confetti flag |
 | Cloud elevator | A character rides a cloud upward and emerges wearing a ridiculous superhero cape |
 | Gift avalanche | Wrapped boxes tumble into a cheerful pile and reveal a waving fictional mascot |
+| Star mail | A space courier opens a glowing envelope; a paper constellation unfolds and circles a waving astronaut |
+| Jellyfish conductor | A cartoon astronaut conducts a tiny orchestra of floating jellyfish into a sparkling formation |
+| Pancake rover | A moon rover delivers a pancake stack and flips one neatly onto an astronaut's plate |
+| Bubble submarine | A friendly submarine rises in a giant bubble, floats past the moon, and lands gently in a pool |
+| Comet paint | A cartoon artist paints a comet tail with a glowing brush, making a bright rainbow arc |
+| Teacup telescope | A wizard peers through a teacup telescope and spots a tiny duck-shaped constellation |
+| Snack satellite | A friendly satellite opens its snack compartment and sends a cookie toward a waving astronaut |
+| Lantern garden | A moon tractor plants one oversized flower whose petals open into glowing lanterns |
+
+**Current code:** `story_producer.py` contains these 20 deterministic template gags as `subscriber-gags-v1`. It substitutes the bounded subscriber label without a paid text-model call, and the worker test validates all entries against the H3 scene schema. Keep subscriber alerts disabled until a real generated clip proves the visual action and spoken line are clear and match.
 
 For a ten-second clip use one setting and one main action: setup in the first two seconds, the gag during seconds two–eight, then a short payoff. Aim for one clear 12–20-word spoken line; check name length and the existing compiler limit. Do not fill a short clip with unrelated motion or ask the model to spell a banner accurately.
 
