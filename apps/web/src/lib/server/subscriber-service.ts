@@ -19,6 +19,7 @@ import { getStream } from "./stream-service";
 
 const DEFAULT_SETTINGS: InterruptSettings = {
   enabled: false,
+  eventSubListening: false,
   newSubscriptions: true,
   resubscriptionMessages: false,
   giftMode: "off",
@@ -58,7 +59,7 @@ function settingsFrom(value: unknown): InterruptSettings {
   const normalized=value&&typeof value==="object"&&!Array.isArray(value)&&"fallback" in value&&value.fallback==="text_acknowledgment"
     ?{...value,fallback:"skip"}:value;
   const parsed = interruptSettingsSchema.safeParse(normalized);
-  return parsed.success ? parsed.data : { ...DEFAULT_SETTINGS };
+  return parsed.success ? { ...parsed.data,eventSubListening:parsed.data.eventSubListening||parsed.data.enabled } : { ...DEFAULT_SETTINGS };
 }
 
 function requireSubscriberFunding(settings:InterruptSettings,ownerBudgetCapUsd:number|string){
@@ -148,16 +149,17 @@ export async function persistSubscriberSettings(client:PoolClient,channelId:stri
     "SELECT owner_twitch_user_id,owner_budget_cap_usd FROM sloptogether.channels WHERE twitch_channel_id=$1 AND is_enabled FOR UPDATE",[channelId]);
   if(!current.rows[0])throw new ApiError(404,"channel_not_found");
   if(await isBanned(channelId,actor,client))throw new ApiError(403,"channel_ban_active");
-  if(settings.enabled&&!await ownerAuthorized(client,current.rows[0].owner_twitch_user_id))
-    throw new ApiError(409,"subscription_authorization_required","The broadcaster must connect Twitch with subscription access before enabling generated shout-outs.");
+  if((settings.enabled||settings.eventSubListening)&&!await ownerAuthorized(client,current.rows[0].owner_twitch_user_id))
+    throw new ApiError(409,"subscription_authorization_required","The broadcaster must connect Twitch with subscription access first.");
   requireSubscriberFunding(settings,current.rows[0].owner_budget_cap_usd);
+  const normalized={...settings,eventSubListening:settings.eventSubListening||settings.enabled};
   const updated=await client.query<{policy_revision:number}>(`UPDATE sloptogether.channels SET subscriber_interrupt_policy=$2::jsonb,
-    policy_revision=policy_revision+1,updated_at=now() WHERE twitch_channel_id=$1 RETURNING policy_revision`,[channelId,JSON.stringify(settings)]);
+    policy_revision=policy_revision+1,updated_at=now() WHERE twitch_channel_id=$1 RETURNING policy_revision`,[channelId,JSON.stringify(normalized)]);
   if(!updated.rows[0])throw new ApiError(404,"channel_not_found");
   await carryForwardTrustedExecutions(client,channelId,updated.rows[0].policy_revision);
   if(!settings.enabled)await cancelPendingInterrupts(client,channelId);
   await client.query(`INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,action,target_kind,target_id,policy_revision,after_state)
-    VALUES($1,$2,'subscriber_interrupt.settings','channel',$1,$3,$4::jsonb)`,[channelId,actor,updated.rows[0].policy_revision,JSON.stringify(settings)]);
+    VALUES($1,$2,'subscriber_interrupt.settings','channel',$1,$3,$4::jsonb)`,[channelId,actor,updated.rows[0].policy_revision,JSON.stringify(normalized)]);
 }
 
 export async function handleSubscriberSettings(locator: string, request: Request, action: "read" | "update") {
@@ -168,14 +170,14 @@ export async function handleSubscriberSettings(locator: string, request: Request
   if (action === "update") {
     if (principal?.kind === "session") assertSameOrigin(request);
     const settings = await readJson(request, interruptSettingsSchema);
-    const session=settings.enabled?await currentSession(request):null;
-    if(settings.enabled&&(!session||session.twitchUserId!==channel.owner_twitch_user_id||!session.scopes.includes("channel:read:subscriptions")))
-      throw new ApiError(409,"subscription_authorization_required","The broadcaster must reconnect with subscription access before enabling generated shout-outs.");
+    const session=settings.enabled||settings.eventSubListening?await currentSession(request):null;
+    if((settings.enabled||settings.eventSubListening)&&(!session||session.twitchUserId!==channel.owner_twitch_user_id||!session.scopes.includes("channel:read:subscriptions")))
+      throw new ApiError(409,"subscription_authorization_required","The broadcaster must reconnect with subscription access first.");
     requireSubscriberFunding(settings,channel.owner_budget_cap_usd);
     await withEventSubLifecycleLock(channel.twitch_channel_id,async client=>{
-      if(settings.enabled)await ensureSubscriptionEvents(channel.twitch_channel_id,client);
+      if(settings.enabled||settings.eventSubListening)await ensureSubscriptionEvents(channel.twitch_channel_id,client);
       await transactionOnClient(client,client=>persistSubscriberSettings(client,channel.twitch_channel_id,actor,settings));
-      if(!settings.enabled)await disableSubscriberEventSubscriptions(channel.twitch_channel_id,client);
+      if(!settings.enabled&&!settings.eventSubListening)await disableSubscriberEventSubscriptions(channel.twitch_channel_id,client);
     });
   }
   const result = await query<{ subscriber_interrupt_policy: unknown; policy_revision: number; owner_twitch_user_id: string }>(
@@ -188,11 +190,14 @@ export async function handleSubscriberSettings(locator: string, request: Request
     "SELECT count(*)::text AS count FROM sloptogether.interrupt_requests WHERE broadcaster_twitch_id=$1 AND program_state=ANY($2::text[]) AND expires_at>now()",
     [channel.twitch_channel_id, ACTIVE_INTERRUPT_STATES],
   );
+  const registration=await query<{registered:boolean}>(`SELECT EXISTS(SELECT 1 FROM sloptogether.eventsub_config_fingerprints
+    WHERE twitch_channel_id=$1 AND registration_key='subscriber-events' AND cardinality(subscription_ids)>0) AS registered`,[channel.twitch_channel_id]);
   return {
     settings: settingsFrom(row.subscriber_interrupt_policy),
     policyRevision: row.policy_revision,
     pendingCount: Number(pending.rows[0]?.count ?? 0),
     eventSubAuthorized: await ownerAuthorized({ query }, row.owner_twitch_user_id),
+    eventSubRegistered:Boolean(registration.rows[0]?.registered),
   };
 }
 
@@ -532,7 +537,7 @@ export async function handleEventSubWebhook(request: Request): Promise<Response>
         fencedRevision=updated.rows[0]?.policy_revision;
       }
       if(receiptWritten.rowCount&&currentRegistration&&EVENT_TYPES.includes(envelope.subscription.type as SubscriptionEventType)){
-        const updated=await client.query<{policy_revision:number}>("UPDATE sloptogether.channels SET subscriber_interrupt_policy=jsonb_set(subscriber_interrupt_policy,'{enabled}','false'::jsonb),policy_revision=policy_revision+1,updated_at=now() WHERE twitch_channel_id=$1 RETURNING policy_revision",[channelId]);
+        const updated=await client.query<{policy_revision:number}>("UPDATE sloptogether.channels SET subscriber_interrupt_policy=jsonb_set(jsonb_set(subscriber_interrupt_policy,'{enabled}','false'::jsonb),'{eventSubListening}','false'::jsonb),policy_revision=policy_revision+1,updated_at=now() WHERE twitch_channel_id=$1 RETURNING policy_revision",[channelId]);
         fencedRevision=updated.rows[0]?.policy_revision;
         await cancelPendingInterrupts(client,channelId);
       }

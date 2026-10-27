@@ -44,6 +44,7 @@ flowchart LR
 - Keep OAuth grant refresh/revocation separate from whether a browser tab remains open. Inspect the current session-backed authorization checks; grant expiry must be visible and cannot be worked around by a stale channel setting.
 - Reconcile enabled, pending, failed and revoked subscriptions from a supervised CPU task. Avoid duplicate registrations; rotate webhook secrets with the existing current/previous-secret overlap and recover changed callback configuration.
 - Configure alerts on/off, enabled event types, one target stream, template/style set, audio, budget, cooldown and expiry in streamer/mod controls. Only the broadcaster can grant new Twitch permissions; preserve moderator configuration rights that already exist.
+- Keep subscription listening separate from clip generation. Listen-only mode registers the webhook, stores receipts as ignored while generation is off, and must require no render budget. Enabling generated clips still requires the broadcaster subscription grant and enough owner/hourly budget for one reservation.
 
 | Event | Alert behavior |
 |---|---|

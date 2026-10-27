@@ -359,7 +359,9 @@ Fal GPU runners are billable while allocated. The user's hard limit is two hours
 start only the GPUs needed for the test and verify they are shut down by the
 deadline. The shared `sloptogether-fal-session` controller starts from a
 deadline measured before wake-up, uses `min_concurrency=0`, sends wake pings,
-and on exit scales the named apps down and stops remaining runners. The
+and on exit scales the named apps down and stops remaining runners. Use
+`--generation-only` when no upscale job is pending so the upscale GPU is not
+awakened. The
 in-container eight-hour limit is **not** a sufficient billing safeguard when an
 app has `min_concurrency=1`: Fal may replace the stopped runner. A detached
 controller also needs its own supervised lifetime and shutdown verification.
