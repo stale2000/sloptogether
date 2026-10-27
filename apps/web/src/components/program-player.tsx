@@ -58,6 +58,7 @@ interface ProgressEvent { itemId: string; seconds: number; manifestRevision: num
 export interface ProgramPlayerHandle { seek: (seconds: number) => void }
 
 interface InterruptResumeState {
+  interruptId:string;
   interruptItemId:string;
   interruptEndSeconds:number;
   resumeSeconds:number;
@@ -69,6 +70,12 @@ export function consumeInterruptedMomentOnManualSeek(resume:InterruptResumeState
   if(!resume)return false;
   consumed.add(resume.interruptItemId);
   return true;
+}
+
+export function interruptResumeWasSuperseded(resume:InterruptResumeState|null,currentInterruptId:string|null|undefined,spans:ProgramSpan[]):boolean{
+  if(!resume||currentInterruptId===undefined)return false;
+  if(currentInterruptId!==resume.interruptId)return true;
+  return spans.some(span=>span.kind==="subscriber_interrupt"&&span.interruptId===resume.interruptId&&span.skipPlayback===true);
 }
 
 export function seekOrQueue(media:Pick<HTMLMediaElement,"readyState"|"currentTime">|null,seconds:number):number|null{
@@ -107,7 +114,7 @@ export function ProgramPlayer({
   onStarted?: () => void;
   onNeedsUserStart?: () => void;
   autoPlayIntent?:boolean;
-  autoInterruptId?:string;
+  autoInterruptId?:string|null;
   canAutoInterrupt?:boolean;
   clean?: boolean;
   seekRef?: Ref<ProgramPlayerHandle>;
@@ -305,6 +312,16 @@ export function ProgramPlayer({
           return;
         }
         const position = event.currentTarget.currentTime;
+        const pendingResume=interruptResumeRef.current;
+        if(interruptResumeWasSuperseded(pendingResume,autoInterruptId,spans)){
+          interruptResumeRef.current=null;
+          consumedInterruptsRef.current.add(pendingResume!.interruptItemId);
+          try{event.currentTarget.currentTime=pendingResume!.resumeSeconds;}catch{
+            setError("The story could not resume after the subscriber moment. Press Start program to reconnect.");
+            onNeedsUserStart?.();
+          }
+          return;
+        }
         const span = spans.find((candidate) => position >= candidate.outputStartSeconds && position < candidate.outputEndSeconds);
         if(span&&shouldSkipInterruptSpan(span,consumedInterruptsRef.current)){
           const nextStory=spans.find(candidate=>candidate.kind==="story"&&candidate.outputStartSeconds>=span.outputEndSeconds-0.001);
@@ -329,7 +346,7 @@ export function ProgramPlayer({
           const transition=safeInterruptTransition(spans,position,autoInterruptId);
           if(transition){
             lastTriggeredInterruptRef.current=autoInterruptId;
-            interruptResumeRef.current={...transition,controllerEpoch:program.playhead?.controllerEpoch??0,sawInterrupt:false};
+            interruptResumeRef.current={...transition,interruptId:autoInterruptId,controllerEpoch:program.playhead?.controllerEpoch??0,sawInterrupt:false};
             try{event.currentTarget.currentTime=transition.interruptStartSeconds;}catch{
               interruptResumeRef.current=null;
               lastTriggeredInterruptRef.current=null;
