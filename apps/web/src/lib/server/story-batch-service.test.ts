@@ -2,11 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   query: vi.fn(), transaction: vi.fn(), findChannel: vi.fn(), getStream: vi.fn(),
-  requestPrincipal: vi.fn(), requireStreamerController: vi.fn(), isBanned: vi.fn(),
+  requestPrincipal: vi.fn(), requireStreamerController: vi.fn(), requireContentReviewer: vi.fn(), isBanned: vi.fn(),
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("./db", () => ({ query: mocks.query, transaction: mocks.transaction, DatabaseUnavailable: class extends Error {} }));
-vi.mock("./channels", () => ({ findChannel: mocks.findChannel, requireStreamerController: mocks.requireStreamerController, isBanned: mocks.isBanned }));
+vi.mock("./channels", () => ({ findChannel: mocks.findChannel, requireStreamerController: mocks.requireStreamerController, requireContentReviewer: mocks.requireContentReviewer, isBanned: mocks.isBanned }));
 vi.mock("./stream-service", () => ({ getStream: mocks.getStream }));
 vi.mock("./principals", () => ({ requestPrincipal: mocks.requestPrincipal }));
 vi.mock("./http", async importOriginal => {
@@ -33,6 +33,7 @@ beforeEach(() => {
   mocks.getStream.mockResolvedValue(stream);
   mocks.requestPrincipal.mockResolvedValue({ kind: "session", session: { twitchUserId: "42" } });
   mocks.requireStreamerController.mockResolvedValue("42");
+  mocks.requireContentReviewer.mockResolvedValue("42");
   mocks.isBanned.mockResolvedValue(false);
 });
 afterEach(() => vi.unstubAllEnvs());
@@ -96,7 +97,7 @@ describe("streamer story batches", () => {
   });
 
   it("lists the selected stream's newest batches", async () => {
-    mocks.query.mockImplementation(async (sql: string) => sql.includes("FROM sloptogether.story_batches")
+    mocks.query.mockImplementation(async (sql: string) => sql.includes("story_batch_items_details") ? {rows: [], rowCount: 0} : sql.includes("FROM sloptogether.story_batches")
       ? { rows: [row], rowCount: 1 } : { rows: [{ producer_lease_active: true, has_approved_start: true, committed: "0.25" }], rowCount: 1 });
     vi.stubEnv("SLOPTOGETHER_GENERATION_ATTEMPT_RESERVATION_USD", "0.5");
     await expect(listStoryBatches("owner", request(), "main")).resolves.toMatchObject({ batches: [{ batchId: "batch-id", requested: 4, pending: 4 }] });
@@ -106,11 +107,69 @@ describe("streamer story batches", () => {
   });
 
   it("reports unavailable and exhausted budgets without claiming a producer is running", async () => {
-    mocks.query.mockImplementation(async (sql: string) => sql.includes("FROM sloptogether.story_batches")
+    mocks.query.mockImplementation(async (sql: string) => sql.includes("story_batch_items_details") ? {rows: [], rowCount: 0} : sql.includes("FROM sloptogether.story_batches")
       ? { rows: [row], rowCount: 1 } : { rows: [{ producer_lease_active: false, has_approved_start: false, committed: "0.75" }], rowCount: 1 });
     vi.stubEnv("SLOPTOGETHER_GENERATION_ATTEMPT_RESERVATION_USD", "0");
     await expect(listStoryBatches("owner", request())).resolves.toMatchObject({ availability: { producerLeaseActive: false, hasApprovedStart: false, budget: "unavailable" } });
     vi.stubEnv("SLOPTOGETHER_GENERATION_ATTEMPT_RESERVATION_USD", "0.5");
     await expect(listStoryBatches("owner", request())).resolves.toMatchObject({ availability: { producerLeaseActive: false, budget: "exhausted" } });
+  });
+
+  it("lists ordered batch slots with current prompts and authorized frame previews", async () => {
+    const assetId="f9e2de7e-7c49-413f-b26f-c40209d8ba37";
+    mocks.query.mockImplementation(async (sql: string) => {
+      if (sql.includes("story_batch_items_details")) return {rows:[
+        {batch_id:"batch-id",item_id:"item-0",position:0,state:"planned",prompt:"A cartoon astronaut waves.",dialogue:"Hello!",start_asset_id:assetId,end_asset_id:assetId,start_boundary_revision_id:"boundary",candidate_revision:"2",candidate_approved:false,can_approve:true,candidate_rejected:false,can_reject:true,can_replan:false,screen_blocked:false,can_retry_screen:false},
+        {batch_id:"batch-id",item_id:"item-1",position:1,state:"pending",prompt:null,dialogue:null,start_asset_id:null,start_boundary_revision_id:null,candidate_revision:"0",candidate_approved:false,can_approve:false,candidate_rejected:false,can_reject:false,can_replan:false,screen_blocked:false,can_retry_screen:false},
+        {batch_id:"batch-id",item_id:"item-2",position:2,state:"expired",prompt:"A stale job.",dialogue:null,start_asset_id:assetId,start_boundary_revision_id:"boundary",candidate_revision:"3",candidate_approved:true,can_approve:false,candidate_rejected:false,can_reject:false,can_replan:false,screen_blocked:false,can_retry_screen:false},
+        {batch_id:"batch-id",item_id:"item-3",position:3,state:"superseded",prompt:null,dialogue:null,start_asset_id:null,start_boundary_revision_id:null,candidate_revision:"0",candidate_approved:false,can_approve:false,candidate_rejected:false,can_reject:false,can_replan:false,screen_blocked:false,can_retry_screen:false},
+      ],rowCount:4};
+      if(sql.includes("FROM sloptogether.story_batches")) return {rows:[row],rowCount:1};
+      return {rows:[{producer_lease_active:true,has_approved_start:true,committed:"0"}],rowCount:1};
+    });
+    const result=await listStoryBatches("owner",request(),"main");
+    expect(result.batches[0]?.items).toEqual([
+      {itemId:"item-0",position:0,state:"planned",prompt:"A cartoon astronaut waves.",dialogue:"Hello!",startFrameUrl:`/sloptogether/api/v1/media/${assetId}/preview`,endFrameUrl:`/sloptogether/api/v1/media/${assetId}/preview`,startBoundaryRevisionId:"boundary",candidateRevision:2,candidateApproved:false,candidateRejected:false,canApprove:true,canReject:true,canReplan:false,screenBlocked:false,canRetryScreen:false},
+      {itemId:"item-1",position:1,state:"pending",prompt:null,dialogue:null,startFrameUrl:null,endFrameUrl:null,startBoundaryRevisionId:null,candidateRevision:0,candidateApproved:false,candidateRejected:false,canApprove:false,canReject:false,canReplan:false,screenBlocked:false,canRetryScreen:false},
+      {itemId:"item-2",position:2,state:"expired",prompt:"A stale job.",dialogue:null,startFrameUrl:`/sloptogether/api/v1/media/${assetId}/preview`,endFrameUrl:null,startBoundaryRevisionId:"boundary",candidateRevision:3,candidateApproved:true,candidateRejected:false,canApprove:false,canReject:false,canReplan:false,screenBlocked:false,canRetryScreen:false},
+      {itemId:"item-3",position:3,state:"superseded",prompt:null,dialogue:null,startFrameUrl:null,endFrameUrl:null,startBoundaryRevisionId:null,candidateRevision:0,candidateApproved:false,candidateRejected:false,canApprove:false,canReject:false,canReplan:false,screenBlocked:false,canRetryScreen:false},
+    ]);
+    const details=mocks.query.mock.calls.find(([sql])=>String(sql).includes("story_batch_items_details"));
+    expect(details?.[1]).toEqual(["stream-id","123",["batch-id"]]);
+    expect(String(details?.[0])).toContain("b.stream_id=$1 AND b.twitch_channel_id=$2");
+    expect(String(details?.[0])).toContain("branch.stream_id=b.stream_id");
+    expect(String(details?.[0])).toContain("branch.twitch_channel_id=b.twitch_channel_id");
+    expect(String(details?.[0])).toContain("branch.is_selected AND branch.archived_at IS NULL");
+    expect(JSON.stringify(result)).not.toContain("storage_key");
+  });
+
+  it("lets a reviewer see slots without revealing the broadcaster budget or creating batches", async () => {
+    mocks.requestPrincipal.mockResolvedValue({kind:"session",session:{twitchUserId:"mod"}});
+    mocks.requireContentReviewer.mockResolvedValue("mod");
+    mocks.query.mockImplementation(async (sql:string) => sql.includes("story_batch_items_details") ? {rows:[],rowCount:0} : sql.includes("FROM sloptogether.story_batches")
+      ? {rows:[row],rowCount:1} : {rows:[{producer_lease_active:true,has_approved_start:true,committed:"0.25"}],rowCount:1});
+    await expect(listStoryBatches("owner",request())).resolves.toMatchObject({canGenerate:false,availability:{budget:null}});
+    await expect(createStoryBatch("owner",request())).rejects.toMatchObject({status:403});
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+
+  it("denies a banned or unapproved reviewer before loading batches", async () => {
+    mocks.requireContentReviewer.mockRejectedValueOnce(Object.assign(new Error("content_reviewer_required"),{status:403}));
+    await expect(listStoryBatches("owner",request())).rejects.toMatchObject({status:403});
+    expect(mocks.query).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a rejected draft without representing it as a rendered job", async () => {
+    mocks.query.mockImplementation(async (sql:string) => {
+      if (sql.includes("story_batch_items_details")) return {rows:[{
+        batch_id:"batch-id",item_id:"item-0",position:0,state:"rejected",prompt:"A funny scene.",dialogue:null,
+        start_asset_id:null,end_asset_id:null,start_boundary_revision_id:null,candidate_revision:"2",
+        candidate_approved:false,candidate_rejected:true,can_approve:false,can_reject:false,can_replan:true,screen_blocked:true,
+      }],rowCount:1};
+      if (sql.includes("FROM sloptogether.story_batches")) return {rows:[row],rowCount:1};
+      return {rows:[{producer_lease_active:true,has_approved_start:true,committed:"0"}],rowCount:1};
+    });
+    const result=await listStoryBatches("owner",request());
+    expect(result.batches[0]?.items[0]).toMatchObject({state:"rejected",candidateRejected:true,canReplan:true,canApprove:false});
   });
 });

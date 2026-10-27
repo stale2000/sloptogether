@@ -17,7 +17,7 @@ vi.mock("./proxy-client-ip",()=>({trustedProxyClientIp:vi.fn()}));
 
 import { claimStoryProducer,claimWorkerLease,createPairing,downloadWorkerAsset,requestClipUpscale,submitStoryProposal } from "./worker-service";
 
-const channel={twitch_channel_id:"123",owner_twitch_user_id:"42",policy_revision:7};
+const channel={twitch_channel_id:"123",owner_twitch_user_id:"42",policy_revision:7,owner_budget_cap_usd:"0.0000"};
 const grant={keyId:"producer-key",issuingTwitchUserId:"42",channelId:"123",scopes:["story:write_future"],roles:["story-producer"],recipes:[],paired:false,platform:null};
 const producerLeaseExpires=new Date(Date.now()+60_000);
 const sceneSeed="00000000-0000-4000-8000-000000000011";
@@ -329,24 +329,23 @@ afterEach(()=>{vi.unstubAllEnvs();vi.unstubAllGlobals()});
 
 describe("story producer planning claims",()=>{
   it.each([
-    {position:1,previous_state:"scheduled",previous_segment_id:"source",revision_state:"locked",boundary_id:null,asset_status:null},
-    {position:1,previous_state:"scheduled",previous_segment_id:"other-segment",revision_state:"ready",boundary_id:"boundary",asset_status:"approved"},
-    {position:1,previous_state:"pending",previous_segment_id:null,revision_state:"ready",boundary_id:"boundary",asset_status:"approved"},
-  ])("waits for the preceding accepted clip before claiming or planning the next one: %j",async scenario=>{
+    {position:1,previous_state:"scheduled",previous_segment_id:"source"},
+    {position:1,previous_state:"pending",previous_segment_id:null},
+  ])("plans a future candidate without waiting for an earlier rendered endpoint: %j",async scenario=>{
     const {client}=claimClient(false);
     const original=client.query.getMockImplementation()!;
     client.query.mockImplementation(async(sql:string,values?:unknown[])=>{
-      if(sql.includes("FROM sloptogether.story_batch_items i JOIN"))return {rows:[{id:batchItemId,position:scenario.position,previous_state:scenario.previous_state,previous_segment_id:scenario.previous_segment_id}],rowCount:1};
-      if(sql.includes("SELECT s.id AS segment_id,r.state AS revision_state"))return {rows:[{segment_id:"source",revision_state:scenario.revision_state,boundary_id:scenario.boundary_id,asset_status:scenario.asset_status}],rowCount:1};
+      if(sql.includes("FROM sloptogether.story_batch_items i JOIN"))return {rows:[{id:batchItemId,...scenario}],rowCount:1};
       return original(sql,values);
     });
     mocks.transaction.mockImplementation(async(work:(db:typeof client)=>Promise<unknown>)=>work(client));
-    await expect(claimStoryProducer("channel",leaseRequest())).resolves.toEqual({status:"empty"});
-    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("RETURNING claim_token"))).toBe(false);
-    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.story_plan_attempts"))).toBe(false);
+    await expect(claimStoryProducer("channel",leaseRequest())).resolves.toMatchObject({batchItemId,storyContext:{sceneSeed}});
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("SELECT s.id AS segment_id,r.state AS revision_state"))).toBe(false);
+    expect(mocks.screenPromptAndImages).not.toHaveBeenCalled();
   });
 
-  it.each([false,true])("pins 512×288 when the story producer schedules a render (subscriber=%s)",async(subscriber)=>{
+  it("pins 512×288 when the story producer schedules a subscriber render",async()=>{
+    const subscriber=true;
     const bytes=Buffer.from("synthetic-start-image");
     const imageSha=createHash("sha256").update(bytes).digest();
     const interruptId="00000000-0000-4000-8000-000000000019";
@@ -393,20 +392,57 @@ describe("story producer planning claims",()=>{
     if(subscriber)expect(insert?.values?.[4]).toBe("fast-h3-trim-5step-vsa20-b1-10s");
   });
 
-  it("does not claim a paid planning attempt when its render budget is unavailable",async()=>{
-    const {client}=claimClient(false,"0.0000");
+  it.each(["0.0000","0.5500"])("allows free candidate planning independently of owner render budget %s",async cap=>{
+    const {client}=claimClient(false,cap,cap);
     mocks.transaction.mockImplementation(async(work:(db:typeof client)=>Promise<unknown>)=>work(client));
-
-    await expect(claimStoryProducer("channel",leaseRequest())).rejects.toMatchObject({status:409,code:"owner_generation_budget_unavailable"});
-    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("SET claim_token"))).toBe(false);
+    await expect(claimStoryProducer("channel",leaseRequest())).resolves.toMatchObject({batchItemId});
+    expect(mocks.screenPromptAndImages).not.toHaveBeenCalled();
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.jobs"))).toBe(false);
   });
 
-  it("does not pay for a story plan when existing reservations exhaust the owner cap",async()=>{
+  it("never screens or schedules an approved pair when the owner render budget is exhausted",async()=>{
+    mocks.findChannel.mockResolvedValue({...channel,owner_budget_cap_usd:"0.5500"});
     const {client}=claimClient(false,"0.5500","0.5500");
+    const original=client.query.getMockImplementation()!;
+    client.query.mockImplementation(async(sql:string,values?:unknown[])=>{
+      if(sql.includes("SELECT policy_revision,owner_budget_cap_usd"))return {rows:[{policy_revision:7,owner_budget_cap_usd:"0.5500"}],rowCount:1};
+      if(sql.includes("SELECT 1 FROM sloptogether.trusted_executions"))return {rows:[{}],rowCount:1};
+      return original(sql,values);
+    });
     mocks.transaction.mockImplementation(async(work:(db:typeof client)=>Promise<unknown>)=>work(client));
+    await expect(claimStoryProducer("channel",leaseRequest())).resolves.toMatchObject({batchItemId});
+    expect(mocks.screenPromptAndImages).not.toHaveBeenCalled();
+    expect(mocks.signedPrivateReadUrl).not.toHaveBeenCalled();
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("pair_screen_token=$2"))).toBe(false);
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.jobs"))).toBe(false);
+  });
 
-    await expect(claimStoryProducer("channel",leaseRequest())).rejects.toMatchObject({status:409,code:"owner_generation_budget_exhausted"});
-    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("SET claim_token"))).toBe(false);
+  it("stores an independently planned candidate without screening or creating a render job",async()=>{
+    const calls:Array<{sql:string;values?:unknown[]}>=[];
+    const client={query:vi.fn(async(sql:string,values?:unknown[])=>{
+      calls.push({sql,values});
+      if(sql.includes("SELECT policy_revision FROM sloptogether.channels"))return {rows:[{policy_revision:7}],rowCount:1};
+      if(sql.includes("SELECT 1 FROM sloptogether.trusted_executions"))return {rows:[{}],rowCount:1};
+      if(sql.includes("SELECT fence,lease_expires_at,last_sequence FROM sloptogether.story_producers"))return {rows:[{fence:"1",lease_expires_at:new Date(Date.now()+60_000),last_sequence:"0"}],rowCount:1};
+      if(sql.includes("SELECT expected_channel_revision,input_payload FROM sloptogether.story_plan_attempts"))return {rows:[{expected_channel_revision:7,input_payload:{batchItemId}}],rowCount:1};
+      if(sql.includes("FROM sloptogether.story_batch_items i JOIN"))return {rows:[{id:batchItemId,position:2,segment_id:"existing-segment"}],rowCount:1};
+      if(sql.includes("SET state='planned',candidate_plan"))return {rows:[{candidate_revision:1}],rowCount:1};
+      return {rows:[],rowCount:1};
+    })};
+    mocks.transaction.mockImplementation(async(work:(db:typeof client)=>Promise<unknown>)=>work(client));
+    const plan={visualAction:"A friendly fox waves beside a star map.",camera:"One continuous wide shot.",speakerId:"S1",speakerCharacter:"a cartoon fox",voiceDescription:"a warm curious voice",dialogue:"Hello, stars!",soundscape:"Soft forest chimes.",music:"none" as const};
+    const request=new Request("https://clips.gg/sloptogether/api/v1/channels/channel/story-proposals",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      leaseId:"00000000-0000-4000-8000-000000000014",fence:1,sequence:1,idempotencyKey:"00000000-0000-4000-8000-000000000012",claimToken:"00000000-0000-4000-8000-000000000013",plan,compiledH3Prompt:compileH3StoryPrompt(plan),
+    })});
+    await expect(submitStoryProposal("channel",request)).resolves.toMatchObject({accepted:true,batchItemId,state:"planned"});
+    const saved=calls.find(call=>call.sql.includes("SET state='planned',candidate_plan"));
+    expect(saved?.values?.[0]).toBe(batchItemId);
+    expect(JSON.parse(String(saved?.values?.[1]))).toEqual(plan);
+    expect(saved?.values?.[2]).toBe(compileH3StoryPrompt(plan));
+    expect(mocks.screenPromptAndImages).not.toHaveBeenCalled();
+    expect(mocks.signedPrivateReadUrl).not.toHaveBeenCalled();
+    expect(calls.some(call=>call.sql.includes("INSERT INTO sloptogether.jobs"))).toBe(false);
+    expect(calls.some(call=>call.sql.includes("INSERT INTO sloptogether.funding_authorizations"))).toBe(false);
   });
 
   it("does not hand the same active plan to a concurrent process",async()=>{
@@ -466,20 +502,23 @@ describe("story producer planning claims",()=>{
         ?{rows:[{storage_key:"private/123/start.png",content_type:"image/png",byte_size:String(bytes.length),sha256:digest}],rowCount:1}
         :{rows:[],rowCount:0});
     vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response(bytes,{status:200})));
-    const client={query:vi.fn(async(sql:string)=>sql.includes("SELECT policy_revision,owner_budget_cap_usd")
-      ?{rows:[{policy_revision:7,owner_budget_cap_usd:"100"}],rowCount:1}
-      :sql.includes("SELECT id,fence,lease_expires_at,last_sequence,stream_id FROM sloptogether.story_producers")
-        ?{rows:[{id:"00000000-0000-4000-8000-000000000014",fence:"1",lease_expires_at:new Date(Date.now()+60_000),last_sequence:"0",stream_id:"stream-main"}],rowCount:1}
-        :sql.includes("SELECT id,expected_channel_revision,input_payload FROM sloptogether.story_plan_attempts")
-          ?{rows:[{id:"attempt",expected_channel_revision:7,input_payload:{interruptId:"subscriber-request"}}],rowCount:1}
-          :{rows:[],rowCount:1})};
+    const client={query:vi.fn(async(sql:string)=>sql.includes("SELECT policy_revision FROM sloptogether.channels")
+      ?{rows:[{policy_revision:7}],rowCount:1}
+      :sql.includes("SELECT 1 FROM sloptogether.trusted_executions")
+        ?{rows:[{}],rowCount:1}
+        :sql.includes("SELECT fence,lease_expires_at,last_sequence FROM sloptogether.story_producers")
+          ?{rows:[{fence:"1",lease_expires_at:new Date(Date.now()+60_000),last_sequence:"0"}],rowCount:1}
+          :sql.includes("SELECT expected_channel_revision,input_payload FROM sloptogether.story_plan_attempts")
+            ?{rows:[{expected_channel_revision:7,input_payload:{interruptId:"subscriber-request"}}],rowCount:1}
+            :{rows:[],rowCount:0})};
     mocks.transaction.mockImplementation(async(work:(db:typeof client)=>Promise<unknown>)=>work(client));
     const plan={visualAction:"A friendly fox waves beside a star map.",camera:"One continuous wide shot.",speakerId:"S1",speakerCharacter:"a cartoon fox",voiceDescription:"a warm curious voice",dialogue:"Hello, stars!",soundscape:"Soft forest chimes.",music:"none" as const};
     const compiledH3Prompt=compileH3StoryPrompt(plan);
     const request=new Request("https://clips.gg/sloptogether/api/v1/channels/channel/story-proposals",{
       method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({leaseId:"00000000-0000-4000-8000-000000000014",fence:1,sequence:1,idempotencyKey:"00000000-0000-4000-8000-000000000012",claimToken:"00000000-0000-4000-8000-000000000013",plan,compiledH3Prompt}),
     });
-    await expect(submitStoryProposal("channel",request)).rejects.toMatchObject({status:409,code:"story_plan_interrupt_binding_mismatch"});
-    expect(client.query).toHaveBeenCalledTimes(3);
+    await expect(submitStoryProposal("channel",request)).rejects.toMatchObject({status:409,code:"story_plan_attempt_not_current"});
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("candidate_plan=$2"))).toBe(false);
+    expect(mocks.screenPromptAndImages).not.toHaveBeenCalled();
   });
 });

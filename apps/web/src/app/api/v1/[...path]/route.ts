@@ -16,6 +16,7 @@ import { listWindowsWorkerRelease,recordWorkerProviderRequest,claimStoryProducer
 import { jsonError,jsonOk } from "@/lib/server/http";
 import { createStream,getStream,listStreams } from "@/lib/server/stream-service";
 import { createStoryBatch,listStoryBatches } from "@/lib/server/story-batch-service";
+import { approveStoryCandidate,listStoryCandidateFrames,rejectStoryCandidate,replanStoryCandidate,retryStoryCandidateScreen } from "@/lib/server/story-candidate-service";
 
 type Context={params:Promise<{path:string[]}>};
 
@@ -67,6 +68,11 @@ async function dispatch(request:NextRequest,path:string[]){
       if(p[4]==="story-proposals"&&p.length===5&&method==="POST")return jsonOk(await submitStoryProposal(locator,request,stream.slug),{status:201});
       if(p[4]==="story-batches"&&p.length===5&&method==="POST")return jsonOk(await createStoryBatch(locator,request,stream.slug),{status:201});
       if(p[4]==="story-batches"&&p.length===5&&method==="GET")return jsonOk(await listStoryBatches(locator,request,stream.slug));
+      if(p[4]==="story-candidates"&&p[5]==="frames"&&p.length===6&&method==="GET")return jsonOk(await listStoryCandidateFrames(locator,request,stream.slug));
+      if(p[4]==="story-candidates"&&p[5]&&p[6]==="approve"&&p.length===7&&method==="POST")return jsonOk(await approveStoryCandidate(locator,p[5]!,request,stream.slug));
+      if(p[4]==="story-candidates"&&p[5]&&p[6]==="reject"&&p.length===7&&method==="POST")return jsonOk(await rejectStoryCandidate(locator,p[5]!,request,stream.slug));
+      if(p[4]==="story-candidates"&&p[5]&&p[6]==="replan"&&p.length===7&&method==="POST")return jsonOk(await replanStoryCandidate(locator,p[5]!,request,stream.slug));
+      if(p[4]==="story-candidates"&&p[5]&&p[6]==="retry-screen"&&p.length===7&&method==="POST")return jsonOk(await retryStoryCandidateScreen(locator,p[5]!,request,stream.slug));
       if(p[4]==="elections"&&p[5]&&p[6]==="ballots"&&p.length===7&&method==="POST"){
         const principal=await requestPrincipal(request);if(!principal)throw new ApiError(401,"login_required");
         const parsed=await readJson(request,await import("@sloptogether/contracts").then(x=>x.voteRequestSchema));

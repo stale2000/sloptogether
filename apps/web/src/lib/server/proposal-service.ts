@@ -86,7 +86,9 @@ export async function submitProposal(locator:string,request:Request,requestedStr
   const targetResult=await query<Target>(`SELECT s.id,s.branch_id,s.ordinal,s.state FROM sloptogether.segments s
     JOIN sloptogether.branches b ON b.id=s.branch_id AND b.stream_id=$3 AND b.is_selected AND b.archived_at IS NULL
     WHERE s.twitch_channel_id=$1 AND ($2::uuid IS NULL OR s.id=$2)
-      AND s.state IN ('open','voting') AND s.protected_at IS NULL ORDER BY s.ordinal LIMIT 1`,[channel.twitch_channel_id,body.segmentId??null,streamId]);
+      AND s.state IN ('open','voting') AND s.protected_at IS NULL
+      AND NOT EXISTS(SELECT 1 FROM sloptogether.story_batch_items candidate WHERE candidate.segment_id=s.id)
+    ORDER BY s.ordinal LIMIT 1`,[channel.twitch_channel_id,body.segmentId??null,streamId]);
   const target=targetResult.rows[0];
   if(!target)throw new ApiError(409,"open_segment_required","There is no unlocked future segment available.");
   const predecessor=await predecessorBoundary(target.branch_id,Number(target.ordinal));
@@ -112,7 +114,10 @@ export async function submitProposal(locator:string,request:Request,requestedStr
     const ban=await client.query(`SELECT 1 FROM sloptogether.bans WHERE twitch_user_id=$1 AND revoked_at IS NULL
       AND (expires_at IS NULL OR expires_at>now()) AND (scope='global' OR twitch_channel_id=$2)`,[actor,channel.twitch_channel_id]);
     if(ban.rowCount)throw new ApiError(403,"channel_ban_active");
-    const locked=await client.query<Target>("SELECT id,branch_id,ordinal,state FROM sloptogether.segments WHERE id=$1 AND state IN ('open','voting') AND protected_at IS NULL FOR UPDATE",[target.id]);
+    const locked=await client.query<Target>(`SELECT s.id,s.branch_id,s.ordinal,s.state FROM sloptogether.segments s
+      WHERE s.id=$1 AND s.state IN ('open','voting') AND s.protected_at IS NULL
+        AND NOT EXISTS(SELECT 1 FROM sloptogether.story_batch_items candidate WHERE candidate.segment_id=s.id)
+      FOR UPDATE OF s`,[target.id]);
     if(!locked.rows[0])throw new ApiError(409,"segment_locked");
     const currentPredecessor=await predecessorBoundary(target.branch_id,Number(target.ordinal),client);
     if(currentPredecessor!==predecessor)throw new ApiError(409,"continuity_boundary_changed");

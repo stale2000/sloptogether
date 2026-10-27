@@ -1,5 +1,4 @@
 import { apiFetch } from "./api";
-import type { SessionSummary } from "./api";
 
 export interface StoryBatchStatus {
   batchId: string;
@@ -7,24 +6,108 @@ export interface StoryBatchStatus {
   scheduled: number;
   pending: number;
   createdAt?: string;
+  items?: StoryBatchItem[];
+}
+
+export interface StoryBatchItem {
+  itemId?: string;
+  position: number;
+  state: string;
+  prompt: string | null;
+  dialogue: string | null;
+  startFrameUrl: string | null;
+  endFrameUrl?: string | null;
+  startBoundaryRevisionId?: string | null;
+  candidateRevision?: number;
+  candidateApproved?: boolean;
+  candidateRejected?: boolean;
+  canApprove?: boolean;
+  canReject?: boolean;
+  canReplan?: boolean;
+  screenBlocked?: boolean;
+  canRetryScreen?: boolean;
+}
+
+export interface StoryCandidateFrame {
+  boundaryRevisionId: string;
+  assetId: string;
+  previewUrl: string;
+  createdAt: string;
+}
+
+export function storyCandidatePath(channel: string, stream: string): string {
+  return `/channels/${encodeURIComponent(channel)}/streams/${encodeURIComponent(stream)}/story-candidates`;
+}
+
+export async function storyCandidateFrames(channel: string, stream: string): Promise<StoryCandidateFrame[]> {
+  const result = await apiFetch<{frames:StoryCandidateFrame[]}>(`${storyCandidatePath(channel, stream)}/frames`);
+  return Array.isArray(result.frames) ? result.frames : [];
+}
+
+export async function approveStoryCandidate(channel:string,stream:string,itemId:string,boundaryRevisionId:string,expectedCandidateRevision:number):Promise<void> {
+  await apiFetch(`${storyCandidatePath(channel,stream)}/${encodeURIComponent(itemId)}/approve`, {
+    method:"POST", body:JSON.stringify({boundaryRevisionId,expectedCandidateRevision}),
+  });
+}
+
+export async function rejectStoryCandidate(channel:string,stream:string,itemId:string,expectedCandidateRevision:number,reason:string):Promise<void> {
+  await apiFetch(`${storyCandidatePath(channel,stream)}/${encodeURIComponent(itemId)}/reject`, {
+    method:"POST", body:JSON.stringify({expectedCandidateRevision,reason}),
+  });
+}
+
+function createStoryCandidateAction(channel:string,stream:string,itemId:string,action:"replan"|"retry-screen",post:typeof apiFetch,makeId:()=>string) {
+  let requestId:string|null=null;
+  let busy=false;
+  return async(expectedCandidateRevision:number):Promise<void> => {
+    if(busy)throw new Error("Candidate request already in progress");
+    busy=true;
+    try {
+      requestId ??= makeId();
+      await post(`${storyCandidatePath(channel,stream)}/${encodeURIComponent(itemId)}/${action}`, {
+        method:"POST",body:JSON.stringify({expectedCandidateRevision,requestId}),
+      });
+      requestId=null;
+    } finally { busy=false; }
+  };
+}
+
+export function createStoryCandidateReplanner(channel:string,stream:string,itemId:string,post:typeof apiFetch=apiFetch,makeId:()=>string=()=>crypto.randomUUID()) {
+  return createStoryCandidateAction(channel,stream,itemId,"replan",post,makeId);
+}
+
+export function createStoryCandidateScreenRetry(channel:string,stream:string,itemId:string,post:typeof apiFetch=apiFetch,makeId:()=>string=()=>crypto.randomUUID()) {
+  return createStoryCandidateAction(channel,stream,itemId,"retry-screen",post,makeId);
+}
+
+export function storyBatchItemLabel(state: string): string {
+  switch (state) {
+    case "pending": return "Waiting";
+    case "planned": return "Needs review";
+    case "ready": return "Ready";
+    case "leased": return "Claimed";
+    case "running": return "Generating";
+    case "uploaded": case "validating": return "Checking";
+    case "succeeded": return "Complete";
+    case "played": return "Played";
+    case "failed": return "Failed";
+    case "rejected": return "Rejected";
+    case "expired": return "Expired";
+    case "cancelled": return "Cancelled";
+    case "superseded": return "Replaced";
+    default: return "Queued";
+  }
 }
 
 export interface StoryBatchAvailability {
   producerLeaseActive: boolean;
-  budget: "available" | "unavailable" | "exhausted";
+  budget: "available" | "unavailable" | "exhausted" | null;
   hasApprovedStart: boolean;
 }
 
-export function canRequestStoryBatch(session: SessionSummary, channel: string): boolean {
-  return session.authenticated && Boolean(session.channels?.some(
-    item => (item.login.toLowerCase() === channel.toLowerCase() || item.twitchChannelId === channel) && item.role === "broadcaster",
-  ));
-}
-
-export function storyBatchBlocker(status: StoryBatchStatus | null, availability: StoryBatchAvailability | null): "start" | "budget" | "producer" | null {
+export function storyBatchBlocker(status: StoryBatchStatus | null, availability: StoryBatchAvailability | null): "budget" | "producer" | null {
   if (!status || status.pending <= 0 || !availability) return null;
-  if (!availability.hasApprovedStart) return "start";
-  if (availability.budget !== "available") return "budget";
+  if (availability.budget !== null && availability.budget !== "available") return "budget";
   return availability.producerLeaseActive ? null : "producer";
 }
 

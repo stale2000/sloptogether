@@ -1,6 +1,6 @@
 # Story producer service
 
-The streamer can queue one minute at a time. The owner story producer polls for pending work and writes one prompt when the preceding approved endpoint is available. Once the four requested clips have been scheduled, it stays idle until another request. The separate GPU workers must also be running for clips to render, and their output follows the channel's screening and approval policy.
+The streamer requests four candidates at a time. The owner story producer writes their prompts without waiting for video rendering. Reviewers select an approved start frame and approve each candidate independently. A worker job is created only when the current candidate and the next candidate are both approved: the next candidate’s start frame is the current clip’s end frame. The final candidate can be approved while waiting for a following candidate from a later request. The producer becomes idle when there are no requested candidates or approved pairs to schedule. GPU workers are separate and output still follows the channel’s screening and review policy.
 
 Install this service only after deploying the finite-batch server and worker together. Older server/worker versions can generate without a four-clip request.
 
