@@ -57,6 +57,10 @@ def _wsl_distro_from_unc_path(value: str) -> str | None:
     return None
 
 
+def wsl_distro_from_unc_path(value: str) -> str | None:
+    return _wsl_distro_from_unc_path(value)
+
+
 def _require_wsl2_backend(input_dir: str) -> None:
     distro=_wsl_distro_from_unc_path(input_dir)
     executable=shutil.which("wsl.exe") or shutil.which("wsl")

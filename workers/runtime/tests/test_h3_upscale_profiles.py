@@ -91,6 +91,23 @@ class AdaFloat8QuantizationTest(unittest.TestCase):
         ):
             self.assertEqual(runner.detect_system_memory(), 128 * 1024**3)
 
+    def test_windows_wsl_ram_probe_uses_the_distribution_memory_limit(self):
+        from sloptogether_worker import runner
+
+        result=SimpleNamespace(returncode=0,stdout="67108864\n")
+        with patch.object(runner.sys,"platform","win32"),patch.object(runner.shutil,"which",return_value="wsl.exe"),patch.object(
+            runner.subprocess,"run",return_value=result,
+        ) as run:
+            self.assertEqual(runner.detect_system_memory(wsl_distro="Ubuntu-24.04"),64*1024**3)
+        self.assertEqual(run.call_args.args[0][1:4],["--distribution","Ubuntu-24.04","--exec"])
+        self.assertFalse(run.call_args.kwargs["shell"])
+
+    def test_windows_wsl_ram_probe_fails_closed_when_the_distribution_is_unavailable(self):
+        from sloptogether_worker import runner
+
+        with patch.object(runner.sys,"platform","win32"),patch.object(runner.shutil,"which",return_value=None):
+            self.assertIsNone(runner.detect_system_memory(wsl_distro="Ubuntu-24.04"))
+
     def test_uses_torchao_fp8_per_row_only_on_ada_or_newer(self):
         quantize = Mock()
         config = Mock(return_value="rowwise-fp8")
