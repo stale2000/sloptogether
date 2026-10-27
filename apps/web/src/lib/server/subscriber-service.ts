@@ -517,8 +517,9 @@ export async function handleEventSubWebhook(request: Request): Promise<Response>
   }
   const channelId = envelope.subscription.condition.broadcaster_user_id;
   if(!channelId)throw new ApiError(400,"eventsub_broadcaster_missing");
-  const known = await query("SELECT 1 FROM sloptogether.channels WHERE twitch_channel_id=$1 AND is_enabled=true", [channelId]);
-  if (!known.rowCount) throw new ApiError(404, "eventsub_channel_not_found");
+  const known = await query<{owner_twitch_user_id:string}>("SELECT owner_twitch_user_id FROM sloptogether.channels WHERE twitch_channel_id=$1 AND is_enabled=true", [channelId]);
+  const channel=known.rows[0];
+  if (!channel) throw new ApiError(404, "eventsub_channel_not_found");
   if (receipt.messageType === "revocation") {
     await withEventSubLifecycleLock(channelId,async client=>transactionOnClient(client,async client=>{
       const channel=await client.query<{owner_twitch_user_id:string}>("SELECT owner_twitch_user_id FROM sloptogether.channels WHERE twitch_channel_id=$1 FOR UPDATE", [channelId]);
@@ -548,6 +549,11 @@ export async function handleEventSubWebhook(request: Request): Promise<Response>
     }));
     return new Response(null, { status: 204 });
   }
+  const registrationKey=envelope.subscription.type===CHAT_EVENT_TYPE?`chat:${channel.owner_twitch_user_id}`:"subscriber-events";
+  const activeSubscription=await query(`SELECT 1 FROM sloptogether.eventsub_config_fingerprints
+    WHERE twitch_channel_id=$1 AND registration_key=$2 AND subscription_ids @> ARRAY[$3]::text[] LIMIT 1`,
+    [channelId,registrationKey,envelope.subscription.id]);
+  if(!activeSubscription.rowCount)throw new ApiError(403,"eventsub_subscription_unregistered");
 
   const event = envelope.event;
   if (!event || typeof event !== "object" || Array.isArray(event) || event.broadcaster_user_id !== channelId) throw new ApiError(403, "eventsub_broadcaster_mismatch");

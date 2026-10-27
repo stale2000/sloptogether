@@ -17,8 +17,8 @@ import { handleEventSubWebhook,handleSubscriberSettings } from "./subscriber-ser
 const secret="local-eventsub-test-secret";
 const event={broadcaster_user_id:"123",user_id:"456",user_login:"viewer_456",user_name:"Viewer",is_anonymous:false,is_gift:false};
 
-function signedEvent(messageId:string){
-  const body=Buffer.from(JSON.stringify({subscription:{id:"sub-1",type:"channel.subscribe",version:"1",condition:{broadcaster_user_id:"123"},transport:{method:"webhook"}},event}));
+function signedEvent(messageId:string,subscriptionId="sub-1"){
+  const body=Buffer.from(JSON.stringify({subscription:{id:subscriptionId,type:"channel.subscribe",version:"1",condition:{broadcaster_user_id:"123"},transport:{method:"webhook"}},event}));
   const timestamp=new Date().toISOString();
   const signature=createHmac("sha256",secret).update(Buffer.concat([Buffer.from(messageId+timestamp),body])).digest("hex");
   return new Request("https://clips.gg/sloptogether/api/v1/webhooks/eventsub",{method:"POST",headers:{
@@ -27,7 +27,7 @@ function signedEvent(messageId:string){
   },body});
 }
 
-function configureAdmission({duplicate=false,hourlySpendCapUsd=1,lastCreatedAt=null,enabled=true}:{duplicate?:boolean;hourlySpendCapUsd?:number;lastCreatedAt?:Date|null;enabled?:boolean}={}){
+function configureAdmission({duplicate=false,hourlySpendCapUsd=1,lastCreatedAt=null,enabled=true,activeSubscriptionId="sub-1"}:{duplicate?:boolean;hourlySpendCapUsd?:number;lastCreatedAt?:Date|null;enabled?:boolean;activeSubscriptionId?:string}={}){
   const calls:string[]=[];
   const settings={enabled,eventSubListening:true,newSubscriptions:true,resubscriptionMessages:false,giftMode:"off",minimumGapSeconds:60,eventMaxAgeSeconds:180,hourlySpendCapUsd,fallback:"skip"};
   const client={query:vi.fn(async(sql:string,_values?:unknown[])=>{
@@ -43,7 +43,8 @@ function configureAdmission({duplicate=false,hourlySpendCapUsd=1,lastCreatedAt=n
     if(sql.includes("UPDATE sloptogether.interrupt_requests")&&sql.includes("RETURNING"))return {rows:[],rowCount:0};
     return {rows:[],rowCount:1};
   })};
-  mocks.query.mockResolvedValue({rows:[{id:"123"}],rowCount:1});
+  mocks.query.mockImplementation(async(sql:string,values?:unknown[])=>sql.includes("eventsub_config_fingerprints")
+    ?{rows:[],rowCount:values?.[2]===activeSubscriptionId?1:0}:{rows:[{id:"123"}],rowCount:1});
   mocks.transaction.mockImplementation(async(work:(db:typeof client)=>Promise<unknown>)=>work(client));
   return {calls,client};
 }
@@ -105,6 +106,14 @@ describe("subscriber EventSub admission",()=>{
     await expect(handleEventSubWebhook(signedEvent("event-delivery-duplicate"))).resolves.toMatchObject({status:204});
     expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.funding_authorizations"))).toBe(false);
     expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.interrupt_requests"))).toBe(false);
+  });
+
+  it("rejects a signed notification from a subscription ID that is not currently registered",async()=>{
+    const {client}=configureAdmission();
+    await expect(handleEventSubWebhook(signedEvent("event-from-stale-subscription","old-sub")))
+      .rejects.toMatchObject({status:403,code:"eventsub_subscription_unregistered"});
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.subscription_events"))).toBe(false);
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.funding_authorizations"))).toBe(false);
   });
 
   it("does not reserve money when the hourly cap or minimum gap is reached",async()=>{

@@ -122,6 +122,8 @@ testDatabase("subscriber trust policy PostgreSQL integration",()=>{
 
   it("admits one signed subscription into the durable 10-second interrupt queue",async()=>{
     vi.stubEnv("SLOPTOGETHER_SUBSCRIBER_ATTEMPT_RESERVATION_USD","0.25");
+    await pool().query(`INSERT INTO sloptogether.eventsub_config_fingerprints(twitch_channel_id,registration_key,config_fingerprint,subscription_ids)
+      VALUES($1,'subscriber-events',$2,ARRAY['local-subscription'])`,[channelId,randomBytes(32)]);
     await pool().query("UPDATE sloptogether.channels SET subscriber_interrupt_policy=$2::jsonb,owner_budget_cap_usd=10 WHERE twitch_channel_id=$1",
       [channelId,JSON.stringify(settings)]);
     const request=signedSubscribe(`local-eventsub-${randomUUID()}`);
@@ -138,6 +140,7 @@ testDatabase("subscriber trust policy PostgreSQL integration",()=>{
     const outbox=await pool().query("SELECT 1 FROM sloptogether.outbox WHERE event_kind='subscriber_interrupt.plan' AND aggregate_id=$1",[event.rows[0]!.interrupt_id]);
     expect(outbox.rowCount).toBe(1);
     expect((await pool().query("SELECT 1 FROM sloptogether.subscription_events WHERE broadcaster_twitch_id=$1",[channelId])).rowCount).toBe(1);
+    await pool().query("DELETE FROM sloptogether.eventsub_config_fingerprints WHERE twitch_channel_id=$1 AND registration_key='subscriber-events'",[channelId]);
   },20_000);
 
   it("does not fence trust for a superseded EventSub registration",async()=>{

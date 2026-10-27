@@ -58,7 +58,7 @@ Sources: [event types](https://dev.twitch.tv/docs/eventsub/eventsub-subscription
 
 ## 2. Make receipt handling safe and durable
 
-- Verify the HMAC over message ID, timestamp and exact raw request body, compare in constant time, validate timestamp/body bounds, and match the subscription/channel/client/version to a current registered configuration. Verify challenges and revocations as well as notifications.
+- Verify the HMAC over message ID, timestamp and exact raw request body, compare in constant time, validate timestamp/body bounds, and match notification subscription IDs against the active channel registration fingerprint as well as channel/type/version. Permit the signed callback challenge before the new ID is stored; fence trust only for revocations of current IDs. Verify challenges and revocations as well as notifications.
 - Persist a minimal receipt and one derived request transactionally before returning a success response. No planner, moderation provider or GPU call belongs in the webhook handler. A failed database write must remain retryable by Twitch.
 - Use durable uniqueness for event/request, budget reservation and work identities. Retries after a process crash cannot generate another plan, charge another attempt or play another alert. Treat Twitch delivery as potentially duplicated/out of order.
 - Store sanitized identity and required event fields. Names are bounded data, never prompt instructions or HTML; omit raw resub text by default and retain only necessary data with a documented expiry.
