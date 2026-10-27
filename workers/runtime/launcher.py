@@ -9,6 +9,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 from typing import Callable
@@ -56,13 +57,18 @@ def _run_setup(root: Path, role: str, install_comfy: bool) -> int:
     else:
         arguments.append("-InstallNodes")
     try:
-        return subprocess.run(arguments, check=False).returncode
+        status = subprocess.run(arguments, check=False).returncode
+        if status == 0 and not install_comfy:
+            print("Use option 10 to install dependencies into the Python environment used by this ComfyUI.")
+        return status
     except OSError:
         print("Could not start setup.")
         return 1
 
 
 def _wsl_location(root: Path, role: str) -> tuple[dict, str, str]:
+    if role not in {"generation", "upscale"}:
+        raise ValueError("invalid worker role")
     config = tomllib.loads((root / f"worker.{role}.toml").read_text(encoding="utf-8"))["worker"]
     if not isinstance(config, dict) or config.get("platform") != "wsl":
         raise ValueError("WSL configuration required")
@@ -78,9 +84,61 @@ def _wsl_location(root: Path, role: str) -> tuple[dict, str, str]:
     return config, match[1], "/" + match[2].replace("\\", "/")
 
 
+def _validate_comfy_python(comfy_root: str, value: str) -> str:
+    if (not isinstance(value, str) or not value.startswith(comfy_root + "/")
+            or not re.fullmatch(r"/[A-Za-z0-9._/-]+", value)
+            or any(part in {"", ".", ".."} for part in value[1:].split("/"))):
+        raise ValueError("ComfyUI Python must be an absolute path under its WSL root")
+    return value
+
+
+def _comfy_python(root: Path, role: str, comfy_root: str) -> str:
+    choice = root / f"worker.{role}.comfy-python"
+    if choice.exists():
+        if choice.stat().st_size > 2048:
+            raise ValueError("ComfyUI Python path is too long")
+        value = choice.read_text(encoding="utf-8").strip()
+    else:
+        value = f"{comfy_root}/.venv/bin/python"
+    return _validate_comfy_python(comfy_root, value)
+
+
+def _install_existing_dependencies(root: Path, role: str, python_path: str) -> int:
+    try:
+        _config, distro, comfy_root = _wsl_location(root, role)
+        python_path = _validate_comfy_python(comfy_root, python_path)
+        system_root = os.environ.get("SystemRoot")
+        if not system_root:
+            raise ValueError("Windows system directory unavailable")
+        powershell = Path(system_root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+        installer = root / "Install-ComfyStreamerNodes.ps1"
+        if not powershell.is_file() or not installer.is_file():
+            raise ValueError("installer unavailable")
+        result = subprocess.run([str(powershell), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(installer),
+                                 "-Distro", distro, "-ComfyRoot", comfy_root, "-Role", role,
+                                 "-ComfyPython", python_path, "-InstallDependencies"], check=False)
+        if result.returncode != 0:
+            return result.returncode
+        # Keep the existing TOML and any Twitch credential untouched. Record
+        # this explicit interpreter only after dependency installation succeeds.
+        descriptor, temporary_name = tempfile.mkstemp(prefix=f".worker.{role}.python-", dir=root)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+                output.write(python_path + "\n")
+            os.replace(temporary_name, root / f"worker.{role}.comfy-python")
+        finally:
+            Path(temporary_name).unlink(missing_ok=True)
+        print("ComfyUI dependencies installed for this worker role.")
+        return 0
+    except (KeyError, OSError, TypeError, ValueError, tomllib.TOMLDecodeError):
+        print("Could not install dependencies. Use an absolute Python path under the configured WSL ComfyUI folder.")
+        return 1
+
+
 def _start_comfy(root: Path, role: str) -> int:
     try:
         config, distro, comfy_root = _wsl_location(root, role)
+        comfy_python = _comfy_python(root, role, comfy_root)
         value = os.environ.get("SLOPTOGETHER_COMFY_URL", config.get("comfy_url", "http://127.0.0.1:8188"))
         if not isinstance(value, str):
             raise ValueError("invalid ComfyUI address")
@@ -112,7 +170,7 @@ def _start_comfy(root: Path, role: str) -> int:
         pass
     try:
         subprocess.Popen([str(wsl), "--distribution", distro, "--cd", comfy_root,
-                          "--exec", f"{comfy_root}/.venv/bin/python", "main.py",
+                          "--exec", comfy_python, "main.py",
                           "--listen", host, "--port", str(port)],
                          creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
     except OSError:
@@ -128,13 +186,14 @@ def _generation_models(root: Path, role: str, *, login: bool) -> int:
         return 1
     try:
         _config, distro, comfy_root = _wsl_location(root, role)
+        comfy_python = _comfy_python(root, role, comfy_root)
         system_root = os.environ.get("SystemRoot")
         if not system_root:
             raise ValueError("Windows system directory unavailable")
         system = Path(system_root) / "System32"
         if login:
             executable = system / "wsl.exe"
-            arguments = [str(executable), "--distribution", distro, "--exec", f"{comfy_root}/.venv/bin/hf", "auth", "login"]
+            arguments = [str(executable), "--distribution", distro, "--exec", f"{comfy_python.rsplit('/', 1)[0]}/hf", "auth", "login"]
         else:
             executable = system / "WindowsPowerShell" / "v1.0" / "powershell.exe"
             installer = root / "Install-ComfyStreamerNodes.ps1"
@@ -144,7 +203,7 @@ def _generation_models(root: Path, role: str, *, login: bool) -> int:
             print("https://huggingface.co/FastVideo/FastVideo-FastH3-Trim-Comfy")
             print("https://huggingface.co/Comfy-Org/MiniMax-H3")
             arguments = [str(executable), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(installer),
-                         "-Distro", distro, "-ComfyRoot", comfy_root, "-ComfyPython", f"{comfy_root}/.venv/bin/python",
+                         "-Distro", distro, "-ComfyRoot", comfy_root, "-ComfyPython", comfy_python,
                          "-Role", "generation", "-DownloadModels"]
         if not executable.is_file():
             raise ValueError("required Windows executable unavailable")
@@ -191,13 +250,15 @@ def interactive_menu(
     run_setup: Callable[[Path, str, bool], int] = _run_setup,
     run_comfy: Callable[[Path, str], int] = _start_comfy,
     run_models: Callable[[Path, str, bool], int] = lambda root, role, login: _generation_models(root, role, login=login),
+    run_dependencies: Callable[[Path, str, str], int] = _install_existing_dependencies,
 ) -> int:
     role = "generation"
     while True:
         print(f"\nSlopTogether — {role}\n"
               "1. Check worker\n2. Connect Twitch\n3. Start worker\n"
               "4. Set up existing ComfyUI and install nodes\n5. Install ComfyUI\n6. Switch role\n"
-              "7. Start ComfyUI\n8. Log in to Hugging Face\n9. Download generation models\n0. Quit")
+              "7. Start ComfyUI\n8. Log in to Hugging Face\n9. Download generation models\n"
+              "10. Install dependencies for an existing ComfyUI\n0. Quit")
         try:
             choice = read_input("Select: ").strip()
         except (EOFError, KeyboardInterrupt):
@@ -218,6 +279,15 @@ def interactive_menu(
         if choice in {"8", "9"}:
             if run_models(root, role, choice == "8") != 0:
                 print("Model setup did not complete.")
+            continue
+        if choice == "10":
+            try:
+                python_path = read_input("WSL ComfyUI Python path: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return 0
+            if run_dependencies(root, role, python_path) != 0:
+                print("Dependency installation did not complete.")
             continue
         command = {"1": "check", "2": "pair", "3": "run"}.get(choice)
         if command is None:
