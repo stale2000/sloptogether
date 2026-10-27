@@ -50,6 +50,12 @@ export async function approveStoryCandidate(channel:string,stream:string,itemId:
   });
 }
 
+export async function submitOwnerCandidate(channel:string,stream:string,itemId:string,boundaryRevisionId:string,expectedCandidateRevision:number,prompt:string):Promise<void> {
+  await apiFetch(`${storyCandidatePath(channel,stream)}/${encodeURIComponent(itemId)}/owner-submit`, {
+    method:"POST", body:JSON.stringify({boundaryRevisionId,expectedCandidateRevision,prompt}),
+  });
+}
+
 export async function rejectStoryCandidate(channel:string,stream:string,itemId:string,expectedCandidateRevision:number,reason:string):Promise<void> {
   await apiFetch(`${storyCandidatePath(channel,stream)}/${encodeURIComponent(itemId)}/reject`, {
     method:"POST", body:JSON.stringify({expectedCandidateRevision,reason}),

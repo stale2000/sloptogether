@@ -4,7 +4,7 @@ import {resolve} from "node:path";
 import {afterAll,beforeAll,describe,expect,it,vi} from "vitest";
 import {compileH3StoryPrompt} from "@sloptogether/contracts";
 
-const preflight=vi.hoisted(()=>({screenPromptAndImages:vi.fn()}));
+const preflight=vi.hoisted(()=>({screenPromptAndImages:vi.fn(),inputAsset:vi.fn()}));
 vi.mock("server-only",()=>({}));
 vi.mock("./preflight",()=>preflight);
 vi.mock("./storage",()=>({signedPrivateReadUrl:vi.fn(async(key:string)=>`http://private.test/${encodeURIComponent(key)}`)}));
@@ -15,6 +15,12 @@ import * as principalModule from "./principals";
 import {createStoryBatch,listStoryBatches} from "./story-batch-service";
 import {claimStoryProducer,claimWorkerLease,downloadWorkerAsset,submitStoryProposal} from "./worker-service";
 import {approveStoryCandidate,listStoryCandidateFrames,rejectStoryCandidate,replanStoryCandidate,retryStoryCandidateScreen} from "./story-candidate-service";
+import {submitProposal} from "./proposal-service";
+import {castBallot} from "./voting-service";
+import {getActiveElections} from "./timeline";
+import {createStream} from "./stream-service";
+import {addStreamSeedFrame} from "./stream-seed-frame-service";
+import {submitOwnerCandidate} from "./owner-candidate-service";
 
 const url=process.env.SLOPTOGETHER_POLICY_TEST_DATABASE_URL;
 const integration=url?describe:describe.skip;
@@ -102,6 +108,61 @@ integration("four-scene story batch PostgreSQL flow",()=>{
   },20_000);
   afterAll(async()=>{await database?.end();globalThis.__sloptogetherPool=undefined;vi.unstubAllGlobals();vi.unstubAllEnvs();});
 
+  it("registers a screened start frame only on its new stream without creating a job",async()=>{
+    const session={id:channelId,twitchUserId:channelId,twitchLogin:`batch_${channelId}`,displayName:"Local Owner",accessToken:"local-test",scopes:["openid"],expiresAt:new Date(Date.now()+60_000)};
+    const spy=vi.spyOn(principalModule,"requestPrincipal").mockResolvedValue({kind:"session",session});
+    try {
+      const post=(body:unknown)=>new Request("http://localhost:3000/sloptogether/api/v1/seed",{method:"POST",headers:{Origin:"http://localhost:3000","Content-Type":"application/json"},body:JSON.stringify(body)});
+      const stream=await createStream(channelId,post({slug:"seed-test",displayName:"Seed test"}));
+      const assetId=randomUUID();
+      await database!.query(`INSERT INTO sloptogether.assets(id,twitch_channel_id,storage_key,sha256,media_kind,content_type,byte_size,status,uploaded_by_twitch_user_id)
+        VALUES($1,$2,$3,$4,'image','image/png',$5,'quarantine',$2)`,[assetId,channelId,`seed/${assetId}.png`,createHash("sha256").update(frame).digest(),frame.length]);
+      preflight.inputAsset.mockResolvedValueOnce({assetId,bytes:frame,contentType:"image/png"});
+      const saved=await addStreamSeedFrame(channelId,post({assetId,prompt:"A cartoon fox"}),"seed-test");
+      const read=new Request("http://localhost:3000/sloptogether/api/v1/seed");
+      expect((await listStoryCandidateFrames(channelId,read,"seed-test")).frames.some(item=>item.boundaryRevisionId===saved.boundaryRevisionId)).toBe(true);
+      expect((await listStoryCandidateFrames(channelId,read,"main")).frames.some(item=>item.boundaryRevisionId===saved.boundaryRevisionId)).toBe(false);
+      expect((await database!.query("SELECT 1 FROM sloptogether.jobs WHERE stream_id=$1",[stream.id])).rowCount).toBe(0);
+      expect((await database!.query("SELECT 1 FROM sloptogether.elections e JOIN sloptogether.segments s ON s.id=e.segment_id JOIN sloptogether.branches b ON b.id=s.branch_id WHERE b.stream_id=$1",[stream.id])).rowCount).toBe(0);
+      const batch=await createStoryBatch(channelId,ownerRequest(randomUUID()),"seed-test");
+      const segment=(await database!.query<{id:string}>("SELECT s.id FROM sloptogether.segments s JOIN sloptogether.branches b ON b.id=s.branch_id WHERE b.stream_id=$1",[stream.id])).rows[0]!.id;
+      const item=(await database!.query<{id:string}>(`UPDATE sloptogether.story_batch_items SET state='planned',candidate_plan='{}'::jsonb,candidate_prompt='A cartoon fox',candidate_revision=1,segment_id=$2 WHERE batch_id=$1 AND position=0 RETURNING id`,[batch.batchId,segment])).rows[0]!.id;
+      await expect(approveStoryCandidate(channelId,item,post({boundaryRevisionId:initialBoundaryId,expectedCandidateRevision:1}),"seed-test")).rejects.toMatchObject({code:"story_start_frame_not_approved"});
+      await expect(submitOwnerCandidate(channelId,item,post({boundaryRevisionId:initialBoundaryId,expectedCandidateRevision:1,prompt:"A cartoon fox waves"}),"seed-test")).rejects.toMatchObject({code:"story_start_frame_not_approved"});
+      await expect(submitOwnerCandidate(channelId,item,post({boundaryRevisionId:saved.boundaryRevisionId,expectedCandidateRevision:1,prompt:"A cartoon fox waves"}),"seed-test")).resolves.toMatchObject({approved:true,candidateRevision:2});
+      const approved=await database!.query("SELECT candidate_prompt,approved_candidate_revision,candidate_revision FROM sloptogether.story_batch_items WHERE id=$1",[item]);
+      expect(approved.rows[0]).toMatchObject({candidate_prompt:expect.stringContaining("A cartoon fox waves"),approved_candidate_revision:"2",candidate_revision:"2"});
+      expect((await database!.query("SELECT 1 FROM sloptogether.jobs WHERE stream_id=$1",[stream.id])).rowCount).toBe(0);
+    } finally {spy.mockRestore();}
+  });
+
+  it("claims only the requested stream's ready upscale job",async()=>{
+    const keyId=randomUUID();
+    const upscaleCredential=`slw_${keyId}.ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-`;
+    await database!.query(`INSERT INTO sloptogether.application_keys(key_id,secret_hash,key_prefix,issuing_twitch_user_id,twitch_channel_id,display_name,scopes,worker_roles)
+      VALUES($1,$2,$3,$4,$4,'Stream test upscale',ARRAY['worker:upscale'],ARRAY['upscale'])`,[keyId,hashWorkerSecret(upscaleCredential),`slw_${keyId}`,channelId]);
+    await database!.query(`INSERT INTO sloptogether.trusted_executions(twitch_channel_id,key_id,issuer_twitch_user_id,execution_role,policy_revision)
+      SELECT $1,$2,$1,'upscale',policy_revision FROM sloptogether.channels WHERE twitch_channel_id=$1`,[channelId,keyId]);
+    const seedStream=(await database!.query<{id:string}>("SELECT id FROM sloptogether.streams WHERE twitch_channel_id=$1 AND slug='seed-test'",[channelId])).rows[0]!.id;
+    const source=randomUUID();
+    const revisionId=(await database!.query<{id:string}>("SELECT r.id FROM sloptogether.segment_revisions r JOIN sloptogether.segments s ON s.id=r.segment_id WHERE s.branch_id=$1 LIMIT 1",[branchId])).rows[0]!.id;
+    await database!.query(`INSERT INTO sloptogether.assets(id,twitch_channel_id,storage_key,sha256,media_kind,content_type,status) VALUES($1,$2,$3,$4,'video','video/mp4','approved')`,[source,channelId,`test/${source}.mp4`,Buffer.alloc(32,1)]);
+    const ids=[randomUUID(),randomUUID()];
+    for(const [id,target,priority] of [[ids[0]!,seedStream,100],[ids[1]!,streamId,1]] as const){
+      await database!.query(`INSERT INTO sloptogether.jobs(id,twitch_channel_id,stream_id,segment_revision_id,stage,execution_mode,state,recipe_id,recipe_sha256,input_sha256,requested_by,parent_asset_id,priority)
+        VALUES($1,$2,$3,$7,'video_upscale','pull_worker','ready','sol-h3-upscale-pruna-fast',$4,$4,$2,$5,$6)`,[id,channelId,target,Buffer.alloc(32,2),source,priority,revisionId]);
+      await database!.query(`INSERT INTO sloptogether.job_attempts(job_id,attempt_number,fence,client_idempotency_key,state,attempt_deadline_at,input_sha256)
+        VALUES($1,1,1,$2,'ready',now()+interval '30 minutes',$3)`,[id,`upscale-test:${id}`,Buffer.alloc(32,2)]);
+    }
+    const poll=(slug:string)=>claimWorkerLease(new Request(`http://localhost:3000/sloptogether/api/v1/workers/leases?role=upscale&streamSlug=${slug}`,{
+      method:"POST",headers:{Authorization:`SlopWorker ${upscaleCredential}`,"Content-Type":"application/json"},body:JSON.stringify({supportedRecipes:["sol-h3-upscale-pruna-fast"]}),
+    }));
+    await expect(poll("main")).resolves.toMatchObject({status:"leased",job:{jobId:ids[1],stage:"upscale"}});
+    expect((await database!.query<{state:string}>("SELECT state FROM sloptogether.jobs WHERE id=$1",[ids[0]])).rows[0]?.state).toBe("ready");
+    await expect(poll("seed-test")).resolves.toMatchObject({status:"leased",job:{jobId:ids[0],stage:"upscale"}});
+    await database!.query("DELETE FROM sloptogether.jobs WHERE id=ANY($1::uuid[])",[ids]);
+  });
+
   it("plans four candidates without rendering, and leases each only after adjacent approvals",async()=>{
     const session={id:channelId,twitchUserId:channelId,twitchLogin:`batch_${channelId}`,displayName:"Local Owner",accessToken:"local-test",
       scopes:["openid"],expiresAt:new Date(Date.now()+60_000)};
@@ -175,11 +236,37 @@ integration("four-scene story batch PostgreSQL flow",()=>{
           [initialSegment,index+1,boundary,Buffer.alloc(32,index+1),channelId]);
         boundaries.push(boundary);
       }
+      // The Extension uses the same prompt and ballot APIs. Votes alter only
+      // this candidate; they do not dispatch a render or approve the frame.
+      const lastSegment=(await database!.query<{segment_id:string}>("SELECT segment_id FROM sloptogether.story_batch_items WHERE id=$1",[planned.rows[3]!.id])).rows[0]!.segment_id;
+      const proposalRequest=new Request("http://localhost:3000/sloptogether/api/v1/channels/test/streams/main/proposals",{
+        method:"POST",headers:{Origin:"http://localhost:3000","Content-Type":"application/json"},
+        body:JSON.stringify({segmentId:lastSegment,prompt:"A cartoon rocket turns into a confetti cannon",planningMode:"continuation"})});
+      const extension={kind:"extension" as const,extension:{channelId,role:"broadcaster" as const,linkedTwitchUserId:channelId,
+        linkedTwitchLogin:`batch_${channelId}`,opaqueUserId:"Ulocal",expiresAt:Math.floor(Date.now()/1000)+300}};
+      sessionSpy!.mockResolvedValue(extension);
+      const proposal=await submitProposal(channelId,proposalRequest,streamId);
+      expect(proposal.state).toBe("eligible");
+      expect((await getActiveElections(channelId,extension,streamId))[0]?.choices[0]?.id).toBe(proposal.proposalId);
+      await expect(castBallot(proposal.electionId,proposal.proposalId,extension,"extension",undefined,streamId)).resolves.toMatchObject({state:"recorded"});
+      await expect(castBallot(proposal.electionId,proposal.proposalId,{...extension,extension:{...extension.extension,channelId:"99999999"}},"extension",undefined,streamId)).rejects.toMatchObject({status:403,code:"extension_channel_mismatch"});
+      await expect(castBallot(proposal.electionId,proposal.proposalId,extension,"extension",undefined,randomUUID())).rejects.toMatchObject({status:404,code:"election_not_found"});
+      asOwner();
+      await expect(approveStoryCandidate(channelId,planned.rows[3]!.id,approveRequest(boundaries[3]!,1))).rejects.toMatchObject({status:409,code:"story_candidate_vote_open"});
+      await expect(submitOwnerCandidate(channelId,planned.rows[3]!.id,decisionRequest({boundaryRevisionId:boundaries[3]!,expectedCandidateRevision:1,prompt:"The fox waves"}),"main")).rejects.toMatchObject({status:409,code:"story_candidate_vote_open"});
+      await database!.query("UPDATE sloptogether.elections SET closes_at=now()-interval '1 second' WHERE id=$1",[proposal.electionId]);
+      await expect(castBallot(proposal.electionId,proposal.proposalId,extension,"extension",undefined,streamId)).rejects.toMatchObject({status:409,code:"election_closed"});
+      await expect(submitOwnerCandidate(channelId,planned.rows[3]!.id,decisionRequest({boundaryRevisionId:boundaries[3]!,expectedCandidateRevision:1,prompt:"The fox waves"}),"main")).rejects.toMatchObject({status:409,code:"story_candidate_changed"});
+      const winner=await database!.query<{candidate_prompt:string;candidate_revision:string;approved_at:Date|null}>("SELECT candidate_prompt,candidate_revision::text,approved_at FROM sloptogether.story_batch_items WHERE id=$1",[planned.rows[3]!.id]);
+      expect(winner.rows[0]).toMatchObject({candidate_prompt:compileH3StoryPrompt({...scene,visualAction:"A cartoon rocket turns into a confetti cannon",
+        camera:"One continuous shot follows the action.",speakerId:"S1",speakerCharacter:"a character in the scene",
+        voiceDescription:"a playful clear voice",dialogue:"Here we go!",soundscape:"Environmental sounds matching the action.",music:"none"}),candidate_revision:"2",approved_at:null});
+      expect((await database!.query("SELECT 1 FROM sloptogether.jobs WHERE twitch_channel_id=$1",[channelId])).rowCount).toBe(0);
       // Approving the final item before any successor is legitimate and must not schedule it.
-      await expect(approveStoryCandidate(channelId,planned.rows[3]!.id,approveRequest(boundaries[3]!,1))).resolves.toMatchObject({approved:true});
+      await expect(approveStoryCandidate(channelId,planned.rows[3]!.id,approveRequest(boundaries[3]!,2))).resolves.toMatchObject({approved:true});
       const lastApproved=await listStoryBatches(channelId,readRequest());
       expect(lastApproved.batches[0]?.items[3]).toMatchObject({position:3,state:"planned",candidateApproved:true,endFrameUrl:null});
-      await expect(rejectStoryCandidate(channelId,planned.rows[3]!.id,decisionRequest({expectedCandidateRevision:2,reason:"review"}))).rejects.toMatchObject({status:409,code:"story_candidate_already_approved"});
+      await expect(rejectStoryCandidate(channelId,planned.rows[3]!.id,decisionRequest({expectedCandidateRevision:3,reason:"review"}))).rejects.toMatchObject({status:409,code:"story_candidate_already_approved"});
       asWorker();
       await expect(workerPoll()).resolves.toEqual({status:"empty"});
       // A single approved candidate is not enough; its successor must be approved too.
@@ -302,8 +389,14 @@ integration("four-scene story batch PostgreSQL flow",()=>{
       await expect(approveStoryCandidate(channelId,corrupt.id,approveRequest(boundaries[0]!,1),"other")).rejects.toMatchObject({status:404});
       await expect(rejectStoryCandidate(channelId,corrupt.id,decisionRequest({expectedCandidateRevision:1,reason:"review"}),"other")).rejects.toMatchObject({status:404});
       await expect(replanStoryCandidate(channelId,corrupt.id,decisionRequest({expectedCandidateRevision:1,requestId:randomUUID()}),"other")).rejects.toMatchObject({status:404});
+      const unrelatedElection=(await database!.query<{id:string}>(`INSERT INTO sloptogether.elections(segment_id,closes_at,rule_snapshot,state)
+        SELECT s.id,now()-interval '1 second','{}'::jsonb,'open' FROM sloptogether.segments s
+        JOIN sloptogether.branches b ON b.id=s.branch_id JOIN sloptogether.streams st ON st.id=b.stream_id
+        WHERE st.twitch_channel_id=$1 AND st.slug='seed-test' RETURNING id`,[channelId])).rows[0]!.id;
       asWorker();
-      const lease=await workerPoll();
+      await expect(claimWorkerLease(workerRequest("workers/leases?role=generation&streamSlug=other",{supportedRecipes:["fast-h3-trim-5step-vsa20-b1"]}))).resolves.toEqual({status:"empty"});
+      expect((await database!.query<{state:string}>("SELECT state FROM sloptogether.elections WHERE id=$1",[unrelatedElection])).rows[0]?.state).toBe("open");
+      const lease=await claimWorkerLease(workerRequest("workers/leases?role=generation&streamSlug=main",{supportedRecipes:["fast-h3-trim-5step-vsa20-b1"]}));
       expect(lease).toMatchObject({status:"leased",job:{recipeId:"fast-h3-trim-5step-vsa20-b1",frameCount:362,
         requestedEndBoundaryRevisionId:boundaries[1],endFrameAssetId:expect.any(String),startFrameAssetId:expect.any(String)}});
       if (!("job" in lease) || !lease.job || typeof lease.leaseId!=="string" || typeof lease.fence!=="number") throw new Error("worker_job_not_leased");
@@ -471,4 +564,6 @@ print(json.dumps({'start':job.start_frame_asset_id,'end':job.end_frame_asset_id,
       expect(spent.rows[0]).toMatchObject({item_state:"scheduled",job_state:"failed",funding_state:"consumed_failed"});
     } finally {sessionSpy?.mockRestore();}
   },30_000);
+
+
 });

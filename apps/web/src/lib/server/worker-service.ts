@@ -213,16 +213,18 @@ async function requireWorker(request:Request,scope:string):Promise<WorkerGrant>{
   requireKeyScope(principal.worker,scope);return principal.worker;
 }
 
-async function resolveExpiredElections(client:import("pg").PoolClient,channelId:string){
+async function resolveExpiredElections(client:import("pg").PoolClient,channelId:string,streamId:string|null){
+  await (await import("./candidate-election")).resolveCandidateElections(client,channelId,undefined,streamId??undefined);
   const elections=await client.query<{id:string;segment_id:string}>(`SELECT e.id,e.segment_id FROM sloptogether.elections e
-    JOIN sloptogether.segments s ON s.id=e.segment_id WHERE s.twitch_channel_id=$1 AND s.protected_at IS NULL
+    JOIN sloptogether.segments s ON s.id=e.segment_id JOIN sloptogether.branches eb ON eb.id=s.branch_id
+    WHERE s.twitch_channel_id=$1 AND ($2::uuid IS NULL OR eb.stream_id=$2) AND s.protected_at IS NULL
       AND s.state IN ('open','voting','selected') AND e.state='open' AND e.closes_at<=now()
       -- Candidate slots are resolved only through the adjacent-anchor
       -- approval path; ordinary elections cannot dispatch them directly.
       AND NOT EXISTS(SELECT 1 FROM sloptogether.story_batch_items item WHERE item.segment_id=s.id)
       AND NOT EXISTS(SELECT 1 FROM sloptogether.paid_action_intents pai WHERE pai.election_id=e.id AND pai.action_kind='prompt_lock'
         AND ((pai.state='intent_open' AND pai.expires_at>now()) OR pai.state IN ('receipt_seen','receipt_unverified','verified_unallocated')))
-    ORDER BY e.closes_at LIMIT 10 FOR UPDATE OF e,s SKIP LOCKED`,[channelId]);
+    ORDER BY e.closes_at LIMIT 10 FOR UPDATE OF e,s SKIP LOCKED`,[channelId,streamId]);
   for(const election of elections.rows){
     const winner=await client.query<{proposal_id:string;revision_id:string;author_id:string;prompt:string;start_boundary_id:string;end_boundary_id:string|null;planning_mode:string;recipe_id:string;input_sha256:Buffer;input_screen_id:string}>(
       `SELECT p.id AS proposal_id,p.segment_revision_id AS revision_id,p.author_twitch_user_id AS author_id,
@@ -288,6 +290,9 @@ export async function claimWorkerLease(request:Request){
   if(grant.paired&&grant.platform==="windows")
     throw new ApiError(409,"worker_platform_unqualified","This paired Windows inference runtime is not qualified yet.");
   const grantChannel=await findChannel(grant.channelId);
+  const requestedStream=url.searchParams.get("streamSlug");
+  if(requestedStream!==null&&!/^[a-z0-9][a-z0-9-]{0,47}$/.test(requestedStream))throw new ApiError(400,"worker_stream_slug_invalid");
+  const streamId=requestedStream===null?null:(await getStream(grant.channelId,requestedStream)).id;
   if(grant.paired&&!await canContribute(grantChannel,{kind:"worker-key",worker:grant}))throw new ApiError(403,"contribution_not_allowed");
   return transaction(async client=>{
     await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",["worker-active:"+grant.issuingTwitchUserId]);
@@ -301,8 +306,8 @@ export async function claimWorkerLease(request:Request){
     const bindings=await client.query("SELECT id FROM sloptogether.trusted_executions WHERE twitch_channel_id=$1 AND key_id=$2 AND execution_role=$3 AND revoked_at IS NULL ORDER BY id FOR UPDATE",
       [grant.channelId,grant.keyId,role]);
     if(!bindings.rowCount)return {status:"empty"};
-    await expireWorkerLeases(client,grant.channelId);
-    if(role==="generation")await resolveExpiredElections(client,grant.channelId);
+    await expireWorkerLeases(client,grant.channelId,streamId);
+    if(role==="generation")await resolveExpiredElections(client,grant.channelId,streamId);
     const active=await client.query<{count:string}>(`SELECT count(*)::text AS count FROM sloptogether.job_attempts a
       JOIN sloptogether.trusted_executions te ON te.id=a.execution_binding_id
       JOIN sloptogether.jobs j ON j.id=a.job_id
@@ -316,7 +321,7 @@ export async function claimWorkerLease(request:Request){
       const eligible=await client.query(`SELECT 1 FROM sloptogether.trusted_executions
         WHERE twitch_channel_id=$1 AND key_id=$2 AND execution_role='generation' AND revoked_at IS NULL
           AND (cardinality(recipe_ids)=0 OR $3=ANY(recipe_ids)) LIMIT 1`,[grant.channelId,grant.keyId,LEGACY_GENERATION_RECIPE]);
-      if(eligible.rowCount)await recoverUnclaimedStoryBatchJobs(client,grant.channelId);
+      if(eligible.rowCount)await recoverUnclaimedStoryBatchJobs(client,grant.channelId,streamId);
     }
     const result=await client.query<{id:string;twitch_channel_id:string;segment_revision_id:string|null;interrupt_id:string|null;stage:string;recipe_id:string;recipe_sha256:Buffer;input_sha256:Buffer;planning_payload:Record<string,unknown>;prompt:string|null;start_boundary_revision_id:string|null;start_frame_asset_id:string|null;end_boundary_revision_id:string|null;end_frame_asset_id:string|null;source_asset_id:string|null;funding_id:string|null;width:number;height:number;output_width:number;output_height:number;fps_num:number;fps_den:number;frame_count:number;attempt_id:string;fence:string;deadline:Date;execution_binding_id:string}>(
       `SELECT j.id,j.twitch_channel_id,j.segment_revision_id,j.interrupt_id,j.stage,j.recipe_id,j.recipe_sha256,j.input_sha256,j.planning_payload,j.funding_id,
@@ -342,7 +347,7 @@ export async function claimWorkerLease(request:Request){
             AND (cardinality(te.recipe_ids)=0 OR j.recipe_id=ANY(te.recipe_ids))
           WHERE a.job_id=j.id AND a.state='ready' AND (a.execution_binding_id IS NULL OR a.execution_binding_id=te.id)
           ORDER BY a.attempt_number LIMIT 1 FOR UPDATE OF a SKIP LOCKED) ja ON true
-       WHERE j.twitch_channel_id=$1 AND j.state='ready' AND j.execution_mode='pull_worker'
+       WHERE j.twitch_channel_id=$1 AND ($9::uuid IS NULL OR j.stream_id=$9) AND j.state='ready' AND j.execution_mode='pull_worker'
          -- A story-batch render is claimable only while both adjacent
          -- candidate approvals and their exact screened anchors remain current.
          AND (j.stage<>'video_base' OR j.interrupt_id IS NOT NULL
@@ -407,7 +412,7 @@ export async function claimWorkerLease(request:Request){
              AND coalesce(nullif(j.planning_payload->>'outputHeight','')::int,1080)=1080)
            OR (j.recipe_id=$8 AND (j.planning_payload->>'outputWidth')::int=1184 AND (j.planning_payload->>'outputHeight')::int=666))
        ORDER BY j.priority DESC,j.created_at ASC LIMIT 1 FOR UPDATE OF j SKIP LOCKED`,
-      [grant.channelId,role==="generation"?"video_base":"video_upscale",grant.keyId,role,grant.issuingTwitchUserId,offeredRecipes,UPSCALE_RECIPE,SMALL_UPSCALE_RECIPE]);
+      [grant.channelId,role==="generation"?"video_base":"video_upscale",grant.keyId,role,grant.issuingTwitchUserId,offeredRecipes,UPSCALE_RECIPE,SMALL_UPSCALE_RECIPE,streamId]);
     const job=result.rows[0];if(!job)return {status:"empty"};
     const fence=Number(job.fence);if(!Number.isSafeInteger(fence)||fence<1)throw new ApiError(500,"job_fence_invalid");
     const stage=role;const deadline=(job.deadline??new Date(Date.now()+30*60_000)).toISOString();
@@ -429,7 +434,7 @@ export async function claimWorkerLease(request:Request){
 }
 
 /** Recover only an unspent, still-current story batch slot after its deadline. */
-async function recoverUnclaimedStoryBatchJobs(client:PoolClient,channelId:string){
+async function recoverUnclaimedStoryBatchJobs(client:PoolClient,channelId:string,streamId:string|null){
   const expired=await client.query<{item_id:string;job_id:string;attempt_id:string;funding_id:string;revision_id:string;segment_id:string}>(`
     SELECT i.id AS item_id,j.id AS job_id,a.id AS attempt_id,f.id AS funding_id,r.id AS revision_id,s.id AS segment_id
     FROM sloptogether.story_batch_items i
@@ -440,7 +445,7 @@ async function recoverUnclaimedStoryBatchJobs(client:PoolClient,channelId:string
     JOIN sloptogether.segment_revisions r ON r.id=j.segment_revision_id
     JOIN sloptogether.segments s ON s.id=r.segment_id AND s.id=i.segment_id AND s.selected_revision_id=r.id
     JOIN sloptogether.branches branch ON branch.id=s.branch_id AND branch.stream_id=b.stream_id
-    WHERE b.twitch_channel_id=$1 AND i.state='scheduled' AND j.state='ready' AND j.stage='video_base'
+    WHERE b.twitch_channel_id=$1 AND ($2::uuid IS NULL OR b.stream_id=$2) AND i.state='scheduled' AND j.state='ready' AND j.stage='video_base'
       AND j.execution_mode='pull_worker' AND j.interrupt_id IS NULL AND j.recipe_id='fast-h3-trim-5step-vsa20-b1'
       AND a.state='ready' AND a.attempt_number=1 AND a.claimed_at IS NULL AND a.execution_binding_id IS NULL
       AND a.provider_request_id IS NULL AND a.output_asset_id IS NULL AND a.lease_expires_at IS NULL
@@ -459,7 +464,7 @@ async function recoverUnclaimedStoryBatchJobs(client:PoolClient,channelId:string
       AND NOT EXISTS(SELECT 1 FROM sloptogether.paid_action_intents paid WHERE paid.segment_revision_id=r.id)
       AND NOT EXISTS(SELECT 1 FROM sloptogether.bans banned WHERE banned.twitch_user_id=j.requested_by AND banned.revoked_at IS NULL
         AND (banned.expires_at IS NULL OR banned.expires_at>now()) AND (banned.scope='global' OR banned.twitch_channel_id=$1))
-    ORDER BY b.created_at,b.id,i.position FOR UPDATE OF i,j,a,f,s,r SKIP LOCKED`,[channelId]);
+    ORDER BY b.created_at,b.id,i.position FOR UPDATE OF i,j,a,f,s,r SKIP LOCKED`,[channelId,streamId]);
   for(const row of expired.rows){
     await client.query("UPDATE sloptogether.job_attempts SET state='expired',fence=fence+1,finished_at=now(),error_code='unclaimed_deadline_expired' WHERE id=$1 AND state='ready' AND claimed_at IS NULL",[row.attempt_id]);
     await client.query("UPDATE sloptogether.jobs SET state='expired',completed_at=now() WHERE id=$1 AND state='ready'",[row.job_id]);
@@ -480,12 +485,12 @@ async function recoverUnclaimedStoryBatchJobs(client:PoolClient,channelId:string
   }
 }
 
-async function expireWorkerLeases(client:import("pg").PoolClient,channelId:string){
+async function expireWorkerLeases(client:import("pg").PoolClient,channelId:string,streamId:string|null){
   const expired=await client.query<{id:string;job_id:string;segment_revision_id:string|null;interrupt_id:string|null;stage:string;execution_mode:string;attempt_number:number;fence:string;provider_request_id:string|null;funding_id:string|null;input_sha256:Buffer;requested_by:string;job_deadline:Date|null}>(`SELECT a.id,a.job_id,j.segment_revision_id,j.interrupt_id,j.stage,j.execution_mode,a.attempt_number,a.fence,a.provider_request_id,a.funding_id,a.input_sha256,j.requested_by,j.result_deadline_at AS job_deadline
     FROM sloptogether.job_attempts a JOIN sloptogether.jobs j ON j.id=a.job_id
-    WHERE j.twitch_channel_id=$1 AND j.execution_mode='pull_worker' AND a.state IN ('leased','running','uploaded','validating')
+    WHERE j.twitch_channel_id=$1 AND ($2::uuid IS NULL OR j.stream_id=$2) AND j.execution_mode='pull_worker' AND a.state IN ('leased','running','uploaded','validating')
       AND (a.state<>'validating' OR a.output_asset_id IS NULL)
-      AND (a.lease_expires_at<=now() OR a.attempt_deadline_at<=now()) FOR UPDATE OF a,j SKIP LOCKED`,[channelId]);
+      AND (a.lease_expires_at<=now() OR a.attempt_deadline_at<=now()) FOR UPDATE OF a,j SKIP LOCKED`,[channelId,streamId]);
   for(const attempt of expired.rows){
     // Pull workers record local Comfy prompt IDs; only queued remote-provider requests are uncertain billable submissions.
     const uncertain=attempt.execution_mode==="provider_queue"&&Boolean(attempt.provider_request_id);
@@ -710,7 +715,7 @@ async function scheduleApprovedStoryPair(channel:ChannelRow,streamId:string,gran
       AND i.candidate_prompt IS NOT NULL AND i.candidate_plan IS NOT NULL
       AND s.state IN ('open','voting') AND s.selected_revision_id IS NULL AND s.protected_at IS NULL
       AND NOT EXISTS(SELECT 1 FROM sloptogether.elections e JOIN sloptogether.proposals p ON p.election_id=e.id
-        WHERE e.segment_id=s.id AND p.state NOT IN ('rejected','withdrawn','superseded'))
+        WHERE e.segment_id=s.id AND e.state='open' AND p.state NOT IN ('rejected','withdrawn','superseded'))
       AND (SELECT coalesce(sum(greatest(reserved_usd,coalesce(actual_cost_usd,0))),0)
         FROM sloptogether.funding_authorizations WHERE twitch_channel_id=$1 AND source='owner_budget' AND state<>'released') + $3 <= $4
     ORDER BY o.created_at,o.batch_id,o.position LIMIT 1 FOR UPDATE OF i,n,s SKIP LOCKED`,[channel.twitch_channel_id,streamId,quote,locked.rows[0].owner_budget_cap_usd]);
@@ -757,7 +762,7 @@ async function scheduleApprovedStoryPair(channel:ChannelRow,streamId:string,gran
         AND i.start_boundary_revision_id=$7 AND n.start_boundary_revision_id=$8 AND i.candidate_prompt=$9
         AND s.id=$10 AND s.state IN ('open','voting') AND s.selected_revision_id IS NULL AND s.protected_at IS NULL
         AND NOT EXISTS(SELECT 1 FROM sloptogether.elections e JOIN sloptogether.proposals p ON p.election_id=e.id
-          WHERE e.segment_id=s.id AND p.state NOT IN ('rejected','withdrawn','superseded'))
+          WHERE e.segment_id=s.id AND e.state='open' AND p.state NOT IN ('rejected','withdrawn','superseded'))
       FOR UPDATE OF i,n,s`,[channel.twitch_channel_id,streamId,preview.item_id,preview.next_id,preview.revision,preview.next_revision,
       preview.start_id,preview.end_id,preview.prompt,preview.segment_id,screenToken]);
     if(!pair.rowCount){

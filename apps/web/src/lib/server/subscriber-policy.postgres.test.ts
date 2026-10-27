@@ -1,4 +1,7 @@
 import { createHmac,randomBytes,randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { createServer } from "node:http";
+import { promisify } from "node:util";
 import { afterAll,beforeAll,describe,expect,it,vi } from "vitest";
 import { lifecyclePool,pool,transaction } from "./db";
 import { handleEventSubWebhook,persistSubscriberSettings } from "./subscriber-service";
@@ -13,6 +16,7 @@ const ownerId=channelId;
 const secret="local-policy-eventsub-test-secret";
 const keyId=randomUUID();
 const settings={enabled:true,eventSubListening:false,newSubscriptions:true,resubscriptionMessages:false,giftMode:"off",minimumGapSeconds:60,eventMaxAgeSeconds:180,hourlySpendCapUsd:1,fallback:"skip"} as const;
+const runCli=promisify(execFile);
 let created=false;
 
 function revocation(messageId:string,type:"channel.subscribe"|"channel.chat.message",subscriptionId:string){
@@ -141,6 +145,58 @@ testDatabase("subscriber trust policy PostgreSQL integration",()=>{
     expect(outbox.rowCount).toBe(1);
     expect((await pool().query("SELECT 1 FROM sloptogether.subscription_events WHERE broadcaster_twitch_id=$1",[channelId])).rowCount).toBe(1);
     await pool().query("DELETE FROM sloptogether.eventsub_config_fingerprints WHERE twitch_channel_id=$1 AND registration_key='subscriber-events'",[channelId]);
+  },20_000);
+
+  it.skipIf(!process.env.SLOPTOGETHER_TWITCH_CLI)("accepts and deduplicates an official Twitch CLI mock subscription",async()=>{
+    const subscriptionId=`cli-test-${randomUUID()}`;
+    const messageId=`cli-message-${randomUUID()}`;
+    const responses:number[]=[];
+    const errors:string[]=[];
+    let callback="";
+    const server=createServer(async(req,res)=>{
+      try{
+        const chunks:Buffer[]=[];
+        for await(const chunk of req) chunks.push(Buffer.from(chunk));
+        const headers=new Headers();
+        for(const [key,value] of Object.entries(req.headers)) if(typeof value==="string") headers.set(key,value);
+        const response=await handleEventSubWebhook(new Request(callback,{method:"POST",headers,body:Buffer.concat(chunks)}));
+        responses.push(response.status);
+        res.writeHead(response.status,Object.fromEntries(response.headers));res.end(Buffer.from(await response.arrayBuffer()));
+      }catch(error){
+        const status=typeof error==="object"&&error!==null&&"status" in error?Number(error.status):500;
+        responses.push(status);errors.push(String(error));res.writeHead(status);res.end();
+      }
+    });
+    await new Promise<void>(resolve=>server.listen(0,"127.0.0.1",resolve));
+    const address=server.address();
+    if(!address||typeof address==="string") throw new Error("mock_webhook_server_unavailable");
+    callback=`http://127.0.0.1:${address.port}/eventsub`;
+    vi.stubEnv("TWITCH_EVENTSUB_CALLBACK_URL",callback);
+    try{
+      await pool().query(`INSERT INTO sloptogether.eventsub_config_fingerprints(twitch_channel_id,registration_key,config_fingerprint,subscription_ids)
+        VALUES($1,'subscriber-events',$2,ARRAY[$3]) ON CONFLICT(twitch_channel_id,registration_key) DO UPDATE SET subscription_ids=EXCLUDED.subscription_ids`,[channelId,randomBytes(32),subscriptionId]);
+      await pool().query("UPDATE sloptogether.channels SET subscriber_interrupt_policy=$2::jsonb,owner_budget_cap_usd=10 WHERE twitch_channel_id=$1",[channelId,JSON.stringify({...settings,minimumGapSeconds:0})]);
+      const args=["event","trigger","subscribe","--no-config","--to-user",channelId,"--from-user","9001","--subscription-id",subscriptionId,"--event-id",messageId,"--forward-address",callback,"--secret",secret];
+      try {
+        await runCli(process.env.SLOPTOGETHER_TWITCH_CLI!,["event","verify-subscription","subscribe","--no-config","--broadcaster",channelId,"--subscription-id",subscriptionId,"--forward-address",callback,"--secret",secret]);
+        // CLI notifications use the literal callback "null" even when forwarded.
+        vi.stubEnv("TWITCH_EVENTSUB_CALLBACK_URL","null");
+        await runCli(process.env.SLOPTOGETHER_TWITCH_CLI!,args);
+        await runCli(process.env.SLOPTOGETHER_TWITCH_CLI!,args);
+        await runCli(process.env.SLOPTOGETHER_TWITCH_CLI!,[...args.slice(0,-1),"wrong-local-test-secret"]);
+      }
+      catch(error) { throw new Error(`Twitch CLI failed; responses=${responses.join(",")}; errors=${errors.join(",")}`,{cause:error}); }
+      expect({responses,errors}).toEqual({responses:[200,204,204,403],errors:["ApiError: eventsub_signature_invalid"]});
+      const result=await pool().query<{state:string;interrupt_id:string}>("SELECT state,interrupt_id FROM sloptogether.subscription_events WHERE broadcaster_twitch_id=$1 AND twitch_message_id=$2",[channelId,messageId]);
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0]).toMatchObject({state:"queued"});
+      const interrupt=await pool().query<{plan_payload:Record<string,unknown>}>("SELECT plan_payload FROM sloptogether.interrupt_requests WHERE id=$1",[result.rows[0]!.interrupt_id]);
+      expect(interrupt.rows[0]?.plan_payload).toMatchObject({durationSeconds:10,frameCount:243,requireAudio:true});
+    }finally{
+      delete process.env.TWITCH_EVENTSUB_CALLBACK_URL;
+      await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));
+      await pool().query("DELETE FROM sloptogether.eventsub_config_fingerprints WHERE twitch_channel_id=$1 AND registration_key='subscriber-events'",[channelId]);
+    }
   },20_000);
 
   it("does not fence trust for a superseded EventSub registration",async()=>{

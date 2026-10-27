@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { ApiError, apiFetch, displayProblem, type SessionSummary } from "./api";
-import { approveStoryCandidate, createStoryBatchRequester, createStoryCandidateReplanner, createStoryCandidateScreenRetry, rejectStoryCandidate, storyBatchBlocker, storyBatchItemLabel, storyBatchPath, storyCandidateFrames, type StoryBatchAvailability, type StoryBatchItem, type StoryBatchStatus, type StoryCandidateFrame } from "./story-batch-request";
+import { approveStoryCandidate, submitOwnerCandidate, createStoryBatchRequester, createStoryCandidateReplanner, createStoryCandidateScreenRetry, rejectStoryCandidate, storyBatchBlocker, storyBatchItemLabel, storyBatchPath, storyCandidateFrames, type StoryBatchAvailability, type StoryBatchItem, type StoryBatchStatus, type StoryCandidateFrame } from "./story-batch-request";
 
 export function StoryBatchControl({ channel, stream }: { channel: string; stream: string }) {
   return <StoryBatchControlInner key={`${channel}/${stream}`} channel={channel} stream={stream}/>;
@@ -92,14 +92,15 @@ function StoryBatchControlInner({ channel, stream }: { channel: string; stream: 
     {error ? <span role="alert" className="inline-error">{error}</span> : null}
     {queueError ? <span role="alert">Queue unavailable <button type="button" className="button secondary small" onClick={() => void refresh.current?.()}>Retry</button></span> : null}
   </div>
-  <StoryBatchList batches={batches} channel={channel} stream={stream} onChanged={() => void refresh.current?.()}/>
+  <StoryBatchList batches={batches} channel={channel} stream={stream} owner={authorized} onChanged={() => void refresh.current?.()}/>
   </>;
 }
 
-function CandidateApproval({ item, channel, stream, onChanged }: { item: StoryBatchItem; channel: string; stream: string; onChanged: () => void }) {
+function CandidateApproval({ item, channel, stream, owner, onChanged }: { item: StoryBatchItem; channel: string; stream: string; owner:boolean; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
   const [frames, setFrames] = useState<StoryCandidateFrame[]>([]);
   const [selected, setSelected] = useState("");
+  const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string|null>(null);
   const selectedFrame = frames.find(frame => frame.boundaryRevisionId === selected);
@@ -117,6 +118,15 @@ function CandidateApproval({ item, channel, stream, onChanged }: { item: StoryBa
     setBusy(true); setError(null);
     try {
       await approveStoryCandidate(channel, stream, item.itemId, selected, item.candidateRevision!);
+      setOpen(false); setSelected(""); onChanged();
+    } catch (problem) { setError(displayProblem(problem)); }
+    finally { setBusy(false); }
+  };
+  const submitPrompt = async () => {
+    if (!item.itemId || !selected || !prompt.trim() || !Number.isSafeInteger(item.candidateRevision)) return;
+    setBusy(true); setError(null);
+    try {
+      await submitOwnerCandidate(channel, stream, item.itemId, selected, item.candidateRevision!, prompt.trim());
       setOpen(false); setSelected(""); onChanged();
     } catch (problem) { setError(displayProblem(problem)); }
     finally { setBusy(false); }
@@ -153,6 +163,7 @@ function CandidateApproval({ item, channel, stream, onChanged }: { item: StoryBa
     {error ? <span className="inline-error" role="alert">{error}</span> : null}
   </div>;
   return <div className="story-candidate-approval">
+    {owner ? <label>Prompt <textarea className="text-input" value={prompt} maxLength={1000} onChange={event => setPrompt(event.currentTarget.value)} disabled={busy}/></label> : null}
     <label>Start frame <select className="select-input" value={selected} onChange={event => setSelected(event.currentTarget.value)} disabled={busy}>
       <option value="">Choose a frame</option>
       {frames.map((frame,index) => <option value={frame.boundaryRevisionId} key={frame.boundaryRevisionId}>Frame {index+1} · {new Date(frame.createdAt).toLocaleString()}</option>)}
@@ -160,11 +171,11 @@ function CandidateApproval({ item, channel, stream, onChanged }: { item: StoryBa
     {selectedFrame ? <Image src={selectedFrame.previewUrl} alt="Selected start frame" width={480} height={270} unoptimized/> : null}
     {!busy && !frames.length && !error ? <Link className="text-link" href={`/channels/${encodeURIComponent(channel)}/streams/${encodeURIComponent(stream)}/participate`}>Add a frame</Link> : null}
     {error ? <span className="inline-error" role="alert">{error}</span> : null}
-    <div className="row"><button type="button" className="button small" aria-label={`Approve clip ${item.position + 1}`} disabled={busy || !selected} onClick={() => void approve()}>{busy ? "Saving…" : "Approve"}</button>{item.canReject ? <button type="button" className="button danger small" aria-label={`Reject clip ${item.position + 1}`} disabled={busy} onClick={() => void reject()}>Reject</button> : null}<button type="button" className="button secondary small" disabled={busy} onClick={() => setOpen(false)}>Cancel</button></div>
+    <div className="row"><button type="button" className="button small" aria-label={`Approve clip ${item.position + 1}`} disabled={busy || !selected} onClick={() => void approve()}>{busy ? "Saving…" : "Approve"}</button>{owner ? <button type="button" className="button secondary small" disabled={busy || !selected || !prompt.trim()} onClick={() => void submitPrompt()}>Save prompt & approve</button> : null}{item.canReject ? <button type="button" className="button danger small" aria-label={`Reject clip ${item.position + 1}`} disabled={busy} onClick={() => void reject()}>Reject</button> : null}<button type="button" className="button secondary small" disabled={busy} onClick={() => setOpen(false)}>Cancel</button></div>
   </div>;
 }
 
-export function StoryBatchList({ batches, channel, stream, onChanged = () => {} }: { batches: StoryBatchStatus[]; channel?:string; stream?:string; onChanged?:() => void }) {
+export function StoryBatchList({ batches, channel, stream, owner=false, onChanged = () => {} }: { batches: StoryBatchStatus[]; channel?:string; stream?:string; owner?:boolean; onChanged?:() => void }) {
   const visible = batches.filter(batch => batch.items?.length && batch.items.some(item => item.state !== "played")).slice().reverse();
   if (!visible.length) return null;
   return <section className="story-batches" aria-label="Upcoming clips">
@@ -178,7 +189,7 @@ export function StoryBatchList({ batches, channel, stream, onChanged = () => {} 
         <div className="story-batch-copy"><div className="story-batch-meta">Clip {item.position + 1} · {item.screenBlocked ? "Input check blocked" : item.candidateRejected ? "Rejected" : item.state === "planned" && item.candidateApproved ? (item.endFrameUrl ? "Approved" : "Awaiting next start frame") : storyBatchItemLabel(item.state)}</div>
           {item.prompt ? <p>{item.prompt}</p> : <span className="story-batch-wait">Waiting for prompt</span>}
           {item.dialogue ? <p className="story-batch-dialogue">“{item.dialogue}”</p> : null}
-          {(item.canApprove || item.canReject || item.canReplan || item.canRetryScreen) && item.itemId && channel && stream ? <CandidateApproval key={`${item.itemId}:${item.candidateRevision}`} item={item} channel={channel} stream={stream} onChanged={onChanged}/> : null}
+          {(item.canApprove || item.canReject || item.canReplan || item.canRetryScreen) && item.itemId && channel && stream ? <CandidateApproval key={`${item.itemId}:${item.candidateRevision}`} item={item} channel={channel} stream={stream} owner={owner} onChanged={onChanged}/> : null}
         </div>
       </article>)}</div>;
       const needsAttention = batch.items?.some(item => item.screenBlocked || ["failed", "rejected", "expired", "cancelled", "superseded"].includes(item.state));

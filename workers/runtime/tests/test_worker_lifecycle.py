@@ -54,6 +54,13 @@ class WorkerLifecycleTest(unittest.TestCase):
         self.assertIsNone(api.claim())
         api._request.assert_called_once_with("POST", "/workers/leases", body={}, query={"role": "upscale"})
 
+    def test_claim_can_target_one_stream(self) -> None:
+        config = SimpleNamespace(role="generation", channel_id="123", claim_stream_slug="cartoon-demo", api_base_url="https://www.clips.gg/sloptogether/api/v1", worker_key="key", allowed_upload_hosts=())
+        api = WorkerApi(config)
+        api._request = Mock(return_value=({"status": "empty"}, {}))
+        self.assertIsNone(api.claim(["fast-h3-trim-5step-vsa20-b1"]))
+        api._request.assert_called_once_with("POST", "/workers/leases", body={"supportedRecipes": ["fast-h3-trim-5step-vsa20-b1"]}, query={"role": "generation", "channelId": "123", "streamSlug": "cartoon-demo"})
+
     def test_service_passes_compatible_profiles_to_every_claim(self) -> None:
         api = Mock(token="key")
         api.claim.return_value = None

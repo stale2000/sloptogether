@@ -5,6 +5,7 @@ import { query, transaction } from "./db";
 import { ApiError, assertSameOrigin, readJson } from "./http";
 import { requestPrincipal } from "./principals";
 import { getStream } from "./stream-service";
+import { resolveCandidateElections } from "./candidate-election";
 
 const approvalInput = z.object({
   boundaryRevisionId: z.string().uuid(),
@@ -21,8 +22,11 @@ const replanInput = z.object({
 
 // A boundary belongs to a stream only when existing stream content or an
 // approved candidate references it. Channel membership alone is not enough.
-const streamBoundary = `(
-  EXISTS(SELECT 1 FROM sloptogether.segments s
+export const streamBoundary = `(
+  EXISTS(SELECT 1 FROM sloptogether.stream_seed_frames sf
+    JOIN sloptogether.streams seed_stream ON seed_stream.id=sf.stream_id AND seed_stream.twitch_channel_id=sf.twitch_channel_id
+    WHERE sf.stream_id=$2 AND sf.twitch_channel_id=$1 AND sf.boundary_revision_id=b.id)
+  OR EXISTS(SELECT 1 FROM sloptogether.segments s
     JOIN sloptogether.branches branch ON branch.id=s.branch_id AND branch.stream_id=$2
       AND branch.twitch_channel_id=$1 AND branch.is_selected AND branch.archived_at IS NULL
     JOIN sloptogether.segment_revisions r ON r.segment_id=s.id
@@ -47,7 +51,7 @@ const streamBoundary = `(
           AND candidate_branch.is_selected AND candidate_branch.archived_at IS NULL
         WHERE candidate_segment.id=i.segment_id AND candidate_segment.twitch_channel_id=batch.twitch_channel_id))
 )`;
-const candidateStream = `EXISTS(SELECT 1 FROM sloptogether.segments s
+export const candidateStream = `EXISTS(SELECT 1 FROM sloptogether.segments s
   JOIN sloptogether.branches branch ON branch.id=s.branch_id AND branch.stream_id=batch.stream_id
     AND branch.twitch_channel_id=batch.twitch_channel_id AND branch.is_selected AND branch.archived_at IS NULL
   WHERE s.id=i.segment_id AND s.twitch_channel_id=batch.twitch_channel_id AND s.state NOT IN ('played','retired')
@@ -103,11 +107,27 @@ export async function approveStoryCandidate(locator: string, itemId: string, req
   if (!z.string().uuid().safeParse(itemId).success) throw new ApiError(400, "story_candidate_id_invalid");
   const { channel, stream, actor } = await authorizeReviewer(locator, request, streamSlug);
   const body = await readJson(request, approvalInput);
+  // Commit the election result separately so a stale approval revision cannot
+  // roll back the winner; the reviewer can refresh and approve the new prompt.
+  await transaction(async client=>{
+    const lock=await client.query<{policy_revision:number}>("SELECT policy_revision FROM sloptogether.channels WHERE twitch_channel_id=$1 AND is_enabled FOR UPDATE",[channel.twitch_channel_id]);
+    if(lock.rows[0]?.policy_revision!==channel.policy_revision)throw new ApiError(409,"channel_policy_changed");
+    if(await isBanned(channel.twitch_channel_id,actor,client))throw new ApiError(403,"channel_ban_active");
+    const candidate=await client.query<{segment_id:string}>(`SELECT i.segment_id FROM sloptogether.story_batch_items i
+      JOIN sloptogether.story_batches b ON b.id=i.batch_id WHERE i.id=$1 AND b.twitch_channel_id=$2 AND b.stream_id=$3`,[itemId,channel.twitch_channel_id,stream.id]);
+    if(candidate.rows[0]?.segment_id)await resolveCandidateElections(client,channel.twitch_channel_id,candidate.rows[0].segment_id);
+  });
   return transaction(async client => {
     const channelLock = await client.query<{policy_revision:number}>("SELECT policy_revision FROM sloptogether.channels WHERE twitch_channel_id=$1 AND is_enabled FOR UPDATE", [channel.twitch_channel_id]);
     if (!channelLock.rowCount) throw new ApiError(404, "channel_not_found");
     if (channelLock.rows[0]?.policy_revision !== channel.policy_revision) throw new ApiError(409, "channel_policy_changed");
     if (await isBanned(channel.twitch_channel_id, actor, client)) throw new ApiError(403, "channel_ban_active");
+    const candidateSegment=await client.query<{segment_id:string}>(`SELECT i.segment_id FROM sloptogether.story_batch_items i
+      JOIN sloptogether.story_batches b ON b.id=i.batch_id WHERE i.id=$1 AND b.twitch_channel_id=$2 AND b.stream_id=$3`,[itemId,channel.twitch_channel_id,stream.id]);
+    if(candidateSegment.rows[0]?.segment_id){
+      const election=await client.query("SELECT 1 FROM sloptogether.elections WHERE segment_id=$1 AND state='open' LIMIT 1",[candidateSegment.rows[0].segment_id]);
+      if(election.rowCount)throw new ApiError(409,"story_candidate_vote_open");
+    }
     const item = await client.query<Candidate>(`SELECT i.id,i.state,i.candidate_revision::text,i.candidate_prompt,i.candidate_plan,
       i.start_boundary_revision_id,i.approved_by,i.approved_at,i.approved_candidate_revision::text,
       i.rejected_by,i.rejected_at,i.rejection_reason

@@ -8,6 +8,7 @@ import { requestPrincipal, type RequestPrincipal } from "./principals";
 import { inputAsset, screenPromptAndImages } from "./preflight";
 import { signedPrivateReadUrl } from "./storage";
 import { getDefaultStreamId } from "./stream-service";
+import { resolveCandidateElections } from "./candidate-election";
 
 interface Target { id:string; branch_id:string; ordinal:string; state:string }
 interface Boundary { id:string; asset_id:string; storage_key:string; content_type:string; status:string; sha256:Buffer|null }
@@ -83,6 +84,53 @@ export async function submitProposal(locator:string,request:Request,requestedStr
   const reservationId=await reserveProposalSubmission(channel.twitch_channel_id,actor);
   let reservationConsumed=false;
   try{
+  // Story-batch candidates have their own approved anchors. A community
+  // proposal changes only the prompt, and must never create a render itself.
+  const candidate=await query<{id:string;segment_id:string}>(`SELECT i.id,i.segment_id
+    FROM sloptogether.story_batch_items i JOIN sloptogether.story_batches b ON b.id=i.batch_id
+    JOIN sloptogether.segments s ON s.id=i.segment_id
+    JOIN sloptogether.branches br ON br.id=s.branch_id AND br.stream_id=b.stream_id AND br.is_selected AND br.archived_at IS NULL
+    WHERE b.twitch_channel_id=$1 AND b.stream_id=$2 AND ($3::uuid IS NULL OR s.id=$3)
+      AND s.twitch_channel_id=$1 AND s.state IN ('open','voting') AND s.protected_at IS NULL AND s.selected_revision_id IS NULL
+      AND i.state='planned' AND i.approved_at IS NULL AND i.rejected_at IS NULL AND i.pair_screen_token IS NULL
+    ORDER BY s.ordinal LIMIT 1`,[channel.twitch_channel_id,streamId,body.segmentId??null]);
+  if(candidate.rows[0]){
+    if(body.imageAssetId||body.endFrameAssetId||body.boundaryRevisionId)throw new ApiError(400,"candidate_prompt_only");
+    const screen=await screenPromptAndImages({channelId:channel.twitch_channel_id,prompt:body.prompt,images:[]});
+    const result=await transaction(async client=>{
+      const current=await client.query<{policy_revision:number}>("SELECT policy_revision FROM sloptogether.channels WHERE twitch_channel_id=$1 AND is_enabled FOR UPDATE",[channel.twitch_channel_id]);
+      if(current.rows[0]?.policy_revision!==channel.policy_revision)throw new ApiError(409,"channel_policy_changed");
+      const ban=await client.query(`SELECT 1 FROM sloptogether.bans WHERE twitch_user_id=$1 AND revoked_at IS NULL
+        AND (expires_at IS NULL OR expires_at>now()) AND (scope='global' OR twitch_channel_id=$2)`,[actor,channel.twitch_channel_id]);
+      if(ban.rowCount)throw new ApiError(403,"channel_ban_active");
+      const target=await client.query(`SELECT i.id FROM sloptogether.story_batch_items i JOIN sloptogether.story_batches b ON b.id=i.batch_id
+        JOIN sloptogether.segments s ON s.id=i.segment_id JOIN sloptogether.branches br ON br.id=s.branch_id
+        WHERE i.id=$1 AND b.twitch_channel_id=$2 AND b.stream_id=$3 AND s.twitch_channel_id=$2 AND br.stream_id=$3
+          AND br.is_selected AND br.archived_at IS NULL AND s.state IN ('open','voting') AND s.protected_at IS NULL
+          AND s.selected_revision_id IS NULL AND i.state='planned' AND i.approved_at IS NULL AND i.rejected_at IS NULL
+          AND i.pair_screen_token IS NULL FOR UPDATE OF i,s`,[candidate.rows[0]!.id,channel.twitch_channel_id,streamId]);
+      if(!target.rowCount)throw new ApiError(409,"segment_locked");
+      await resolveCandidateElections(client,channel.twitch_channel_id,candidate.rows[0]!.segment_id);
+      const evidence=await client.query<{id:string;effective_state:string}>(`SELECT id,effective_state FROM sloptogether.input_screens
+        WHERE twitch_channel_id=$1 AND input_sha256=$2 AND expires_at>now() ORDER BY created_at DESC LIMIT 1`,[channel.twitch_channel_id,Buffer.from(screen.digest,"hex")]);
+      if(!evidence.rows[0])throw new ApiError(409,"input_screen_missing");
+      const state=evidence.rows[0].effective_state==='clear'?'eligible':'pending';
+      const election=await openElection(client,candidate.rows[0]!.segment_id,state==='eligible');
+      const count=await client.query<{n:string}>("SELECT count(*) AS n FROM sloptogether.proposals WHERE election_id=$1 AND state NOT IN ('rejected','withdrawn','superseded')",[election]);
+      if(Number(count.rows[0]?.n??0)>=100)throw new ApiError(409,"election_proposal_limit");
+      const proposalId=randomUUID();
+      await client.query(`INSERT INTO sloptogether.proposals(id,election_id,author_twitch_user_id,proposal_kind,prompt,input_screen_id,state,planning_mode)
+        VALUES($1,$2,$3,'prompt',$4,$5,$6,'continuation')`,[proposalId,election,actor,body.prompt,evidence.rows[0].id,state]);
+      await client.query("UPDATE sloptogether.segments SET state='voting' WHERE id=$1",[candidate.rows[0]!.segment_id]);
+      await client.query(`INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,action,target_kind,target_id,policy_revision,after_state)
+        VALUES($1,$2,'proposal.create','proposal',$3,$4,$5::jsonb)`,[channel.twitch_channel_id,actor,proposalId,channel.policy_revision,JSON.stringify({state,candidateId:candidate.rows[0]!.id})]);
+      const consumed=await client.query("UPDATE sloptogether.proposal_rate_reservations SET state='consumed' WHERE id=$1 AND state='reserved' AND expires_at>now()",[reservationId]);
+      if(!consumed.rowCount)throw new ApiError(409,"proposal_rate_reservation_expired");
+      return {proposalId,segmentId:candidate.rows[0]!.segment_id,electionId:election,revisionId:null,state,screen:screen.decision,awaitingUpstreamBoundary:false};
+    });
+    reservationConsumed=true;
+    return result;
+  }
   const targetResult=await query<Target>(`SELECT s.id,s.branch_id,s.ordinal,s.state FROM sloptogether.segments s
     JOIN sloptogether.branches b ON b.id=s.branch_id AND b.stream_id=$3 AND b.is_selected AND b.archived_at IS NULL
     WHERE s.twitch_channel_id=$1 AND ($2::uuid IS NULL OR s.id=$2)

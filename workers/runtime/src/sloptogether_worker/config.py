@@ -132,6 +132,7 @@ class WorkerConfig:
     worker_key: str | None
     local_s3_endpoint: str | None
     trim_vsa_budget_policy: str
+    claim_stream_slug: str | None = None
 
     @classmethod
     def from_sources(cls, *, config_path: Path | None, role_override: str | None, platform_override: str | None = None) -> WorkerConfig:
@@ -142,6 +143,9 @@ class WorkerConfig:
         stream_slug=os.environ.get("SLOPTOGETHER_STREAM_SLUG",str(worker.get("stream_slug","main"))).strip().lower()
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,47}",stream_slug):
             raise ValueError("worker_stream_slug_invalid")
+        claim_stream_slug=os.environ.get("SLOPTOGETHER_CLAIM_STREAM_SLUG",str(worker.get("claim_stream_slug", ""))).strip().lower() or None
+        if claim_stream_slug and not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,47}",claim_stream_slug):
+            raise ValueError("worker_claim_stream_slug_invalid")
         default_platform = "windows" if os.name == "nt" else "linux"
         platform = platform_override or os.environ.get("SLOPTOGETHER_WORKER_PLATFORM", str(worker.get("platform", default_platform)))
         if platform not in {"windows", "wsl", "linux", "fal"}:
@@ -204,6 +208,7 @@ class WorkerConfig:
             role=role_value,  # type: ignore[arg-type]
             channel_id=os.environ.get("SLOPTOGETHER_CHANNEL_ID") or worker.get("channel_id"),
             stream_slug=stream_slug,
+            claim_stream_slug=claim_stream_slug,
             comfy_url=local_comfy,
             comfy_input_dir=input_dir,
             comfy_output_dir=output_dir,

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import type { ElectionChoice, PublicTimelineSegment } from "@sloptogether/contracts";
 import { API_BASE, apiFetch, ApiError, displayProblem, formatDuration, type SessionSummary } from "./api";
@@ -49,6 +50,7 @@ export function ChannelWorkspace({ channelSlug,streamSlug="main" }: { channelSlu
   const [proposalError, setProposalError] = useState<string | null>(null);
   const [proposalNote, setProposalNote] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [endImageFile,setEndImageFile]=useState<File|null>(null);
   const [promptText,setPromptText]=useState("");
   const [canUseComfyTools,setCanUseComfyTools]=useState(false);
@@ -59,6 +61,13 @@ export function ChannelWorkspace({ channelSlug,streamSlug="main" }: { channelSlu
   const [comfyBusy,setComfyBusy]=useState(false);
   const [comfyError,setComfyError]=useState<string|null>(null);
   const [comfyNote,setComfyNote]=useState<string|null>(null);
+
+  useEffect(()=>{
+    if(!imageFile){setImagePreview(null);return;}
+    const url=URL.createObjectURL(imageFile);
+    setImagePreview(url);
+    return ()=>URL.revokeObjectURL(url);
+  },[imageFile]);
 
   useEffect(()=>{
     let active=true;
@@ -186,18 +195,7 @@ export function ChannelWorkspace({ channelSlug,streamSlug="main" }: { channelSlu
     void video.play().catch(()=>setVoteError("Press play to start the channel preview."));
   };
 
-  const sendProposal = async (form: FormData) => {
-    if(moderationState!=="ready"){
-      setProposalError(moderationState==="unavailable"?"Prompt and image screening is not configured yet. Proposals are paused.":"Prompt and image screening could not be verified. Proposals are paused.");
-      return;
-    }
-    setProposing(true); setProposalError(null); setProposalNote(null);
-    try {
-      const prompt = String(form.get("prompt") ?? "").trim();
-      if (!prompt) throw new Error("Add a scene prompt first.");
-      const planningMode=form.get("planningMode")==="planned_anchors"?"planned_anchors":"continuation";
-      if(planningMode==="planned_anchors"&&!endImageFile)throw new Error("Add an end frame for planned-anchor generation.");
-      const uploadFrame=async(file:File,purpose:"proposal_start_frame"|"proposal_end_frame",label:string)=>{
+  const uploadFrame=async(file:File,purpose:"proposal_start_frame"|"proposal_end_frame",label:string)=>{
         if(file.size>16*1024*1024)throw new Error(`Choose a ${label} smaller than 16 MB.`);
         if(!["image/png","image/jpeg","image/webp"].includes(file.type))throw new Error("Frames must be PNG, JPEG or WebP images.");
         const ticket = await apiFetch<{ assetId: string; uploadUrl: string; method: "PUT"; requiredHeaders?: Record<string, string>; expiresAt?: string; maxBytes?: number }>(`/channels/${encodeURIComponent(channelSlug)}/assets/upload-grant`, {
@@ -209,6 +207,28 @@ export function ChannelWorkspace({ channelSlug,streamSlug="main" }: { channelSlu
         const complete=await apiFetch<{assetId:string}>(`/channels/${encodeURIComponent(channelSlug)}/assets/${encodeURIComponent(ticket.assetId)}/complete`,{method:"POST",body:"{}"});
         return complete.assetId;
       };
+  const saveSeedFrame = async () => {
+    if (!imageFile || !promptText.trim()) return;
+    setProposing(true); setProposalError(null); setProposalNote(null);
+    try {
+      const assetId = await uploadFrame(imageFile,"proposal_start_frame","start frame");
+      await apiFetch(`${streamApi}/story-candidates/frames`,{method:"POST",body:JSON.stringify({assetId,prompt:promptText.trim()})});
+      setProposalNote("Start frame saved for this stream.");
+    } catch (error) { setProposalError(displayProblem(error)); }
+    finally { setProposing(false); }
+  };
+
+  const sendProposal = async (form: FormData) => {
+    if(moderationState!=="ready"){
+      setProposalError(moderationState==="unavailable"?"Prompt and image screening is not configured yet. Proposals are paused.":"Prompt and image screening could not be verified. Proposals are paused.");
+      return;
+    }
+    setProposing(true); setProposalError(null); setProposalNote(null);
+    try {
+      const prompt = String(form.get("prompt") ?? "").trim();
+      if (!prompt) throw new Error("Add a scene prompt first.");
+      const planningMode=form.get("planningMode")==="planned_anchors"?"planned_anchors":"continuation";
+      if(planningMode==="planned_anchors"&&!endImageFile)throw new Error("Add an end frame for planned-anchor generation.");
       const imageAssetId=imageFile?await uploadFrame(imageFile,"proposal_start_frame","start frame"):undefined;
       const endFrameAssetId=endImageFile?await uploadFrame(endImageFile,"proposal_end_frame","end frame"):undefined;
       await apiFetch(`${streamApi}/proposals`, {
@@ -312,6 +332,7 @@ export function ChannelWorkspace({ channelSlug,streamSlug="main" }: { channelSlu
                 </select>
                 <label className="file-input-row" htmlFor="proposal-frame"><span className="file-icon">＋</span><span><b>{imageFile?.name ?? "Add a start frame"}</b><small>Optional · PNG, JPEG or WebP · up to 16 MB</small></span></label>
                 <input id="proposal-frame" type="file" className="visually-hidden" accept="image/png,image/jpeg,image/webp" onChange={(event) => setImageFile(event.currentTarget.files?.[0] ?? null)} />
+                {imagePreview ? <Image src={imagePreview} alt="Selected start frame" width={448} height={256} unoptimized style={{width:"100%",height:"auto"}} /> : null}
                 {canUseComfyTools?<div className="comfy-frame-tool">
                   <SectionLabel>OPTIONAL COMFY CLOUD TOOLS</SectionLabel>
                   {comfyPromptEnabled?<><p className="panel-copy">Generate an H3 scene prompt with Comfy Cloud credits.</p><button className="button secondary full-button" type="button" onClick={()=>void generateComfyGeneration("prompt")} disabled={comfySubmitBlocked}>{activeComfyJob?.kind==="prompt"?"Writing H3 prompt…":"Generate H3 prompt with Comfy Cloud"}</button></>:null}
@@ -323,6 +344,7 @@ export function ChannelWorkspace({ channelSlug,streamSlug="main" }: { channelSlu
                   {latestComfyPrompt?<button className="text-link" type="button" disabled={comfyBusy} onClick={()=>void attachComfyGeneration(latestComfyPrompt)}>Load latest screened H3 prompt</button>:null}
                   {comfyError?<p className="inline-error" role="alert">{comfyError}</p>:null}{comfyNote?<p className="inline-success" role="status">{comfyNote}</p>:null}
                 </div>:null}
+                {canUseComfyTools ? <button className="button secondary full-button" type="button" disabled={proposing || !imageFile || !promptText.trim()} onClick={() => void saveSeedFrame()}>Save start frame</button> : null}
                 <label className="file-input-row" htmlFor="proposal-end-frame"><span className="file-icon">＋</span><span><b>{endImageFile?.name??"Add an end frame"}</b><small>Required for planned anchors · the next clip starts here</small></span></label>
                 <input id="proposal-end-frame" type="file" className="visually-hidden" accept="image/png,image/jpeg,image/webp" onChange={(event)=>setEndImageFile(event.currentTarget.files?.[0]??null)} />
                 {proposalError ? <p className="inline-error" role="alert">{proposalError}</p> : null}

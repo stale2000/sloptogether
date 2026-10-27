@@ -27,7 +27,7 @@ const electionSql = [
   "       coalesce(p.prompt,'Scene proposal') AS choice_title,count(b.twitch_user_id)::text AS vote_count,",
   "       bool_or(b.twitch_user_id=$2) AS my_choice",
   "FROM sloptogether.elections e",
-  "JOIN sloptogether.proposals p ON p.election_id=e.id AND p.state='eligible' AND p.segment_revision_id IS NOT NULL",
+  "JOIN sloptogether.proposals p ON p.election_id=e.id AND p.state='eligible' AND (p.segment_revision_id IS NOT NULL OR EXISTS(SELECT 1 FROM sloptogether.story_batch_items ci WHERE ci.segment_id=e.segment_id AND ci.state='planned' AND ci.approved_at IS NULL AND ci.rejected_at IS NULL))",
   "JOIN sloptogether.input_screens isc ON isc.id=p.input_screen_id AND isc.effective_state='clear' AND (isc.expires_at IS NULL OR isc.expires_at>now())",
   "AND NOT EXISTS(SELECT 1 FROM sloptogether.bans pb WHERE pb.twitch_user_id=p.author_twitch_user_id AND pb.revoked_at IS NULL AND (pb.expires_at IS NULL OR pb.expires_at>now()) AND (pb.scope='global' OR pb.twitch_channel_id=$1))",
   "LEFT JOIN sloptogether.ballots b ON b.election_id=e.id AND b.proposal_id=p.id",

@@ -662,7 +662,7 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
       const response = await fetch(`${API}/channels/${encodeURIComponent(currentChannelLogin||currentAuthorization.channelId)}/streams/${encodeURIComponent(selectedStreamSlug)}/proposals`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-extension-jwt": currentAuthorization.token },
-        body: JSON.stringify({ prompt, planningMode: "continuation" }),
+        body: JSON.stringify({ prompt, planningMode: "continuation", ...(currentElection?.segmentId ? { segmentId: currentElection.segmentId } : {}) }),
       });
       const result = await response.json().catch(() => ({}));
       if (requestEpoch !== identityEpoch || requestStreamEpoch !== streamEpoch) return;

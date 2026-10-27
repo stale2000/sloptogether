@@ -359,6 +359,13 @@ Cloudflare upload and playback acceptance run.
 
 ## GPU shutdown and cost control
 
+To isolate a test stream, set `SLOPTOGETHER_CLAIM_STREAM_SLUG` to its slug in
+both Fal worker app environments and deploy worker revisions containing the
+stream-aware claim client. This limits job claims and claim-time election,
+lease-expiry and recovery processing to that stream. A story producer uses its
+own `stream_slug` setting; it does not configure generation/upscale claims.
+Without the explicit claim setting, workers can claim across their channel.
+
 Fal GPU runners are billable while allocated. The user's hard limit is two hours;
 start only the GPUs needed for the test and verify they are shut down by the
 deadline. The shared `sloptogether-fal-session` controller starts from a

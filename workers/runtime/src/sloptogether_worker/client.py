@@ -173,6 +173,8 @@ class WorkerApi:
         query = {"role": self.config.role}
         if self.config.channel_id:
             query["channelId"] = self.config.channel_id
+        if getattr(self.config, "claim_stream_slug", None):
+            query["streamSlug"] = self.config.claim_stream_slug
         body = {} if supported_recipes is None else {"supportedRecipes": supported_recipes}
         result, _ = self._request("POST", "/workers/leases", body=body, query=query)
         if result.get("status") == "empty":
