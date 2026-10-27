@@ -55,6 +55,12 @@ env -i "PATH=$PATH" "TMPDIR=${TMPDIR:-/tmp}" NODE_ENV=test \
   "SLOPTOGETHER_POLICY_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:${pg_port}/${test_db}" \
   "SLOPTOGETHER_EVENTSUB_TEST_GUARD_MARKER=${marker}" \
   "$repo_root/node_modules/.bin/vitest" run src/lib/server/subscriber-policy.postgres.test.ts src/lib/server/extension-worker-flow.postgres.test.ts
+env -i "PATH=$PATH" "TMPDIR=${TMPDIR:-/tmp}" NODE_ENV=test \
+  "DATABASE_URL=postgresql://postgres@127.0.0.1:${pg_port}/${test_db}" \
+  "SLOPTOGETHER_DATABASE_SSL_CA=" \
+  "SLOPTOGETHER_EVENTSUB_TEST_GUARD_MARKER=${marker}" \
+  "SLOPTOGETHER_RUN_DB_INTEGRATION=1" \
+  "$repo_root/node_modules/.bin/vitest" run src/lib/server/subscriber-service.postgres.test.ts
 cd "$repo_root"
 env -i "PATH=$PATH" "TMPDIR=${TMPDIR:-/tmp}" NODE_ENV=test \
   "SLOPTOGETHER_PREAIR_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:${pg_port}/${test_db}" \

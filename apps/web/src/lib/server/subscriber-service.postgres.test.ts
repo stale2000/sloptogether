@@ -26,14 +26,35 @@ function request(messageId:string){
   },body});
 }
 
+function verificationRequest(messageId:string){
+  const timestamp=new Date().toISOString();
+  const challenge="local-twitch-callback-challenge";
+  const body=JSON.stringify({subscription:{id:"local-verification",type:"channel.subscribe",version:"1",
+    condition:{broadcaster_user_id:channelId},transport:{method:"webhook"}},challenge});
+  const signature=createHmac("sha256",eventSubSecret).update(messageId+timestamp).update(body).digest("hex");
+  return new Request("http://127.0.0.1:3000/sloptogether/api/v1/webhooks/eventsub",{method:"POST",headers:{
+    "Content-Type":"application/json","Twitch-Eventsub-Message-Id":messageId,"Twitch-Eventsub-Message-Timestamp":timestamp,
+    "Twitch-Eventsub-Message-Signature":`sha256=${signature}`,"Twitch-Eventsub-Message-Type":"webhook_callback_verification",
+  },body});
+}
+
 describeDatabase("subscriber EventSub PostgreSQL concurrency",()=>{
   beforeAll(async()=>{
     const url=new URL(process.env.DATABASE_URL??"");
-    if(!["localhost","127.0.0.1","::1"].includes(url.hostname)||url.pathname!=="/sloptogether")
-      throw new Error("integration_test_requires_loopback_sloptogether_database");
+    const expectedMarker=process.env.SLOPTOGETHER_EVENTSUB_TEST_GUARD_MARKER;
+    if(process.env.NODE_ENV!=="test"||url.protocol!=="postgresql:"||url.hostname!=="127.0.0.1"||url.port!=="56432"
+      ||url.username!=="postgres"||url.password||!/^\/sloptogether_preair_test_[a-f0-9]{16}$/.test(url.pathname)||url.search||url.hash
+      ||!expectedMarker||!/^[a-f0-9]{48}$/.test(expectedMarker))
+      throw new Error("subscriber_eventsub_test_requires_guarded_scratch_database");
     vi.stubEnv("TWITCH_EVENTSUB_SECRET",eventSubSecret);
     vi.stubEnv("SLOPTOGETHER_SUBSCRIBER_ATTEMPT_RESERVATION_USD","0.25");
     database=pool();
+    const identity=await database.query(`select current_database() as "databaseName",current_setting('data_directory') as "dataDirectory",
+      host(inet_server_addr()) as "serverAddress",inet_server_port() as "serverPort",
+      (select marker from public.sloptogether_eventsub_test_guard limit 1) as "guardMarker"`);
+    if(identity.rows[0]?.databaseName!==url.pathname.slice(1)||identity.rows[0]?.dataDirectory!=="/tmp/sloptogether-pg"
+      ||identity.rows[0]?.serverAddress!=="127.0.0.1"||Number(identity.rows[0]?.serverPort)!==56432||identity.rows[0]?.guardMarker!==expectedMarker)
+      throw new Error("subscriber_eventsub_test_database_identity_not_allowed");
     await database.query(`INSERT INTO sloptogether.channels(twitch_channel_id,owner_twitch_user_id,twitch_login,display_name,
       subscriber_interrupt_policy,owner_budget_cap_usd)
       VALUES($1,$2,$3,'Local EventSub integration',
@@ -108,5 +129,11 @@ describeDatabase("subscriber EventSub PostgreSQL concurrency",()=>{
       `SELECT f.state AS funding_state,i.program_state FROM sloptogether.funding_authorizations f
        JOIN sloptogether.interrupt_requests i ON i.funding_id=f.id WHERE i.broadcaster_twitch_id=$1`,[channelId]);
     expect(settlement.rows[0]).toEqual({funding_state:"released",program_state:"cancelled"});
+  },20_000);
+
+  it("answers a correctly signed Twitch subscription callback challenge",async()=>{
+    const response=await handleEventSubWebhook(verificationRequest(`local-verification-${channelId}`));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("local-twitch-callback-challenge");
   },20_000);
 });
