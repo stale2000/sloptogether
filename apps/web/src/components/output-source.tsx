@@ -135,7 +135,7 @@ export function OutputSource({ channel,streamSlug="main" }: { channel: string;st
         <div className={`output-player${hasStarted?" output-started":""}`}>
           <ProgramPlayer program={program.state === "ready" ? program.value : null} fallbackItem={current} clean autoPlayIntent={hasStarted}
             seekRef={playerRef} controllerClaimPending={controllerClaimPending} ownedControllerEpoch={controller?.canControl?controller.controllerEpoch:null}
-            autoInterruptId={data.state==="ready"&&data.value.subscriberInterrupts?.current?.state==="ready"?data.value.subscriberInterrupts.current.id:undefined}
+            autoInterruptId={data.state!=="ready"?undefined:data.value.subscriberInterrupts?.current?.state==="ready"?data.value.subscriberInterrupts.current.id:null}
             canAutoInterrupt={controller?.canControl===true}
             onStarted={()=>setHasStarted(true)} onNeedsUserStart={notifyPlaybackNeedsUserStart} onProgress={(event) => { latestPosition.current = event; void reportPosition(event); }} />
           {programReady&&programDuration>0?<div className="output-scrubber" aria-label="Program clip timeline">
