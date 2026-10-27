@@ -55,6 +55,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
   let bitsTargetInFlight = null;
   let authorizedIdentity = null;
   let identityEpoch = 0;
+  let streamEpoch = 0;
   let bitsTransactionEpoch = null;
   let errorSource = null;
 
@@ -449,13 +450,14 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
   async function refresh() {
     if (!authorization || !isVisible) return;
     const requestEpoch = identityEpoch;
+    const requestStreamEpoch = streamEpoch;
     stopPolling();
     abortController = new AbortController();
     try {
       const channelId = authorization.channelId;
       if (!channelId) throw new Error("Channel context unavailable.");
       const result = await api(`/extension/state?stream=${encodeURIComponent(selectedStreamSlug)}`, { signal: abortController.signal });
-      if (requestEpoch !== identityEpoch) return;
+      if (requestEpoch !== identityEpoch || requestStreamEpoch !== streamEpoch) return;
       currentChannelLogin=result.channel?.twitchLogin||null;
       const streams=Array.isArray(result.streams)?result.streams:[];
       const available=streams.filter(item=>item&&typeof item.slug==="string"&&typeof item.displayName==="string");
@@ -480,7 +482,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
       }
       pollTimer = window.setTimeout(refresh, POLL_MS);
     } catch (error) {
-      if (requestEpoch !== identityEpoch) return;
+      if (requestEpoch !== identityEpoch || requestStreamEpoch !== streamEpoch) return;
       if (error.name === "AbortError") return;
       nodes.status.hidden = false;
       message(nodes.status, "The vote is temporarily unavailable. Your channel is still playing its current scene.");
@@ -500,6 +502,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
       return;
     }
     const requestEpoch = identityEpoch;
+    const requestStreamEpoch = streamEpoch;
     const voteController = new AbortController();
     voteAbortController = voteController;
     isSubmitting = true;
@@ -511,11 +514,11 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
         body: JSON.stringify({ choiceId: selectedChoiceId }),
         signal: voteController.signal,
       });
-      if (requestEpoch !== identityEpoch) return;
+      if (requestEpoch !== identityEpoch || requestStreamEpoch !== streamEpoch) return;
       nodes.submit.textContent = "Vote saved";
       await refresh();
     } catch (error) {
-      if (requestEpoch !== identityEpoch) return;
+      if (requestEpoch !== identityEpoch || requestStreamEpoch !== streamEpoch) return;
       setError(error.status === 401 || error.status === 403
         ? "Identity could not be verified. Reconnect and try again."
         : error.status === 409
@@ -523,7 +526,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
           : error.message || "Your vote was not saved.");
     } finally {
       if (voteAbortController === voteController) voteAbortController = null;
-      if (requestEpoch === identityEpoch) {
+      if (requestEpoch === identityEpoch && requestStreamEpoch === streamEpoch) {
         isSubmitting = false;
         if (currentElection) renderChoices(currentElection);
       }
@@ -535,6 +538,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     const prompt = nodes.promptInput.value.trim();
     if (!prompt) return;
     const requestEpoch = identityEpoch;
+    const requestStreamEpoch = streamEpoch;
     const currentAuthorization = authorization;
     isSubmittingPrompt = true;
     clearError();
@@ -546,7 +550,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
         body: JSON.stringify({ prompt, planningMode: "continuation" }),
       });
       const result = await response.json().catch(() => ({}));
-      if (requestEpoch !== identityEpoch) return;
+      if (requestEpoch !== identityEpoch || requestStreamEpoch !== streamEpoch) return;
       if (!response.ok) throw new Error(result.message || result.error || "Prompt could not be submitted.");
       nodes.promptInput.value = "";
       isPromptFormOpen = false;
@@ -554,9 +558,9 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
       nodes.status.hidden = false;
       await refresh();
     } catch (error) {
-      if (requestEpoch === identityEpoch) setError(error.message || "Prompt could not be submitted.");
+      if (requestEpoch === identityEpoch && requestStreamEpoch === streamEpoch) setError(error.message || "Prompt could not be submitted.");
     } finally {
-      if (requestEpoch === identityEpoch) {
+      if (requestEpoch === identityEpoch && requestStreamEpoch === streamEpoch) {
         isSubmittingPrompt = false;
         renderPromptForm();
       }
@@ -658,7 +662,16 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
   nodes.streamSelect?.addEventListener("change",()=>{
     if(!nodes.streamSelect.value||nodes.streamSelect.value===selectedStreamSlug)return;
     selectedStreamSlug=nodes.streamSelect.value;
-    currentElection=null;selectedChoiceId=null;void refresh();
+    streamEpoch+=1;
+    isSubmitting=false;
+    isSubmittingPrompt=false;
+    canSubmitPrompts=false;
+    currentElection=null;selectedChoiceId=null;
+    nodes.ballot.hidden=true;nodes.empty.hidden=true;nodes.status.hidden=false;
+    message(nodes.status,"Loading stream…");
+    clearError();
+    renderPromptForm(false);
+    void refresh();
   });
   nodes.promptToggle.addEventListener("click", togglePromptForm);
   nodes.promptSubmit.addEventListener("click", submitPrompt);

@@ -30,7 +30,7 @@ class Element {
   click() { this.handlers.click?.(); }
 }
 
-function panelHarness({ proposalResponse = { ok:true, json:async()=>({state:"eligible"}) } } = {}) {
+function panelHarness({ proposalResponse = { ok:true, json:async()=>({state:"eligible"}) }, streams = [{ slug:"main", displayName:"Main stream", isDefault:true }] } = {}) {
   const elements = new Map();
   const getElementById = id => {
     if (!elements.has(id)) elements.set(id, new Element());
@@ -51,12 +51,16 @@ function panelHarness({ proposalResponse = { ok:true, json:async()=>({state:"eli
   let ballotSignal;
   let completeBallot;
   const election = { id: "election-one", state: "open", choices: [{ id: "choice-one", title: "A scene", voteCount: 0 }] };
+  const otherElection = { id: "election-late", state: "open", choices: [{ id: "choice-late", title: "A late scene", voteCount: 0 }] };
   const fetch = (url, options = {}) => {
     calls.push({ url, options });
-    if (url.startsWith("https://www.clips.gg/sloptogether/api/v1/extension/state?stream=")) return Promise.resolve({ ok: true, json: async () => ({
-      channel: { twitchLogin: "channel" }, streams: [{ slug: "main", displayName: "Main stream", isDefault: true }], activeElection: election, canSubmitPrompts: true,
-    }) });
-    if (url.endsWith("/channels/channel/streams/main/proposals")) return Promise.resolve(proposalResponse);
+    if (url.startsWith("https://www.clips.gg/sloptogether/api/v1/extension/state?stream=")) {
+      const stream = new URL(url).searchParams.get("stream");
+      return Promise.resolve({ ok: true, json: async () => ({
+        channel: { twitchLogin: "channel" }, streams, activeElection: stream === "late-night" ? otherElection : election, canSubmitPrompts: true,
+      }) });
+    }
+    if (/\/proposals$/.test(url)) return Promise.resolve(proposalResponse);
     if (url.endsWith("/ballots")) {
       ballotSignal = options.signal;
       return new Promise((resolve, reject) => {
@@ -148,4 +152,65 @@ test("a prompt rejection stays visible through the next successful poll", async 
   await settle();
   assert.equal(panel.elements.get("error").textContent,"There is no unlocked future segment available.");
   assert.equal(panel.elements.get("error").hidden,false);
+});
+
+test("switching streams loads and submits to that stream's election", async () => {
+  const streams=[{slug:"main",displayName:"Main stream",isDefault:true},{slug:"late-night",displayName:"Late night",isDefault:false}];
+  const panel=panelHarness({streams});
+  panel.authorize({channelId:"channel",userId:"viewer-one",token:"one"});
+  await settle();
+  const streamSelect=panel.elements.get("stream-select");
+  assert.equal(panel.elements.get("stream-picker").hidden,false);
+  streamSelect.value="late-night";
+  streamSelect.handlers.change();
+  await settle();
+  assert.equal(panel.elements.get("choices").children[0].dataset.choiceId,"choice-late");
+
+  panel.elements.get("choices").children[0].click();
+  panel.elements.get("submit-vote").click();
+  await settle();
+  assert.ok(panel.calls.some(call=>call.url.endsWith("/channels/channel/streams/late-night/elections/election-late/ballots")));
+
+  panel.elements.get("prompt-toggle").click();
+  panel.elements.get("prompt-input").value="A late-night cartoon rocket bursts into confetti";
+  panel.elements.get("prompt-input").handlers.input();
+  panel.elements.get("submit-prompt").click();
+  await settle();
+  assert.ok(panel.calls.some(call=>call.url.endsWith("/channels/channel/streams/late-night/proposals")));
+});
+
+test("a vote finishing after a stream switch does not update the new stream's UI", async () => {
+  const streams=[{slug:"main",displayName:"Main stream",isDefault:true},{slug:"late-night",displayName:"Late night",isDefault:false}];
+  const panel=panelHarness({streams});
+  await startVote(panel);
+  panel.elements.get("stream-select").value="late-night";
+  panel.elements.get("stream-select").handlers.change();
+  await settle();
+  panel.completeBallot();
+  await settle();
+  assert.equal(panel.elements.get("choices").children[0].dataset.choiceId,"choice-late");
+  assert.equal(panel.elements.get("submit-vote").textContent,"Cast vote");
+});
+
+test("a prompt finishing after a stream switch does not clear the new stream's draft", async () => {
+  const streams=[{slug:"main",displayName:"Main stream",isDefault:true},{slug:"late-night",displayName:"Late night",isDefault:false}];
+  let finishPrompt;
+  const proposalResponse={ok:true,json:()=>new Promise(resolve=>{finishPrompt=resolve;})};
+  const panel=panelHarness({streams,proposalResponse});
+  panel.authorize({channelId:"channel",userId:"viewer-one",token:"one"});
+  await settle();
+  panel.elements.get("prompt-toggle").click();
+  panel.elements.get("prompt-input").value="Main stream draft";
+  panel.elements.get("prompt-input").handlers.input();
+  panel.elements.get("submit-prompt").click();
+  await settle();
+
+  panel.elements.get("stream-select").value="late-night";
+  panel.elements.get("stream-select").handlers.change();
+  await settle();
+  panel.elements.get("prompt-input").value="Late night draft";
+  panel.elements.get("prompt-input").handlers.input();
+  finishPrompt({state:"eligible"});
+  await settle();
+  assert.equal(panel.elements.get("prompt-input").value,"Late night draft");
 });
