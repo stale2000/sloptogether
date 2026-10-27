@@ -1,5 +1,9 @@
 # Fal generation and upscale runbook
 
+For current status, use [the completion plan](completion-plan-2026-10-27.md)
+and [October 27 review](review-fixes-2026-10-27.md). The snapshots below are
+historical and can describe earlier deployments or publisher configurations.
+
 This runbook records the October 26, 2026 investigation. Fal workers, the web
 API, the Cloudflare upload gateway, and the media publisher are separately
 deployed components. A change in one component does not update the others.
@@ -7,7 +11,7 @@ Record each deployed revision and the worker build's `source-manifest.json`
 before drawing conclusions from a test. Never put worker keys, signed URLs,
 upload tickets, or their query strings in logs or this document.
 
-## Live progress snapshot
+## Historical October 26–27 progress snapshot
 
 The current web deployment with the trust fix is Vercel deployment
 `dpl_6DE9NP2qRzf3Aok17YW4WKTXDRq4`. Fal generation revision
