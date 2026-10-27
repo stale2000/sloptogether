@@ -1,4 +1,6 @@
 import {createHash,randomBytes,randomUUID} from "node:crypto";
+import {execFileSync} from "node:child_process";
+import {resolve} from "node:path";
 import {afterAll,beforeAll,describe,expect,it,vi} from "vitest";
 import {compileH3StoryPrompt} from "@sloptogether/contracts";
 
@@ -11,7 +13,7 @@ import {pool} from "./db";
 import {hashWorkerSecret} from "./crypto";
 import * as principalModule from "./principals";
 import {createStoryBatch,listStoryBatches} from "./story-batch-service";
-import {claimStoryProducer,claimWorkerLease,submitStoryProposal} from "./worker-service";
+import {claimStoryProducer,claimWorkerLease,downloadWorkerAsset,submitStoryProposal} from "./worker-service";
 
 const url=process.env.SLOPTOGETHER_POLICY_TEST_DATABASE_URL;
 const integration=url?describe:describe.skip;
@@ -29,7 +31,7 @@ function ownerRequest(requestId:string){
 }
 function workerRequest(path:string,body:unknown={}){
   return new Request(`http://127.0.0.1:3000/sloptogether/api/v1/${path}`,{method:"POST",headers:{
-    Authorization:`Bearer ${credential}`,"Content-Type":"application/json",
+    Authorization:`SlopWorker ${credential}`,"Content-Type":"application/json",
   },body:JSON.stringify(body)});
 }
 
@@ -42,6 +44,8 @@ integration("four-scene story batch PostgreSQL flow",()=>{
       ||!marker||!/^[a-f0-9]{48}$/.test(marker))throw new Error("story_batch_requires_guarded_scratch_database");
     vi.stubEnv("DATABASE_URL",url!);
     vi.stubEnv("SLOPTOGETHER_KEY_HASH_PEPPER","local-only-story-batch-pepper-0123456789");
+    vi.stubEnv("SLOPTOGETHER_UPLOAD_TICKET_KEY","local-only-story-batch-ticket-key-0123456789");
+    vi.stubEnv("SLOPTOGETHER_UPLOAD_WORKER_ORIGIN","https://uploads.clips.gg");
     vi.stubEnv("SLOPTOGETHER_GENERATION_ATTEMPT_RESERVATION_USD","0.01");
     vi.stubEnv("PUBLIC_APP_URL","http://localhost:3000/sloptogether");
     database=pool();
@@ -127,12 +131,59 @@ integration("four-scene story batch PostgreSQL flow",()=>{
       expect(item.rows[0]!.start_boundary_revision_id).toBe(previousBoundary);
       const lease=await claimWorkerLease(workerRequest("workers/leases?role=generation",{supportedRecipes:["fast-h3-trim-5step-vsa20-b1"]}));
       expect(lease).toMatchObject({status:"leased",job:{jobId:item.rows[0]!.job_id,recipeId:"fast-h3-trim-5step-vsa20-b1",frameCount:362}});
+      if (!("job" in lease) || !lease.job || typeof lease.leaseId !== "string" || typeof lease.fence !== "number") {
+        throw new Error("worker_job_not_leased");
+      }
+      const assetId=lease.job.startFrameAssetId;
+      if (!assetId) throw new Error("worker_start_frame_missing");
+      const assetRequest=new Request(`http://127.0.0.1:3000/sloptogether/api/v1/workers/leases/${lease.leaseId}/asset/${assetId}`,{
+        headers:{Authorization:`SlopWorker ${credential}`,"X-Lease-Fence":String(lease.fence)},
+      });
+      const assetGrant=await downloadWorkerAsset(lease.leaseId,assetId,assetRequest);
+      expect(assetGrant.url).toBe("https://uploads.clips.gg/worker-media");
+      expect(JSON.parse(Buffer.from(assetGrant.ticket.split(".")[0]!,"base64url").toString())).toMatchObject({
+        purpose:"worker_asset_read",leaseId:lease.leaseId,assetId,fence:lease.fence,
+      });
+      // Exercise the actual shared Python worker's job decoder using the
+      // server-produced lease, then download the authorized frame through a
+      // fake HTTP opener. No model or external service is contacted.
+      const parsed=JSON.parse(execFileSync("python3.12",["-c",`
+import base64, io, json, pathlib, sys, tempfile
+from types import SimpleNamespace
+from unittest.mock import Mock
+from sloptogether_worker.client import Lease, WorkerApi
+from sloptogether_worker.models import WorkerJob
+payload=json.load(sys.stdin)
+job = WorkerJob.from_payload(payload['job'])
+frame=base64.b64decode(payload['frame'])
+class Response:
+    headers={'Content-Length':str(len(frame))}
+    def __enter__(self): self.buffer=io.BytesIO(frame); return self
+    def __exit__(self,*args): return None
+    def read(self,size): return self.buffer.read(size)
+config=SimpleNamespace(api_base_url='https://www.clips.gg/sloptogether/api/v1',request_timeout_seconds=3,
+                       worker_key=None,allowed_upload_hosts=(),local_s3_endpoint=None)
+api=WorkerApi(config); api._request=Mock(return_value=(payload['grant'],{}))
+api.media_opener=SimpleNamespace(open=Mock(return_value=Response()))
+with tempfile.TemporaryDirectory() as directory:
+    destination=str(pathlib.Path(directory)/'frame.png')
+    api.download_asset(Lease(job.lease_id,job.fence,{}),job.start_frame_asset_id,destination,1024)
+    assert pathlib.Path(destination).read_bytes()==frame
+    request=api.media_opener.open.call_args.args[0]
+    assert request.get_header('X-worker-artifact-ticket')==payload['grant']['ticket']
+    assert request.get_header('Authorization') is None
+print(json.dumps({"jobId": job.job_id, "stage": job.stage,
+                  "startFrameAssetId": job.start_frame_asset_id,
+                  "frameCount": job.frame_count, "prompt": job.prompt}))
+`],{input:JSON.stringify({job:lease.job,grant:assetGrant,frame:frame.toString("base64")}),encoding:"utf8",env:{...process.env,PYTHONPATH:resolve(process.cwd(),"../../workers/runtime/src")}}));
+      expect(parsed).toMatchObject({jobId:item.rows[0]!.job_id,stage:"generation",startFrameAssetId:expect.any(String),frameCount:362,
+        prompt:compileH3StoryPrompt(scene)});
       if(position<3)await expect(claimStoryProducer(channelId,workerRequest("channels/test/streams/main/story-producer/leases"))).resolves.toEqual({status:"empty"});
       // Test fixture simulates a reviewed worker output and approved extracted end frame.
       const videoId=randomUUID(),frameId=randomUUID(),boundaryId=randomUUID();
-      await database!.query(`INSERT INTO sloptogether.assets(id,twitch_channel_id,storage_key,sha256,media_kind,content_type,status) VALUES
-        ($1,$3,$4,$6,'video','video/mp4','approved'),($2,$3,$5,$7,'image','image/png','approved')`,
-        [videoId,frameId,channelId,`batch/${channelId}/${position}.mp4`,`batch/${channelId}/${position}.png`,Buffer.alloc(32,position+2),createHash("sha256").update(frame).digest()]);
+      await database!.query(`INSERT INTO sloptogether.assets(id,twitch_channel_id,storage_key,sha256,media_kind,content_type,status,byte_size) VALUES
+        ($1,$3,$4,$6,'video','video/mp4','approved',NULL),($2,$3,$5,$7,'image','image/png','approved',$8)`,
+        [videoId,frameId,channelId,`batch/${channelId}/${position}.mp4`,`batch/${channelId}/${position}.png`,Buffer.alloc(32,position+2),createHash("sha256").update(frame).digest(),frame.length]);
       await database!.query("INSERT INTO sloptogether.boundary_revisions(id,twitch_channel_id,asset_id,created_by) VALUES($1,$2,$3,$2)",[boundaryId,channelId,frameId]);
       await database!.query(`INSERT INTO sloptogether.endpoint_resolutions(segment_revision_id,source_artifact_id,source_sha256,source_input_sha256,resolved_end_boundary_revision_id,approval_path)
         SELECT j.segment_revision_id,$2,$3,j.input_sha256,$4,'human_review' FROM sloptogether.jobs j WHERE j.id=$1`,[item.rows[0]!.job_id,videoId,Buffer.alloc(32,position+2),boundaryId]);
