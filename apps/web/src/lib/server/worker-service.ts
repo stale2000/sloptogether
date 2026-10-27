@@ -418,9 +418,10 @@ export async function downloadWorkerAsset(leaseId:string,assetId:string,request:
   if(!allowed||!row.content_type||!['image/png','image/jpeg','image/webp','video/mp4'].includes(row.content_type)||!['approved','published'].includes(row.status))throw new ApiError(403,"worker_asset_not_in_attempt");
   if(principal.worker.paired&&!await canContribute(await findChannel(row.channel_id),principal))throw new ApiError(403,"contribution_not_allowed");
   const byteSize=Number(row.byte_size);if(!Number.isSafeInteger(byteSize)||byteSize<1||byteSize>128*1024*1024)throw new ApiError(413,"worker_asset_size_invalid");
+  const url=workerMediaGatewayUrl();
   const ticket=signUploadTicket({version:1,purpose:"worker_asset_read",channelId:row.channel_id,leaseId,assetId,fence,storageKey:row.storage_key,
     contentType:row.content_type,byteSize,expiresAt:new Date(Date.now()+60_000).toISOString()});
-  return {url:workerMediaGatewayUrl(),ticket};
+  return {url,ticket};
 }
 
 export async function failWorkerLease(leaseId:string,request:Request){

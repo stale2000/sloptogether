@@ -160,6 +160,9 @@ describe("worker private media grants",()=>{
 
   it("rejects a gateway override outside the pinned upload host",async()=>{
     vi.stubEnv("SLOPTOGETHER_UPLOAD_WORKER_ORIGIN","https://attacker.example");
+    const assetId="00000000-0000-4000-8000-000000000072";
+    mocks.requestPrincipal.mockResolvedValue({kind:"worker-key",worker:{keyId:"generation-key",issuingTwitchUserId:"42",channelId:"123",scopes:["worker:generation"],roles:["generation"],recipes:[],paired:false}});
+    mocks.query.mockResolvedValue({rows:[{fence:"7",attempt_state:"running",lease_expires_at:new Date(Date.now()+60_000),deadline:new Date(Date.now()+120_000),channel_id:"123",stage:"video_base",key_id:"generation-key",binding_role:"generation",binding_revoked_at:null,requested_by:"42",interrupt_actor_id:null,parent_asset_id:null,start_asset_id:assetId,end_asset_id:null,asset_id:assetId,storage_key:"private/123/images/asset/frame.png",content_type:"image/png",byte_size:"141261",status:"approved",screen_clear:true}],rowCount:1});
     await expect(downloadWorkerAsset("00000000-0000-4000-8000-000000000071","00000000-0000-4000-8000-000000000072",
       new Request("https://www.clips.gg/sloptogether/api/v1/workers/leases/lease/asset/asset",{headers:{Authorization:"SlopWorker test", "x-lease-fence":"7"}})))
       .rejects.toMatchObject({code:"upload_gateway_not_configured"});
