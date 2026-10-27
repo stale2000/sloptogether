@@ -355,7 +355,7 @@ export async function decideArtifactReview(locator:string,assetId:string,request
        WHERE a.id=$1 AND a.twitch_channel_id=$2 AND a.media_kind='video' AND ja.state='validating' AND j.stage IN ('video_base','video_upscale')
        FOR UPDATE OF a,ja,j`,[assetId,channel.twitch_channel_id]);
     const row=result.rows[0];if(!row||row.status!=="validated"||!row.sha256)throw new ApiError(404,"validated_video_not_found");
-    if(row.stage==="video_base"&&!lockedSegment)throw new ApiError(409,"artifact_segment_missing");
+    if(row.stage==="video_base"&&!row.interrupt_id&&!lockedSegment)throw new ApiError(409,"artifact_segment_missing");
     if(body.decision==="approve"&&row.stage==="video_base"&&!row.interrupt_id&&lockedSegment?.selected_revision_id!==row.segment_revision_id)
       throw new ApiError(409,"artifact_revision_no_longer_selected","This clip no longer belongs to the selected scene revision.");
     if(body.decision==="approve"&&row.stage==="video_base"&&!row.interrupt_id&&["played","retired"].includes(lockedSegment?.state??""))

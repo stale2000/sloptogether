@@ -153,6 +153,13 @@ measurement has been performed. The imported Fal/Linux build still targets
 its prior RTX PRO 6000 environment, and the Windows one-file launcher does not
 install WSL2, ComfyUI, the Comfy node/runtime or model files.
 
+The isolated SoL worker now records process RSS, minimum observed system
+available memory, and cgroup usage/limit while loading, inference and export.
+Successful reports include the samples; failed requests emit the memory-only
+sample to private worker stderr. This telemetry does not relax the 128 GiB
+admission gate; collect it on the actual WSL2/4090 host before changing the
+requirement.
+
 The local executable needs its own hardware-qualified capability profiles:
 
 1. Qualify the new per-row FP8 and sequential-offload path on a WSL2-backed
@@ -291,3 +298,20 @@ in the curated import manifest. The SoL Ada profile change is recorded
 separately in the local-patch manifest. GPU inference, Fal image builds, live
 endpoint identity, decoder quality, boundary fidelity, executable installation,
 4090 memory and throughput were not tested and are not claimed.
+
+### October 27 worker memory review
+
+The Ada SoL loader now constructs an empty architecture to select the existing
+large Linear layers, then uses the pinned Diffusers/TorchAO load-time PerRow FP8
+quantizer. It verifies real quantized weights before admitting the pipeline,
+keeps small layers BF16, injects the transformer into pipeline construction and
+does not retry a full BF16 load. Ada skips eager checkpoint prefetch; other
+profiles skip omitted decoder/conditioning components and cached transformer
+weights. This reduces avoidable load/IO work; actual RAM reduction and a revised
+4090 admission minimum remain unmeasured. No hardware support claim follows
+from CPU mocks. Keep the current guard until a bounded GPU qualification.
+
+The pinned [Diffusers quantizer](https://github.com/huggingface/diffusers/blob/e0abab83b5df05de9e7abd788643c1a7c1e42e28/src/diffusers/quantizers/torchao/torchao_quantizer.py)
+quantizes one Linear at a time. Do not add an explicit CPU device map: its
+offload branch skips CPU quantization. Do not enable parallel checkpoint loading
+on a constrained-memory candidate without measuring the concurrent shard peak.

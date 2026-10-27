@@ -5,6 +5,7 @@ from __future__ import annotations
 import gc
 import hashlib
 import json
+import os
 import sys
 import threading
 import time
@@ -169,6 +170,150 @@ def _prefetch_cached_safetensors(
         flush=True,
     )
     return completed, total_bytes
+
+
+def _prefetch_pipeline_weights(
+    directory: Path,
+    *,
+    transformer_precision: str,
+    decoder_mode: str,
+    fixed_conditioning: bool,
+    cached_transformer: bool,
+) -> None:
+    # Ada uses CPU offload: eagerly priming the whole checkpoint competes with
+    # resident weights under the container/WSL memory limit. Read on demand.
+    if transformer_precision == "fp8":
+        return
+    skipped = ["transformer"] if cached_transformer else []
+    if decoder_mode == "pruna_fast":
+        skipped.append("diffusion_decoder")
+    if fixed_conditioning:
+        skipped.extend(("text_encoder", "connectors"))
+    _prefetch_cached_safetensors(directory, skip_components=tuple(skipped))
+
+
+def _cgroup_memory_snapshot() -> tuple[int | None, int | None]:
+    candidates = (
+        (Path("/sys/fs/cgroup/memory.current"), Path("/sys/fs/cgroup/memory.max")),
+        (Path("/sys/fs/cgroup/memory/memory.usage_in_bytes"), Path("/sys/fs/cgroup/memory/memory.limit_in_bytes")),
+    )
+    for current_path, limit_path in candidates:
+        try:
+            current = int(current_path.read_text(encoding="ascii").strip())
+            limit_text = limit_path.read_text(encoding="ascii").strip()
+            limit = None if limit_text == "max" else int(limit_text)
+        except (OSError, ValueError):
+            continue
+        if limit is not None and limit >= 2**60:
+            limit = None
+        return current, limit
+    return None, None
+
+
+class HostMemorySampler:
+    """Track host and process memory while a model request loads and runs."""
+
+    def __init__(self, interval_seconds: float = 0.25, reader: Callable[[], dict[str, int | None]] | None = None):
+        if not 0.05 <= interval_seconds <= 5:
+            raise ValueError("memory sampling interval must be between 0.05 and 5 seconds")
+        self.interval_seconds = interval_seconds
+        self._reader = reader or self._read_memory
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+        self._sample_count = 0
+        self._rss_start: int | None = None
+        self._rss_peak: int | None = None
+        self._system_total: int | None = None
+        self._system_available_min: int | None = None
+        self._cgroup_current_peak: int | None = None
+        self._cgroup_available_min: int | None = None
+        self._cgroup_limit: int | None = None
+
+    @staticmethod
+    def _read_memory() -> dict[str, int | None]:
+        try:
+            import psutil
+
+            rss = int(psutil.Process(os.getpid()).memory_info().rss)
+            virtual = psutil.virtual_memory()
+            total = int(virtual.total)
+            available = int(virtual.available)
+        except (ImportError, OSError, AttributeError, ValueError):
+            rss = total = available = None
+        cgroup_current, cgroup_limit = _cgroup_memory_snapshot()
+        return {
+            "process_rss_bytes": rss,
+            "system_total_bytes": total,
+            "system_available_bytes": available,
+            "cgroup_current_bytes": cgroup_current,
+            "cgroup_limit_bytes": cgroup_limit,
+        }
+
+    def observe(self, values: dict[str, int | None]) -> None:
+        """Merge one memory sample; public for deterministic unit tests."""
+        with self._lock:
+            self._sample_count += 1
+            rss = values.get("process_rss_bytes")
+            if type(rss) is int:
+                self._rss_start = rss if self._rss_start is None else self._rss_start
+                self._rss_peak = max(self._rss_peak or 0, rss)
+            total = values.get("system_total_bytes")
+            if type(total) is int and self._system_total is None:
+                self._system_total = total
+            available = values.get("system_available_bytes")
+            if type(available) is int:
+                self._system_available_min = available if self._system_available_min is None else min(self._system_available_min, available)
+            current = values.get("cgroup_current_bytes")
+            if type(current) is int:
+                self._cgroup_current_peak = max(self._cgroup_current_peak or 0, current)
+            limit = values.get("cgroup_limit_bytes")
+            if type(limit) is int and limit > 0:
+                self._cgroup_limit = limit
+                if type(current) is int:
+                    available = max(0, limit - current)
+                    self._cgroup_available_min = available if self._cgroup_available_min is None else min(self._cgroup_available_min, available)
+
+    def sample_once(self) -> None:
+        try:
+            self.observe(self._reader())
+        except Exception as error:
+            # Resource measurement is diagnostic only; it must never stop media work.
+            print(f"[sol-refiner] host memory sample failed: {type(error).__name__}", flush=True)
+
+    def start(self) -> None:
+        if self._thread is not None:
+            raise RuntimeError("host memory sampler already started")
+        self._stop.clear()
+        self.sample_once()
+
+        def sample_loop() -> None:
+            while not self._stop.wait(self.interval_seconds):
+                self.sample_once()
+
+        self._thread = threading.Thread(target=sample_loop, name="sol-host-memory", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=max(1, self.interval_seconds * 4))
+            self._thread = None
+        self.sample_once()
+
+    def report(self) -> dict[str, int | None]:
+        with self._lock:
+            return {
+                "host_memory_sample_count": self._sample_count,
+                "host_memory_sample_interval_ms": int(self.interval_seconds * 1000),
+                "host_process_rss_start_bytes": self._rss_start,
+                "host_process_rss_peak_bytes": self._rss_peak,
+                "host_system_total_bytes": self._system_total,
+                "host_system_available_min_bytes": self._system_available_min,
+                "host_cgroup_memory_peak_bytes": self._cgroup_current_peak,
+                "host_cgroup_memory_limit_bytes": self._cgroup_limit,
+                "host_cgroup_memory_available_min_bytes": self._cgroup_available_min,
+            }
 
 
 class ModelRuntime:
@@ -456,18 +601,19 @@ class ModelRuntime:
                         # priming any present weight shards from that snapshot.
                         cached_snapshot = getattr(error, "snapshot_path", None)
                 if cached_snapshot is not None:
-                    _prefetch_cached_safetensors(
+                    _prefetch_pipeline_weights(
                         Path(cached_snapshot),
-                        skip_components=("transformer",)
-                        if checkpoint_cache is not None
-                        and checkpoint_cache.has_valid_checkpoint()
-                        else (),
+                        transformer_precision=transformer_precision,
+                        decoder_mode=decoder_mode,
+                        fixed_conditioning=fixed_conditioning is not None,
+                        cached_transformer=checkpoint_cache is not None
+                        and checkpoint_cache.has_valid_checkpoint(),
                     )
 
                 import importlib
 
                 importlib.import_module("sol_refiner_h3")
-                if checkpoint_cache is not None:
+                if checkpoint_cache is not None or transformer_precision == "fp8":
                     from diffusers import LTX2VideoTransformer3DModel
                 from diffusers.pipelines import pipeline_loading_utils
 
@@ -484,13 +630,23 @@ class ModelRuntime:
                 "ModelMixin": ["save_pretrained", "from_pretrained"]
             }
             try:
+                loaded_fp8_names: tuple[str, ...] = ()
                 if checkpoint_cache is None:
                     cached_transformer = None
                     cached_checkpoint = None
+                    if transformer_precision == "fp8":
+                        from .fp8_loading import load_transformer_fp8
+
+                        cached_transformer, loaded_fp8_names = load_transformer_fp8(
+                            LTX2VideoTransformer3DModel, model_id, MODEL_REVISION,
+                        )
                     pipeline: SoLRefinerH3Pipeline = SoLRefinerH3Pipeline.from_pretrained(
                         model_id,
                         revision=MODEL_REVISION,
                         torch_dtype=torch.bfloat16,
+                        low_cpu_mem_usage=True,
+                        **({"transformer": cached_transformer}
+                           if cached_transformer is not None else {}),
                         **({"diffusion_decoder": None} if decoder_mode == "pruna_fast" else {}),
                         **({"text_encoder": None, "tokenizer": None, "connectors": None}
                            if fixed_conditioning is not None else {}),
@@ -558,11 +714,7 @@ class ModelRuntime:
                     pipeline.transformer,
                 )
             elif transformer_precision == "fp8":
-                from .fp8_optimizations import enable_transformer_fp8
-
-                pipeline.transformer_fp8_linear_names = enable_transformer_fp8(
-                    pipeline.transformer,
-                )
+                pipeline.transformer_fp8_linear_names = loaded_fp8_names
             elif transformer_precision == "nvfp4" and cached_checkpoint is not None:
                 pipeline.transformer_nvfp4_linear_names = cached_checkpoint[1]
                 pipeline.video_only_transformer_blocks = cached_checkpoint[2]
