@@ -1,0 +1,47 @@
+{
+  "schema": "sloptogether-experimental-decoder/1",
+  "source_git_head": "112fe297c0c7b3a9dceb4f286b64dca9b1843236",
+  "source_implementation_commit": "311de12ce1dfae00203e4585a514edabb9d376d8",
+  "files": [
+    {
+      "path": "deploy/custom_nodes/fasth3_deploy/p36_node.py",
+      "source_path": "deploy/custom_nodes/fasth3_deploy/p36_node.py",
+      "sha256": "a244d0797a661cba753212b9a4e99189e0a373065bc1fa48180b14da48be6985"
+    },
+    {
+      "path": "deploy/custom_nodes/fasth3_deploy/p36_worker.py",
+      "source_path": "deploy/custom_nodes/fasth3_deploy/p36_worker.py",
+      "sha256": "b7577164d047a98cc6497fe5c897d49c5ffb7560fd566549d23324ea796cda50"
+    },
+    {
+      "path": "deploy/fal/fasth3-b1/bootstrap_p36.py",
+      "source_path": "deploy/fal/fasth3-b1/bootstrap_p36.py",
+      "sha256": "1142b34de3f3cf76d1dba5ae0dbe548a11b2bbe3f69afa013f288e53254e9397"
+    },
+    {
+      "path": "deploy/fal/fasth3-nvfp4-vae-bench/patch_bench.py",
+      "source_path": "deploy/fal/fasth3-nvfp4-vae-bench/patch_bench.py",
+      "sha256": "82ec0a9acc61ebc9e13c9216cb24bdd06565926ba4a430d081e650d6b9acf943"
+    },
+    {
+      "path": "docs/h3-p36-repeated-benchmark-2026-10-27.md",
+      "source_path": "docs/experiments/h3-p36-repeated-benchmark-2026-10-27.md",
+      "sha256": "476740e0781f7389cff2296d6a135229f5ef7b7b602d980607dd6516235e20ad"
+    },
+    {
+      "path": "tests/test_h3_p36_node.py",
+      "source_path": "tests/test_h3_p36_node.py",
+      "sha256": "6b33b8c59f85eed7e293a1e697488bb6fdd1b892742e42f3478de5a873c63bd7"
+    },
+    {
+      "path": "tests/test_h3_p36_provisioning.py",
+      "source_path": "tests/test_h3_p36_provisioning.py",
+      "sha256": "763d8e3630ce0c1d0feee318e41f2ac7b3aa364c70d7f26602c141cb7cda8127"
+    },
+    {
+      "path": "tests/test_h3_p36_worker.py",
+      "source_path": "tests/test_h3_p36_worker.py",
+      "sha256": "599b3e55af1f72dfb2f983408270388288d3ad75a1c3816e6dbfb344ce306263"
+    }
+  ]
+}
