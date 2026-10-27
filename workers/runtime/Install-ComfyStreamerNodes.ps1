@@ -51,14 +51,30 @@ function Invoke-WslInteractive([string[]]$Arguments) {
 
 function Test-IdenticalTree([string]$Source, [string]$Destination) {
     if (-not (Test-Path -LiteralPath $Destination -PathType Container)) { return $false }
-    $sourceFiles = @(Get-ChildItem -LiteralPath $Source -Recurse -File -Force | Sort-Object FullName)
-    $targetFiles = @(Get-ChildItem -LiteralPath $Destination -Recurse -File -Force | Sort-Object FullName)
-    if ($sourceFiles.Count -ne $targetFiles.Count) { return $false }
-    for ($index = 0; $index -lt $sourceFiles.Count; $index++) {
-        if (($sourceFiles[$index].Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
-            ($targetFiles[$index].Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    $trees = foreach ($root in @($Source, $Destination)) {
+        if (((Get-Item -LiteralPath $root -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
             throw "Refusing to compare a custom-node tree containing a reparse point."
         }
+        $files = @()
+        foreach ($entry in @(Get-ChildItem -LiteralPath $root -Recurse -Force)) {
+            # Check directories as well as files before excluding generated
+            # caches, so a reparse point cannot bypass tree validation.
+            if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Refusing to compare a custom-node tree containing a reparse point."
+            }
+            if ($entry.PSIsContainer) { continue }
+            $relative = $entry.FullName.Substring($root.Length).TrimStart([char]92, [char]47)
+            $parts = $relative -split '[\\/]'
+            if ($parts.Count -ge 2 -and $parts[-2] -ceq '__pycache__' -and
+                $parts[-1] -cmatch '^.+\.cpython-\d+(?:\.opt-\d+)?\.pyc$') { continue }
+            $files += $entry
+        }
+        ,@($files | Sort-Object FullName)
+    }
+    $sourceFiles = $trees[0]
+    $targetFiles = $trees[1]
+    if ($sourceFiles.Count -ne $targetFiles.Count) { return $false }
+    for ($index = 0; $index -lt $sourceFiles.Count; $index++) {
         $sourceRelative = $sourceFiles[$index].FullName.Substring($Source.Length).TrimStart([char]92, [char]47)
         $targetRelative = $targetFiles[$index].FullName.Substring($Destination.Length).TrimStart([char]92, [char]47)
         if ($sourceRelative -ne $targetRelative) { return $false }
