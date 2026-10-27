@@ -6,12 +6,14 @@ import type { PoolClient } from "pg";
 import { transaction,query } from "./db";
 import { ApiError,readJson } from "./http";
 import { constantTimeEqual } from "./crypto";
-import { findChannel,isBanned } from "./channels";
+import { canContribute,findChannel,isBanned } from "./channels";
 import { verifyExtensionBitsReceipt,verifyExtensionRequest } from "./extension-auth";
 import { getExtensionTransaction,listExtensionBitsProducts,twitchExtensionClientId } from "./twitch";
 import { bitsReconcileEndpointMatchesApp,bitsTransactionMatchesReceiptTarget } from "../bits-reconciliation";
+import { getStream } from "./stream-service";
+import { BASE_GENERATION_SIZE } from "./generation-profile";
 
-// Keep the paid product implementation, but never expose or dispatch it.
+// H3 Max Turbo remains test-only; Prompt Lock has separate explicit approval gates.
 const PAID_TURBO_ENABLED = process.env.NODE_ENV === "test";
 
 const productsSchema=z.array(z.object({
@@ -20,19 +22,27 @@ const productsSchema=z.array(z.object({
   resolution:z.enum(["480P","768P","1080P"]),
   reservedUsd:z.number().min(0.0001).max(500),
 }).strict()).min(1).max(20);
+const promptLockProductsSchema=z.array(z.object({
+  sku:z.string().trim().min(1).max(255).regex(/^[A-Za-z0-9._-]+$/),
+  amountBits:z.number().int().min(1).max(10_000),
+  reservedUsd:z.number().min(0.0001).max(500),
+}).strict()).min(1).max(20);
 const dispatchSnapshotSchema=z.object({
   schemaVersion:z.literal(1),channelId:z.string().regex(/^[0-9]{1,32}$/),policyRevision:z.number().int().positive(),
   segmentId:z.string().uuid(),segmentRevisionId:z.string().uuid(),prompt:z.string().min(1).max(6000),
+  actionKind:z.enum(["turbo_render","prompt_lock"]).optional(),proposalId:z.string().uuid().optional(),
+  electionId:z.string().uuid().optional(),streamId:z.string().uuid().optional(),
   input:z.object({screenId:z.string().uuid(),screenSha256:z.string().regex(/^[a-f0-9]{64}$/),revisionSha256:z.string().regex(/^[a-f0-9]{64}$/),
     moderationModel:z.string().min(1).max(128),moderationPolicyRevision:z.number().int().positive()}).strict(),
   start:z.object({boundaryRevisionId:z.string().uuid(),assetId:z.string().uuid(),sha256:z.string().regex(/^[a-f0-9]{64}$/)}).strict(),
   end:z.object({boundaryRevisionId:z.string().uuid(),assetId:z.string().uuid(),sha256:z.string().regex(/^[a-f0-9]{64}$/)}).strict().nullable(),
-  dependencyResolutionId:z.string().uuid().nullable(),resolution:z.enum(["480P","768P","1080P"]),durationSeconds:z.literal(15),
-  promptExpansionMode:z.literal("disabled"),enableSafetyChecker:z.literal(true),syncMode:z.literal(false),recipeSha256:z.string().regex(/^[a-f0-9]{64}$/),
+  dependencyResolutionId:z.string().uuid().nullable(),resolution:z.enum(["480P","768P","1080P"]).nullable(),durationSeconds:z.literal(15).nullable(),
+  promptExpansionMode:z.literal("disabled").nullable(),enableSafetyChecker:z.literal(true).nullable(),syncMode:z.literal(false).nullable(),recipeSha256:z.string().regex(/^[a-f0-9]{64}$/),
 }).strict();
 const reconcileReceiptSchema=z.object({intentId:z.string().uuid(),outboxId:z.string().regex(/^[0-9]{1,20}$/),leaseUntil:z.string().datetime()}).strict();
 const receiptReconcileGraceMs=10*60_000;
 const receiptReconcileStates=["receipt_seen","expired","cancelled","receipt_unverified"] as const;
+const FAST_H3_RECIPE_SHA256=Buffer.from("9a2d5d19fb22b7e55d29c8e6048c4c421c5b73b044b7cc010188efe7df9ccaef","hex");
 
 function configuredProducts(){
   if(!PAID_TURBO_ENABLED||process.env.SLOPTOGETHER_BITS_TURBO_ENABLED!=="true"||process.env.SLOPTOGETHER_BITS_POLICY_APPROVED!=="true"
@@ -50,7 +60,36 @@ async function availableProducts(){
   const extensionId=twitchExtensionClientId();
   const subscription=await query(`SELECT 1 FROM sloptogether.extension_bits_eventsub_subscriptions
     WHERE extension_client_id=$1 AND state='enabled' LIMIT 1`,[extensionId]);
-  if(!subscription.rowCount)throw new ApiError(503,"bits_eventsub_unavailable","Paid Turbo is paused until its transaction subscription is verified.");
+  if(!subscription.rowCount)throw new ApiError(503,"bits_eventsub_unavailable","Paid Bits actions are paused until their transaction subscription is verified.");
+  const catalog=await listExtensionBitsProducts();
+  return configured.flatMap(product=>{
+    const actual=catalog.find(row=>row.sku===product.sku&&row.amountBits===product.amountBits&&!row.inDevelopment);
+    return actual?[{...product,displayName:actual.displayName}]:[];
+  });
+}
+
+function promptLockFlagsReady(){
+  return process.env.SLOPTOGETHER_BITS_PROMPT_LOCK_ENABLED==="true"
+    &&process.env.SLOPTOGETHER_BITS_PROMPT_LOCK_POLICY_APPROVED==="true"
+    &&process.env.SLOPTOGETHER_BITS_PROMPT_LOCK_EVENTSUB_READY==="true"
+    &&process.env.SLOPTOGETHER_BITS_PROMPT_LOCK_DISPATCH_READY==="true";
+}
+
+function configuredPromptLockProducts(){
+  if(!promptLockFlagsReady())throw new ApiError(503,"bits_prompt_lock_unavailable","Prompt Lock is not enabled for this Extension.");
+  if((process.env.SLOPTOGETHER_BITS_RECONCILE_SECRET??"").length<32)throw new ApiError(503,"bits_reconciliation_not_configured");
+  if(!bitsReconcileEndpointMatchesApp(process.env.SLOPTOGETHER_BITS_RECONCILE_URL,process.env.PUBLIC_APP_URL))
+    throw new ApiError(503,"bits_reconciliation_not_configured");
+  try{return promptLockProductsSchema.parse(JSON.parse(process.env.SLOPTOGETHER_BITS_PROMPT_LOCK_PRODUCTS_JSON??""));}
+  catch{throw new ApiError(503,"bits_catalog_not_configured");}
+}
+
+async function availablePromptLockProducts(){
+  const configured=configuredPromptLockProducts();
+  const extensionId=twitchExtensionClientId();
+  const subscription=await query(`SELECT 1 FROM sloptogether.extension_bits_eventsub_subscriptions
+    WHERE extension_client_id=$1 AND state='enabled' LIMIT 1`,[extensionId]);
+  if(!subscription.rowCount)throw new ApiError(503,"bits_eventsub_unavailable","Prompt Lock is paused until its transaction subscription is verified.");
   const catalog=await listExtensionBitsProducts();
   return configured.flatMap(product=>{
     const actual=catalog.find(row=>row.sku===product.sku&&row.amountBits===product.amountBits&&!row.inDevelopment);
@@ -61,7 +100,7 @@ async function availableProducts(){
 async function lockActiveBitsEventSub(client:PoolClient){
   const subscription=await client.query(`SELECT subscription_id FROM sloptogether.extension_bits_eventsub_subscriptions
     WHERE extension_client_id=$1 AND state='enabled' FOR SHARE`,[twitchExtensionClientId()]);
-  if(!subscription.rowCount)throw new ApiError(503,"bits_eventsub_unavailable","Paid Turbo is paused until its transaction subscription is verified.");
+  if(!subscription.rowCount)throw new ApiError(503,"bits_eventsub_unavailable","Paid Bits actions are paused until their transaction subscription is verified.");
 }
 
 function falRecipeHash(resolution:string){
@@ -80,11 +119,118 @@ function dispatchSnapshotHash(snapshot:unknown){
 
 type VerifiedBitsRecord={transaction_id:string;broadcaster_twitch_id:string;purchaser_twitch_user_id:string;product_sku:string;amount_bits:number;
   occurred_at:Date;is_in_development:boolean;extension_client_id:string;state:string};
+type PaidActionIntentRow={id:string;action_kind:string;state:string;reserved_usd:string|number;proposal_id:string|null;election_id:string|null;stream_id:string|null;
+  extension_client_id:string;amount_bits:number;dispatch_snapshot:unknown;dispatch_snapshot_sha256:Buffer|null;receipt_transaction_id:string|null;
+  segment_id:string;segment_revision_id:string;input_screen_id:string;input_sha256:Buffer;policy_revision:number;resolution:string|null;};
 
 async function markBitsTransactionUnallocated(client:PoolClient,transactionId:string,reason:string){
   await client.query("UPDATE sloptogether.extension_bits_transactions SET state='verified_unallocated',settlement_state='pending',processed_at=now() WHERE transaction_id=$1",[transactionId]);
   await client.query(`UPDATE sloptogether.paid_action_intents SET state='verified_unallocated',state_reason=$2,updated_at=now()
     WHERE receipt_transaction_id=$1 AND state=ANY($3::text[])`,[transactionId,reason,[...receiptReconcileStates]]);
+}
+
+async function markPaidActionUnfulfilled(client:PoolClient,tx:VerifiedBitsRecord,intent:PaidActionIntentRow,reason:string){
+  await client.query(`INSERT INTO sloptogether.funding_authorizations(twitch_channel_id,source,twitch_transaction_id,purchaser_twitch_user_id,paid_action_intent_id,amount_bits,reserved_usd,state,consumed_at,settled_at)
+    VALUES($1,'twitch_extension_bits',$2,$3,$4,$5,$6,'paid_unfulfilled',now(),now()) ON CONFLICT(twitch_transaction_id) DO NOTHING`,
+    [tx.broadcaster_twitch_id,tx.transaction_id,tx.purchaser_twitch_user_id,intent.id,tx.amount_bits,intent.reserved_usd]);
+  await client.query("UPDATE sloptogether.paid_action_intents SET state='paid_unfulfilled',receipt_transaction_id=$2,receipt_timestamp=$3,state_reason=$4,updated_at=now() WHERE id=$1",
+    [intent.id,tx.transaction_id,tx.occurred_at,reason]);
+  await client.query("UPDATE sloptogether.extension_bits_transactions SET intent_id=$2,state='paid_unfulfilled',settlement_state='paid_unfulfilled',processed_at=now() WHERE transaction_id=$1",
+    [tx.transaction_id,intent.id]);
+  await client.query(`INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,action,target_kind,target_id,after_state)
+    VALUES($1,$2,'bits.action.unfulfilled','paid_action_intent',$3,$4::jsonb)`,
+    [tx.broadcaster_twitch_id,tx.purchaser_twitch_user_id,intent.id,JSON.stringify({transactionId:tx.transaction_id,reason})]);
+  return {state:"paid_unfulfilled"};
+}
+
+async function fulfillVerifiedPromptLock(client:PoolClient,tx:VerifiedBitsRecord,intent:PaidActionIntentRow,snapshot:z.infer<typeof dispatchSnapshotSchema>){
+  if(!promptLockFlagsReady()||["expired","cancelled","paid_unfulfilled"].includes(intent.state))
+    return markPaidActionUnfulfilled(client,tx,intent,"prompt_lock_disabled_or_expired");
+  if(snapshot.actionKind!=="prompt_lock"||snapshot.proposalId!==intent.proposal_id||snapshot.electionId!==intent.election_id||snapshot.streamId!==intent.stream_id
+    ||snapshot.policyRevision!==intent.policy_revision
+    ||snapshot.resolution!==null||snapshot.durationSeconds!==null||snapshot.promptExpansionMode!==null||snapshot.enableSafetyChecker!==null||snapshot.syncMode!==null
+    ||snapshot.recipeSha256!==FAST_H3_RECIPE_SHA256.toString("hex"))
+    return markPaidActionUnfulfilled(client,tx,intent,"prompt_lock_snapshot_mismatch");
+  const channel=await client.query<{policy_revision:number;is_enabled:boolean;visibility:string}>(
+    "SELECT policy_revision,is_enabled,visibility FROM sloptogether.channels WHERE twitch_channel_id=$1 FOR UPDATE",[tx.broadcaster_twitch_id]);
+  const target=await client.query<{policy_revision:number;is_enabled:boolean;visibility:string;stream_is_selected:boolean;segment_id:string;segment_state:string;protected_at:Date|null;
+    selected_revision_id:string|null;election_state:string;election_closes_at:Date;winner_proposal_id:string|null;proposal_state:string;proposal_author:string;
+    revision_id:string;prompt:string;revision_hash:Buffer;screen_id:string;screen_hash:Buffer;screen_clear:boolean;start_boundary_id:string;
+    start_asset_id:string;start_hash:Buffer;end_boundary_id:string|null;end_asset_id:string|null;end_hash:Buffer|null;predecessor_boundary_id:string|null;dependency_resolution_id:string|null;committed:boolean;active_render:boolean}>(`SELECT c.policy_revision,c.is_enabled,c.visibility,b.is_selected AS stream_is_selected,s.id AS segment_id,s.state AS segment_state,s.protected_at,
+      s.selected_revision_id,e.state AS election_state,e.closes_at AS election_closes_at,e.winner_proposal_id,p.state AS proposal_state,p.author_twitch_user_id AS proposal_author,
+      r.id AS revision_id,r.prompt,r.input_sha256 AS revision_hash,i.id AS screen_id,i.input_sha256 AS screen_hash,
+      (i.effective_state='clear' AND (i.expires_at IS NULL OR i.expires_at>now())) AS screen_clear,
+      r.start_boundary_revision_id AS start_boundary_id,sb.asset_id AS start_asset_id,sa.sha256 AS start_hash,
+      r.requested_end_boundary_revision_id AS end_boundary_id,eb.asset_id AS end_asset_id,ea.sha256 AS end_hash,
+      predecessor.boundary_id AS predecessor_boundary_id,
+      dependency.id AS dependency_resolution_id,
+      EXISTS(SELECT 1 FROM sloptogether.program_items pi WHERE pi.segment_id=s.id AND pi.stream_id=$5 AND pi.committed_at IS NOT NULL) AS committed,
+      EXISTS(SELECT 1 FROM sloptogether.job_attempts a JOIN sloptogether.jobs j ON j.id=a.job_id WHERE j.segment_revision_id=r.id
+        AND j.stage='video_base' AND a.state IN ('leased','running','uploaded','validating')) AS active_render
+    FROM sloptogether.paid_action_intents pai JOIN sloptogether.channels c ON c.twitch_channel_id=pai.twitch_channel_id
+    JOIN sloptogether.streams st ON st.id=pai.stream_id AND st.twitch_channel_id=c.twitch_channel_id
+    JOIN sloptogether.elections e ON e.id=pai.election_id AND e.segment_id=pai.segment_id
+    JOIN sloptogether.segments s ON s.id=e.segment_id
+    JOIN sloptogether.branches b ON b.id=s.branch_id AND b.stream_id=st.id AND b.is_selected AND b.archived_at IS NULL
+    JOIN sloptogether.proposals p ON p.id=pai.proposal_id AND p.election_id=e.id AND p.segment_revision_id=pai.segment_revision_id
+    JOIN sloptogether.segment_revisions r ON r.id=p.segment_revision_id AND r.segment_id=s.id
+    JOIN sloptogether.input_screens i ON i.id=pai.input_screen_id AND i.id=p.input_screen_id AND i.twitch_channel_id=c.twitch_channel_id
+    JOIN sloptogether.boundary_revisions sb ON sb.id=r.start_boundary_revision_id AND sb.twitch_channel_id=c.twitch_channel_id AND sb.retired_at IS NULL
+    JOIN sloptogether.assets sa ON sa.id=sb.asset_id AND sa.status IN ('approved','published') AND sa.media_kind='image' AND sa.sha256 IS NOT NULL
+    LEFT JOIN sloptogether.boundary_revisions eb ON eb.id=r.requested_end_boundary_revision_id AND eb.twitch_channel_id=c.twitch_channel_id AND eb.retired_at IS NULL
+    LEFT JOIN sloptogether.assets ea ON ea.id=eb.asset_id AND ea.status IN ('approved','published') AND ea.media_kind='image' AND ea.sha256 IS NOT NULL
+    LEFT JOIN LATERAL(SELECT coalesce(pr.requested_end_boundary_revision_id,er.resolved_end_boundary_revision_id) AS boundary_id
+      FROM sloptogether.segments ps JOIN sloptogether.segment_revisions pr ON pr.id=ps.selected_revision_id
+      LEFT JOIN LATERAL(SELECT resolved_end_boundary_revision_id FROM sloptogether.endpoint_resolutions
+        WHERE segment_revision_id=pr.id AND retired_at IS NULL ORDER BY created_at DESC LIMIT 1) er ON true
+      WHERE ps.branch_id=s.branch_id AND ps.ordinal<s.ordinal AND ps.state NOT IN ('retired','rejected')
+      ORDER BY ps.ordinal DESC LIMIT 1) predecessor ON true
+    LEFT JOIN LATERAL(SELECT id FROM sloptogether.endpoint_resolutions WHERE resolved_end_boundary_revision_id=sb.id AND retired_at IS NULL ORDER BY created_at DESC LIMIT 1) dependency ON true
+    WHERE pai.id=$1 AND c.twitch_channel_id=$2 AND pai.proposal_id=$3 AND pai.election_id=$4 AND st.id=$5 AND s.state IN ('open','voting')
+    FOR UPDATE OF c,st,e,s,b,p,r,i`,[intent.id,tx.broadcaster_twitch_id,intent.proposal_id,intent.election_id,intent.stream_id]);
+  const row=target.rows[0],channelRow=channel.rows[0];
+  const eligible=Boolean(row&&channelRow?.is_enabled&&channelRow.visibility!=="private"&&channelRow.policy_revision===intent.policy_revision
+    &&row.policy_revision===intent.policy_revision&&row.is_enabled&&row.visibility!=="private"&&row.stream_is_selected
+    &&row.segment_id===intent.segment_id&&!row.protected_at&&["open","voting"].includes(row.segment_state)&&row.election_state==="open"&&row.election_closes_at.getTime()>Date.now()
+    &&row.winner_proposal_id===null&&row.proposal_state==="eligible"&&row.proposal_author===tx.purchaser_twitch_user_id
+    &&row.revision_id===intent.segment_revision_id&&row.prompt===snapshot.prompt&&row.revision_hash.equals(intent.input_sha256)
+    &&row.screen_id===intent.input_screen_id&&row.screen_clear&&row.screen_hash.equals(Buffer.from(snapshot.input.screenSha256,"hex"))
+    &&row.start_boundary_id===snapshot.start.boundaryRevisionId&&row.start_asset_id===snapshot.start.assetId&&row.start_hash.equals(Buffer.from(snapshot.start.sha256,"hex"))
+    &&(!row.predecessor_boundary_id||row.predecessor_boundary_id===row.start_boundary_id)
+    &&row.end_boundary_id===(snapshot.end?.boundaryRevisionId??null)&&row.end_asset_id===(snapshot.end?.assetId??null)
+    &&row.dependency_resolution_id===(snapshot.dependencyResolutionId??null)
+    &&(row.end_hash===null?snapshot.end===null:Buffer.isBuffer(row.end_hash)&&row.end_hash.equals(Buffer.from(snapshot.end!.sha256,"hex")))
+    &&!row.committed&&!row.active_render&&snapshot.channelId===tx.broadcaster_twitch_id&&snapshot.segmentId===intent.segment_id
+    &&snapshot.segmentRevisionId===intent.segment_revision_id&&snapshot.input.revisionSha256===intent.input_sha256.toString("hex"));
+  if(!eligible)return markPaidActionUnfulfilled(client,tx,intent,"prompt_lock_target_or_policy_no_longer_eligible");
+  const banned=await client.query(`SELECT 1 FROM sloptogether.bans WHERE twitch_user_id=$1 AND revoked_at IS NULL
+    AND (expires_at IS NULL OR expires_at>now()) AND (scope='global' OR twitch_channel_id=$2)`,[tx.purchaser_twitch_user_id,tx.broadcaster_twitch_id]);
+  if(banned.rowCount)return markPaidActionUnfulfilled(client,tx,intent,"prompt_lock_buyer_banned");
+  const funding=await client.query<{id:string}>(`INSERT INTO sloptogether.funding_authorizations(twitch_channel_id,source,twitch_transaction_id,purchaser_twitch_user_id,paid_action_intent_id,
+      amount_bits,reserved_usd,state)
+    VALUES($1,'twitch_extension_bits',$2,$3,$4,$5,$6,'reserved') RETURNING id`,
+    [tx.broadcaster_twitch_id,tx.transaction_id,tx.purchaser_twitch_user_id,intent.id,tx.amount_bits,intent.reserved_usd]);
+  const jobId=randomUUID(),attemptId=randomUUID();
+  await client.query("UPDATE sloptogether.proposals SET state='selected',reviewed_at=now(),review_reason='bits_prompt_lock' WHERE id=$1 AND state='eligible'",[intent.proposal_id]);
+  await client.query("UPDATE sloptogether.proposals SET state='superseded' WHERE election_id=$1 AND id<>$2 AND state='eligible'",[intent.election_id,intent.proposal_id]);
+  await client.query("UPDATE sloptogether.elections SET state='selected',winner_proposal_id=$2,closed_by=$3 WHERE id=$1 AND state='open'",[intent.election_id,intent.proposal_id,tx.purchaser_twitch_user_id]);
+  await client.query("UPDATE sloptogether.segment_revisions SET state='locked',target_funding_id=$2 WHERE id=$1 AND state='proposal'",[intent.segment_revision_id,funding.rows[0]!.id]);
+  await client.query(`INSERT INTO sloptogether.jobs(id,twitch_channel_id,segment_revision_id,stage,execution_mode,state,recipe_id,recipe_sha256,input_sha256,requested_by,funding_id,
+      dependency_resolution_id,planning_payload,priority,result_deadline_at)
+    VALUES($1,$2,$3,'video_base','pull_worker','ready','fast-h3-trim-5step-vsa20-b1',$4,$5,$6,$7,$8,$9::jsonb,1000,now()+interval '45 minutes')`,
+    [jobId,tx.broadcaster_twitch_id,intent.segment_revision_id,FAST_H3_RECIPE_SHA256,intent.input_sha256,tx.purchaser_twitch_user_id,funding.rows[0]!.id,
+      snapshot.dependencyResolutionId,JSON.stringify({inputScreenId:intent.input_screen_id,proposalId:intent.proposal_id,prompt:snapshot.prompt,...BASE_GENERATION_SIZE})]);
+  await client.query(`INSERT INTO sloptogether.job_attempts(id,job_id,attempt_number,fence,client_idempotency_key,state,attempt_deadline_at,input_sha256,funding_id)
+    VALUES($1,$2,1,1,$3,'ready',now()+interval '45 minutes',$4,$5)`,[attemptId,jobId,`job:${jobId}:attempt:1`,intent.input_sha256,funding.rows[0]!.id]);
+  if(snapshot.dependencyResolutionId)await client.query("INSERT INTO sloptogether.endpoint_resolution_dependencies(resolution_id,dependent_job_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[snapshot.dependencyResolutionId,jobId]);
+  await client.query("UPDATE sloptogether.segments SET selected_revision_id=$2,state='rendering',protected_at=now() WHERE id=$1 AND state IN ('open','voting')",[intent.segment_id,intent.segment_revision_id]);
+  await client.query("UPDATE sloptogether.channels SET layout_revision=layout_revision+1,updated_at=now() WHERE twitch_channel_id=$1",[tx.broadcaster_twitch_id]);
+  await client.query("UPDATE sloptogether.paid_action_intents SET state='reserved',receipt_transaction_id=$2,receipt_timestamp=$3,updated_at=now() WHERE id=$1",[intent.id,tx.transaction_id,tx.occurred_at]);
+  await client.query("UPDATE sloptogether.extension_bits_transactions SET intent_id=$2,state='reserved',settlement_state='reserved',processed_at=now() WHERE transaction_id=$1",[tx.transaction_id,intent.id]);
+  await client.query(`INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,action,target_kind,target_id,after_state)
+    VALUES($1,$2,'bits.prompt_lock.reserved','paid_action_intent',$3,$4::jsonb)`,
+    [tx.broadcaster_twitch_id,tx.purchaser_twitch_user_id,intent.id,JSON.stringify({transactionId:tx.transaction_id,jobId,proposalId:intent.proposal_id,streamId:intent.stream_id,bits:tx.amount_bits})]);
+  return {state:"reserved",jobId};
 }
 
 async function fulfillVerifiedBitsTransaction(client:PoolClient,tx:VerifiedBitsRecord){
@@ -96,7 +242,7 @@ async function fulfillVerifiedBitsTransaction(client:PoolClient,tx:VerifiedBitsR
     await client.query("UPDATE sloptogether.extension_bits_transactions SET state='development_ignored',settlement_state='development_ignored',intent_id=$2,processed_at=now() WHERE transaction_id=$1",[tx.transaction_id,intentId]);
     return {state:"development_ignored"};
   }
-  const matches=await client.query(`SELECT * FROM sloptogether.paid_action_intents
+  const matches=await client.query<PaidActionIntentRow>(`SELECT * FROM sloptogether.paid_action_intents
     WHERE twitch_channel_id=$1 AND twitch_user_id=$2 AND product_sku=$3
       AND (receipt_transaction_id IS NULL OR receipt_transaction_id=$4)
       AND purchase_window_started_at<=$5 AND expires_at>=$5
@@ -127,6 +273,15 @@ async function fulfillVerifiedBitsTransaction(client:PoolClient,tx:VerifiedBitsR
     await markBitsTransactionUnallocated(client,tx.transaction_id,"transaction_intent_binding_mismatch");
     return {state:"verified_unallocated"};
   }
+  const actionKind=intent.action_kind??snapshot.actionKind??"turbo_render";
+  if(actionKind!=="turbo_render"&&actionKind!=="prompt_lock")return markPaidActionUnfulfilled(client,tx,intent,"paid_action_kind_invalid");
+  if(actionKind==="prompt_lock"){
+    if(snapshot.actionKind!=="prompt_lock")return markPaidActionUnfulfilled(client,tx,intent,"prompt_lock_snapshot_mismatch");
+    return fulfillVerifiedPromptLock(client,tx,intent,snapshot);
+  }
+  if(snapshot.actionKind&&snapshot.actionKind!=="turbo_render")return markPaidActionUnfulfilled(client,tx,intent,"paid_action_kind_snapshot_mismatch");
+  const resolution=intent.resolution;
+  if(!resolution||!snapshot.resolution)return markPaidActionUnfulfilled(client,tx,intent,"turbo_resolution_missing");
   if(!PAID_TURBO_ENABLED||["expired","cancelled","paid_unfulfilled"].includes(intent.state)||process.env.SLOPTOGETHER_BITS_TURBO_ENABLED!=="true"
     ||process.env.SLOPTOGETHER_BITS_POLICY_APPROVED!=="true"||process.env.SLOPTOGETHER_BITS_EVENTSUB_READY!=="true"
     ||process.env.SLOPTOGETHER_BITS_DISPATCH_READY!=="true"){
@@ -186,11 +341,11 @@ async function fulfillVerifiedBitsTransaction(client:PoolClient,tx:VerifiedBitsR
   const funding=await client.query<{id:string}>(`INSERT INTO sloptogether.funding_authorizations(twitch_channel_id,source,twitch_transaction_id,purchaser_twitch_user_id,paid_action_intent_id,amount_bits,reserved_usd,state)
     VALUES($1,'twitch_extension_bits',$2,$3,$4,$5,$6,'reserved') RETURNING id`,
     [tx.broadcaster_twitch_id,tx.transaction_id,tx.purchaser_twitch_user_id,intent.id,tx.amount_bits,intent.reserved_usd]);
-  const jobId=randomUUID(),attemptId=randomUUID(),dispatchId=randomUUID(),recipeId=`fal/minimax/h3-max-turbo-${intent.resolution.toLowerCase()}`;
+  const jobId=randomUUID(),attemptId=randomUUID(),dispatchId=randomUUID(),recipeId=`fal/minimax/h3-max-turbo-${resolution.toLowerCase()}`;
   const planningPayload={inputScreenId:intent.input_screen_id,dispatchSnapshotHash:intent.dispatch_snapshot_sha256.toString("hex")};
   await client.query(`INSERT INTO sloptogether.jobs(id,twitch_channel_id,segment_revision_id,stage,execution_mode,state,recipe_id,recipe_sha256,input_sha256,requested_by,funding_id,dependency_resolution_id,planning_payload,priority,result_deadline_at)
     VALUES($1,$2,$3,'video_base','provider_queue','ready',$4,$5,$6,$7,$8,$9,$10::jsonb,100,now()+interval '45 minutes')`,
-    [jobId,tx.broadcaster_twitch_id,intent.segment_revision_id,recipeId,falRecipeHash(intent.resolution),intent.input_sha256,tx.purchaser_twitch_user_id,funding.rows[0]!.id,snapshot.dependencyResolutionId,JSON.stringify(planningPayload)]);
+    [jobId,tx.broadcaster_twitch_id,intent.segment_revision_id,recipeId,falRecipeHash(resolution),intent.input_sha256,tx.purchaser_twitch_user_id,funding.rows[0]!.id,snapshot.dependencyResolutionId,JSON.stringify(planningPayload)]);
   await client.query(`INSERT INTO sloptogether.job_attempts(id,job_id,attempt_number,fence,client_idempotency_key,state,attempt_deadline_at,input_sha256,funding_id)
     VALUES($1,$2,1,1,$3,'ready',now()+interval '45 minutes',$4,$5)`,[attemptId,jobId,`job:${jobId}:attempt:1`,intent.input_sha256,funding.rows[0]!.id]);
   if(snapshot.dependencyResolutionId)await client.query("INSERT INTO sloptogether.endpoint_resolution_dependencies(resolution_id,dependent_job_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[snapshot.dependencyResolutionId,jobId]);
@@ -202,7 +357,7 @@ async function fulfillVerifiedBitsTransaction(client:PoolClient,tx:VerifiedBitsR
   await client.query("INSERT INTO sloptogether.outbox(event_kind,aggregate_id,payload,idempotency_key) VALUES('paid.turbo.dispatch',$1,$2::jsonb,$3) ON CONFLICT(idempotency_key) DO NOTHING",
     [jobId,JSON.stringify({jobId,intentId:intent.id,transactionId:tx.transaction_id}),`paid-turbo:${tx.transaction_id}`]);
   await client.query("INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,action,target_kind,target_id,after_state) VALUES($1,$2,'bits.action.reserved','paid_action_intent',$3,$4::jsonb)",
-    [tx.broadcaster_twitch_id,tx.purchaser_twitch_user_id,intent.id,JSON.stringify({transactionId:tx.transaction_id,jobId,sku:tx.product_sku,bits:tx.amount_bits,resolution:intent.resolution})]);
+    [tx.broadcaster_twitch_id,tx.purchaser_twitch_user_id,intent.id,JSON.stringify({transactionId:tx.transaction_id,jobId,sku:tx.product_sku,bits:tx.amount_bits,resolution})]);
   return {state:"reserved",jobId};
 }
 
@@ -298,6 +453,100 @@ export async function createExtensionBitsIntent(request:Request){
   });
 }
 
+export async function getExtensionPromptLockState(request:Request){
+  const principal=verifyExtensionRequest(request);
+  if(!promptLockFlagsReady())return {enabled:false,products:[],proposals:[],requiresLinkedIdentity:false};
+  const actor=principal.linkedTwitchUserId;
+  if(!actor||await isBanned(principal.channelId,actor))return {enabled:false,products:[],proposals:[],requiresLinkedIdentity:true};
+  const products=await availablePromptLockProducts();
+  if(!products.length)return {enabled:false,products:[],proposals:[],requiresLinkedIdentity:false};
+  const channel=await findChannel(principal.channelId);
+  if(!await canContribute(channel,{kind:"extension",extension:principal}))return {enabled:false,products:[],proposals:[],requiresLinkedIdentity:false};
+  const streamSlug=new URL(request.url).searchParams.get("stream")?.toLowerCase()??"main";
+  const stream=await getStream(channel.twitch_channel_id,streamSlug);
+  const proposals=await query<{election_id:string;segment_id:string;proposal_id:string;prompt:string}>(`SELECT e.id AS election_id,s.id AS segment_id,p.id AS proposal_id,p.prompt
+    FROM sloptogether.elections e JOIN sloptogether.segments s ON s.id=e.segment_id
+    JOIN sloptogether.branches b ON b.id=s.branch_id AND b.is_selected AND b.archived_at IS NULL
+    JOIN sloptogether.proposals p ON p.election_id=e.id AND p.state='eligible'
+    JOIN sloptogether.input_screens i ON i.id=p.input_screen_id AND i.effective_state='clear' AND (i.expires_at IS NULL OR i.expires_at>now())
+    WHERE s.twitch_channel_id=$1 AND b.stream_id=$2 AND p.author_twitch_user_id=$3
+      AND e.state='open' AND e.closes_at>now() AND s.state IN ('open','voting') AND s.protected_at IS NULL
+      AND NOT EXISTS(SELECT 1 FROM sloptogether.program_items pi WHERE pi.segment_id=s.id AND pi.stream_id=$2 AND pi.committed_at IS NOT NULL)
+      AND NOT EXISTS(SELECT 1 FROM sloptogether.paid_action_intents pa WHERE pa.segment_id=s.id AND pa.action_kind='prompt_lock'
+        AND pa.state IN ('intent_open','receipt_seen','verified_unallocated','reserved','dispatching','consumed_uncertain'))
+    ORDER BY e.closes_at,p.created_at,p.id`,[channel.twitch_channel_id,stream.id,actor]);
+  return {enabled:proposals.rows.length>0,products:products.map(({sku,amountBits,displayName})=>({sku,amountBits,displayName})),
+    proposals:proposals.rows.map(row=>({electionId:row.election_id,segmentId:row.segment_id,proposalId:row.proposal_id,promptPreview:row.prompt.slice(0,180)})),
+    requiresLinkedIdentity:false,stream:{id:stream.id,slug:stream.slug}};
+}
+
+export async function createExtensionPromptLockIntent(request:Request){
+  const principal=verifyExtensionRequest(request);
+  if(!promptLockFlagsReady())throw new ApiError(503,"bits_prompt_lock_unavailable","Prompt Lock is not enabled for this Extension.");
+  const actor=principal.linkedTwitchUserId;
+  if(!actor)throw new ApiError(409,"bits_identity_share_required","Share your Twitch identity before using Bits.");
+  if(await isBanned(principal.channelId,actor))throw new ApiError(403,"channel_ban_active");
+  const body=await readJson(request,z.object({sku:z.string().trim().min(1).max(255),proposalId:z.string().uuid(),stream:z.string().trim().toLowerCase().regex(/^[a-z0-9][a-z0-9-]{0,47}$/).optional()}).strict());
+  const product=(await availablePromptLockProducts()).find(row=>row.sku===body.sku);
+  if(!product)throw new ApiError(409,"bits_product_unavailable");
+  const channel=await findChannel(principal.channelId);
+  if(!await canContribute(channel,{kind:"extension",extension:principal}))throw new ApiError(403,"contribution_not_allowed");
+  const stream=await getStream(channel.twitch_channel_id,body.stream??"main");
+  return transaction(async client=>{
+    await lockActiveBitsEventSub(client);
+    const locked=await client.query("SELECT policy_revision FROM sloptogether.channels WHERE twitch_channel_id=$1 AND is_enabled AND visibility<>'private' FOR UPDATE",[channel.twitch_channel_id]);
+    if(!locked.rowCount||Number(locked.rows[0]!.policy_revision)!==channel.policy_revision)throw new ApiError(409,"channel_policy_changed");
+    await client.query("UPDATE sloptogether.paid_action_intents SET state='expired',state_reason='purchase_window_elapsed',updated_at=now() WHERE twitch_channel_id=$1 AND state IN ('intent_open','receipt_seen') AND expires_at<=now()",[channel.twitch_channel_id]);
+    const recent=await client.query<{count:string}>("SELECT count(*)::text AS count FROM sloptogether.paid_action_intents WHERE twitch_channel_id=$1 AND twitch_user_id=$2 AND created_at>now()-interval '10 minutes'",[channel.twitch_channel_id,actor]);
+    if(Number(recent.rows[0]?.count??0)>=3)throw new ApiError(429,"bits_intent_rate_limited","Try again after the current purchase window ends.");
+    const candidate=await client.query<{segment_id:string;election_id:string;proposal_id:string;revision_id:string;prompt:string;input_screen_id:string;
+      input_sha256:Buffer;screen_sha256:Buffer;moderation_model:string;moderation_policy_revision:number;start_boundary_id:string;start_asset_id:string;start_sha256:Buffer;
+      end_boundary_id:string|null;end_asset_id:string|null;end_sha256:Buffer|null;dependency_resolution_id:string|null}>(`SELECT s.id AS segment_id,e.id AS election_id,p.id AS proposal_id,r.id AS revision_id,p.prompt,
+        i.id AS input_screen_id,r.input_sha256,i.input_sha256 AS screen_sha256,i.moderation_model,i.moderation_policy_revision,
+        r.start_boundary_revision_id AS start_boundary_id,sb.asset_id AS start_asset_id,sa.sha256 AS start_sha256,
+        r.requested_end_boundary_revision_id AS end_boundary_id,eb.asset_id AS end_asset_id,ea.sha256 AS end_sha256,
+        dependency.id AS dependency_resolution_id
+      FROM sloptogether.elections e JOIN sloptogether.segments s ON s.id=e.segment_id
+      JOIN sloptogether.branches b ON b.id=s.branch_id AND b.is_selected AND b.archived_at IS NULL
+      JOIN sloptogether.proposals p ON p.election_id=e.id AND p.id=$4 AND p.state='eligible' AND p.author_twitch_user_id=$3
+      JOIN sloptogether.segment_revisions r ON r.id=p.segment_revision_id AND r.segment_id=s.id AND r.state='proposal'
+      JOIN sloptogether.input_screens i ON i.id=p.input_screen_id AND i.twitch_channel_id=s.twitch_channel_id AND i.effective_state='clear' AND (i.expires_at IS NULL OR i.expires_at>now())
+      JOIN sloptogether.boundary_revisions sb ON sb.id=r.start_boundary_revision_id AND sb.retired_at IS NULL
+      JOIN sloptogether.assets sa ON sa.id=sb.asset_id AND sa.status IN ('approved','published') AND sa.media_kind='image' AND sa.sha256 IS NOT NULL
+      LEFT JOIN sloptogether.boundary_revisions eb ON eb.id=r.requested_end_boundary_revision_id AND eb.retired_at IS NULL
+      LEFT JOIN sloptogether.assets ea ON ea.id=eb.asset_id AND ea.status IN ('approved','published') AND ea.media_kind='image' AND ea.sha256 IS NOT NULL
+      LEFT JOIN LATERAL(SELECT id FROM sloptogether.endpoint_resolutions WHERE resolved_end_boundary_revision_id=sb.id AND retired_at IS NULL ORDER BY created_at DESC LIMIT 1) dependency ON true
+      WHERE s.twitch_channel_id=$1 AND b.stream_id=$2 AND e.state='open' AND e.closes_at>now() AND s.state IN ('open','voting') AND s.protected_at IS NULL
+        AND (r.requested_end_boundary_revision_id IS NULL OR ea.id IS NOT NULL)
+        AND NOT EXISTS(SELECT 1 FROM sloptogether.program_items pi WHERE pi.segment_id=s.id AND pi.stream_id=$2 AND pi.committed_at IS NOT NULL)
+        AND NOT EXISTS(SELECT 1 FROM sloptogether.job_attempts a JOIN sloptogether.jobs j ON j.id=a.job_id WHERE j.segment_revision_id=r.id AND j.stage='video_base' AND a.state IN ('leased','running','uploaded','validating'))
+      FOR UPDATE OF e,s,p,r,i`,[channel.twitch_channel_id,stream.id,actor,body.proposalId]);
+    const row=candidate.rows[0];
+    if(!row)throw new ApiError(409,"prompt_lock_target_not_ready","This prompt is no longer eligible for a Bits lock.");
+    const activeLock=await client.query("SELECT 1 FROM sloptogether.paid_action_intents WHERE segment_id=$1 AND action_kind='prompt_lock' AND state IN ('intent_open','receipt_seen','verified_unallocated','reserved','dispatching','consumed_uncertain') LIMIT 1",[row.segment_id]);
+    if(activeLock.rowCount)throw new ApiError(409,"prompt_lock_slot_already_locked");
+    const id=randomUUID(),expiresAt=new Date(Date.now()+60_000);
+    const snapshot={schemaVersion:1,actionKind:"prompt_lock",channelId:channel.twitch_channel_id,policyRevision:channel.policy_revision,
+      streamId:stream.id,electionId:row.election_id,proposalId:row.proposal_id,segmentId:row.segment_id,segmentRevisionId:row.revision_id,prompt:row.prompt,
+      input:{screenId:row.input_screen_id,screenSha256:row.screen_sha256.toString("hex"),revisionSha256:row.input_sha256.toString("hex"),moderationModel:row.moderation_model,
+        moderationPolicyRevision:row.moderation_policy_revision},start:{boundaryRevisionId:row.start_boundary_id,assetId:row.start_asset_id,sha256:row.start_sha256.toString("hex")},
+      end:row.end_boundary_id?{boundaryRevisionId:row.end_boundary_id,assetId:row.end_asset_id,sha256:row.end_sha256!.toString("hex")}:null,
+      dependencyResolutionId:row.dependency_resolution_id,resolution:null,durationSeconds:null,promptExpansionMode:null,enableSafetyChecker:null,syncMode:null,
+      recipeSha256:FAST_H3_RECIPE_SHA256.toString("hex")};
+    const snapshotDigest=dispatchSnapshotHash(snapshot);
+    await client.query(`INSERT INTO sloptogether.paid_action_intents(id,twitch_channel_id,extension_client_id,twitch_user_id,opaque_user_id,product_sku,amount_bits,resolution,
+        reserved_usd,segment_id,segment_revision_id,input_screen_id,input_sha256,policy_revision,expires_at,dispatch_snapshot,dispatch_snapshot_sha256,action_kind,proposal_id,election_id,stream_id)
+      VALUES($1,$2,$3,$4,$5,$6,$7,NULL,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,'prompt_lock',$17,$18,$19)`,
+      [id,channel.twitch_channel_id,twitchExtensionClientId(),actor,principal.opaqueUserId,product.sku,product.amountBits,product.reservedUsd,row.segment_id,row.revision_id,row.input_screen_id,
+        row.input_sha256,channel.policy_revision,expiresAt,JSON.stringify(snapshot),snapshotDigest,row.proposal_id,row.election_id,stream.id]);
+    await client.query("INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,action,target_kind,target_id,after_state) VALUES($1,$2,'bits.prompt_lock.intent_created','paid_action_intent',$3,$4::jsonb)",
+      [channel.twitch_channel_id,actor,id,JSON.stringify({sku:product.sku,bits:product.amountBits,stream:stream.slug,electionId:row.election_id,proposalId:row.proposal_id,expiresAt:expiresAt.toISOString()})]);
+    return {intentId:id,actionKind:"prompt_lock",sku:product.sku,amountBits:product.amountBits,displayName:product.displayName,
+      streamSlug:stream.slug,electionId:row.election_id,proposalId:row.proposal_id,segmentId:row.segment_id,segmentRevisionId:row.revision_id,
+      promptPreview:row.prompt.slice(0,180),expiresAt:expiresAt.toISOString()};
+  });
+}
+
 async function scheduleBitsReceiptReconciliation(client:PoolClient,intentId:string){
   await client.query(`INSERT INTO sloptogether.outbox(event_kind,aggregate_id,payload,idempotency_key,available_at)
     VALUES('paid.bits.reconcile_receipt',$1,$2::jsonb,$3,now()+interval '5 seconds') ON CONFLICT(idempotency_key) DO NOTHING`,
@@ -311,7 +560,7 @@ export async function recordExtensionBitsReceipt(request:Request){
   const receipt=verifyExtensionBitsReceipt(body.transactionReceipt);
   if(receipt.userId!==principal.linkedTwitchUserId)throw new ApiError(403,"bits_receipt_user_mismatch");
   return transaction(async client=>{
-    const result=await client.query("SELECT state,opaque_user_id,twitch_user_id,purchase_window_started_at,expires_at,receipt_transaction_id FROM sloptogether.paid_action_intents WHERE id=$1 AND twitch_channel_id=$2 FOR UPDATE",
+    const result=await client.query("SELECT action_kind,state,opaque_user_id,twitch_user_id,purchase_window_started_at,expires_at,receipt_transaction_id FROM sloptogether.paid_action_intents WHERE id=$1 AND twitch_channel_id=$2 FOR UPDATE",
       [body.intentId,principal.channelId]);
     const intent=result.rows[0];if(!intent)throw new ApiError(404,"paid_action_intent_not_found");
     if(intent.opaque_user_id!==principal.opaqueUserId||intent.twitch_user_id!==receipt.userId)throw new ApiError(403,"paid_action_intent_identity_mismatch");
@@ -319,17 +568,17 @@ export async function recordExtensionBitsReceipt(request:Request){
     if(intent.receipt_transaction_id&&intent.receipt_transaction_id!==receipt.transactionId)throw new ApiError(409,"paid_action_intent_already_bound");
     const open=intent.state==="intent_open"||intent.state==="receipt_seen";
     const late=intent.state==="expired"||intent.state==="cancelled";
-    if(!open&&!late)return {accepted:intent.state==="reserved",state:intent.state};
+    if(!open&&!late)return {accepted:intent.state==="reserved",actionKind:intent.action_kind,state:intent.state};
     if(receipt.inDevelopment){
       await client.query("UPDATE sloptogether.paid_action_intents SET state='cancelled',receipt_transaction_id=$2,receipt_timestamp=$3,state_reason='development_transaction',updated_at=now() WHERE id=$1",
         [body.intentId,receipt.transactionId,receipt.occurredAt]);
-      return {accepted:false,state:"development_ignored"};
+      return {accepted:false,actionKind:intent.action_kind,state:"development_ignored"};
     }
     if(late){
       await client.query("UPDATE sloptogether.paid_action_intents SET receipt_transaction_id=$2,receipt_timestamp=$3,state_reason='late_receipt_reconciliation_pending',updated_at=now() WHERE id=$1 AND state IN ('expired','cancelled')",
         [body.intentId,receipt.transactionId,receipt.occurredAt]);
       await scheduleBitsReceiptReconciliation(client,body.intentId);
-      return {accepted:true,state:"receipt_seen",transactionId:receipt.transactionId};
+      return {accepted:true,actionKind:intent.action_kind,state:"receipt_seen",transactionId:receipt.transactionId};
     }
     await client.query("UPDATE sloptogether.paid_action_intents SET state='receipt_seen',receipt_transaction_id=$2,receipt_timestamp=$3,updated_at=now() WHERE id=$1",
       [body.intentId,receipt.transactionId,receipt.occurredAt]);
@@ -337,12 +586,12 @@ export async function recordExtensionBitsReceipt(request:Request){
     const tx=verified.rows[0];
     if(tx&&tx.state==="verified_unallocated"){
       const outcome=await fulfillVerifiedBitsTransaction(client,tx);
-      return {accepted:outcome.state==="reserved",state:outcome.state,transactionId:receipt.transactionId};
+      return {accepted:outcome.state==="reserved",actionKind:intent.action_kind,state:outcome.state,transactionId:receipt.transactionId};
     }
     if(!tx){
       await scheduleBitsReceiptReconciliation(client,body.intentId);
     }
-    return {accepted:tx?.state==="reserved",state:tx?.state??"receipt_seen",transactionId:receipt.transactionId};
+    return {accepted:tx?.state==="reserved",actionKind:intent.action_kind,state:tx?.state??"receipt_seen",transactionId:receipt.transactionId};
   });
 }
 
@@ -496,23 +745,23 @@ export async function cancelExtensionBitsIntent(intentId:string,request:Request)
 export async function getExtensionBitsIntentStatus(intentId:string,request:Request){
   const principal=verifyExtensionRequest(request);
   if(!principal.linkedTwitchUserId)throw new ApiError(409,"bits_identity_share_required");
-  const result=await query<{id:string;state:string;state_reason:string;expires_at:Date;receipt_transaction_id:string|null}>(
-    `SELECT id,state,state_reason,expires_at,receipt_transaction_id FROM sloptogether.paid_action_intents
+  const result=await query<{id:string;action_kind:string;state:string;state_reason:string;expires_at:Date;receipt_transaction_id:string|null}>(
+    `SELECT id,action_kind,state,state_reason,expires_at,receipt_transaction_id FROM sloptogether.paid_action_intents
      WHERE id=$1 AND twitch_channel_id=$2 AND twitch_user_id=$3 AND opaque_user_id=$4`,
     [intentId,principal.channelId,principal.linkedTwitchUserId,principal.opaqueUserId]);
   const intent=result.rows[0];if(!intent)throw new ApiError(404,"paid_action_intent_not_found");
   if(intent.state==="intent_open"&&intent.expires_at.getTime()<=Date.now()){
     await query("UPDATE sloptogether.paid_action_intents SET state='expired',state_reason='purchase_window_elapsed',updated_at=now() WHERE id=$1 AND state='intent_open' AND expires_at<=now()",[intent.id]);
-    return {intentId:intent.id,state:"expired",expiresAt:intent.expires_at.toISOString(),transactionReceived:Boolean(intent.receipt_transaction_id)};
+    return {intentId:intent.id,actionKind:intent.action_kind,state:"expired",expiresAt:intent.expires_at.toISOString(),transactionReceived:Boolean(intent.receipt_transaction_id)};
   }
   if(intent.state==="cancelled"&&intent.state_reason==="development_transaction")
-    return {intentId:intent.id,state:"development_ignored",expiresAt:intent.expires_at.toISOString(),transactionReceived:Boolean(intent.receipt_transaction_id)};
+    return {intentId:intent.id,actionKind:intent.action_kind,state:"development_ignored",expiresAt:intent.expires_at.toISOString(),transactionReceived:Boolean(intent.receipt_transaction_id)};
   if(intent.state==="receipt_unverified"){
     const pending=await query(`SELECT 1 FROM sloptogether.outbox WHERE event_kind='paid.bits.reconcile_receipt' AND aggregate_id=$1 AND delivered_at IS NULL LIMIT 1`,[intent.id]);
-    if(pending.rowCount)return {intentId:intent.id,state:"receipt_seen",expiresAt:intent.expires_at.toISOString(),transactionReceived:Boolean(intent.receipt_transaction_id)};
+    if(pending.rowCount)return {intentId:intent.id,actionKind:intent.action_kind,state:"receipt_seen",expiresAt:intent.expires_at.toISOString(),transactionReceived:Boolean(intent.receipt_transaction_id)};
   }
   const pendingLateReceipt=intent.receipt_transaction_id&&["expired","cancelled"].includes(intent.state);
-  return {intentId:intent.id,state:pendingLateReceipt?"receipt_seen":intent.state,expiresAt:intent.expires_at.toISOString(),transactionReceived:Boolean(intent.receipt_transaction_id)};
+  return {intentId:intent.id,actionKind:intent.action_kind,state:pendingLateReceipt?"receipt_seen":intent.state,expiresAt:intent.expires_at.toISOString(),transactionReceived:Boolean(intent.receipt_transaction_id)};
 }
 
 export async function requestBitsReceiptReconciliation(intentId:string,request:Request){

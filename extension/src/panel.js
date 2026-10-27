@@ -1,4 +1,4 @@
-import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
+import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from "./bits-state.mjs";
 
 (() => {
   "use strict";
@@ -16,6 +16,11 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     turboStatus: document.getElementById("turbo-status"),
     turboLink: document.getElementById("turbo-link"),
     turboReconcile: document.getElementById("turbo-reconcile"),
+    promptLock: document.getElementById("prompt-lock"),
+    promptLockProducts: document.getElementById("prompt-lock-products"),
+    promptLockStatus: document.getElementById("prompt-lock-status"),
+    promptLockLink: document.getElementById("prompt-lock-link"),
+    promptLockReconcile: document.getElementById("prompt-lock-reconcile"),
     ballot: document.getElementById("ballot"),
     question: document.getElementById("question"),
     countdown: document.getElementById("countdown"),
@@ -47,6 +52,8 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
   let isPromptFormOpen = false;
   let canSubmitPrompts = false;
   let bitsState = null;
+  let promptLockState = null;
+  let promptLockStatusText = "";
   let bitsPending = false;
   let bitsBusy = false;
   let bitsReceiptUnverified = false;
@@ -82,6 +89,36 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     message(nodes.turboStatus, text || "");
   }
 
+  function setBitsActionStatus(text){
+    if(bitsIntent?.actionKind==="prompt_lock"){
+      promptLockStatusText=text||"";
+      renderPromptLock();
+    }else setTurboStatus(text);
+  }
+
+  function renderPromptLock(){
+    const currentProposal=promptLockState?.proposals?.find(item=>item.proposalId===selectedChoiceId&&item.electionId===currentElection?.id);
+    const pending=bitsPending&&bitsIntent?.actionKind==="prompt_lock";
+    const requiresLink=promptLockState?.requiresLinkedIdentity===true&&Boolean(currentElection?.choices?.length);
+    const show=Boolean(pending||promptLockStatusText||promptLockState?.enabled&&currentProposal||requiresLink);
+    nodes.promptLock.hidden=!show;
+    nodes.promptLockStatus.hidden=!promptLockStatusText;
+    message(nodes.promptLockStatus,promptLockStatusText);
+    nodes.promptLockLink.hidden=!requiresLink||linkedIdentity(authorization);
+    nodes.promptLockReconcile.hidden=!bitsReceiptUnverified||bitsIntent?.actionKind!=="prompt_lock";
+    nodes.promptLockProducts.replaceChildren();
+    if(!currentProposal||pending||!promptLockState?.enabled)return;
+    for(const product of promptLockState.products){
+      const button=document.createElement("button");
+      button.type="button";button.className="prompt-lock-product";
+      button.disabled=!linkedIdentity(authorization)||bitsBusy||bitsPending;
+      button.addEventListener("click",()=>{void usePromptLockBits(product,currentProposal);});
+      const title=document.createElement("span");title.textContent=product.displayName;
+      const price=document.createElement("small");price.textContent=`${product.amountBits} Bits`;
+      button.append(title,price);nodes.promptLockProducts.append(button);
+    }
+  }
+
   function clearBitsIntent() {
     if (bitsTimer) window.clearTimeout(bitsTimer);
     bitsTimer = 0;
@@ -95,12 +132,15 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     bitsTransactionEpoch = null;
     nodes.turboReconcile.hidden = true;
     renderTurboProducts();
+    renderPromptLock();
   }
 
   function resetBitsForIdentityChange() {
     if (bitsTimer) window.clearTimeout(bitsTimer);
     bitsTimer = 0;
     bitsState = null;
+    promptLockState=null;
+    promptLockStatusText="";
     bitsPending = false;
     bitsBusy = false;
     bitsReceiptUnverified = false;
@@ -113,6 +153,9 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     nodes.turboLink.hidden = true;
     nodes.turboReconcile.hidden = true;
     nodes.turbo.hidden = true;
+    nodes.promptLockProducts.replaceChildren();
+    nodes.promptLockStatus.hidden=true;nodes.promptLockStatus.textContent="";
+    nodes.promptLockLink.hidden=true;nodes.promptLockReconcile.hidden=true;nodes.promptLock.hidden=true;
   }
 
   function renderTurboProducts() {
@@ -188,6 +231,34 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     }
   }
 
+  async function loadPromptLock(){
+    const requestEpoch=identityEpoch,requestStreamEpoch=streamEpoch;
+    const currentAuthorization=authorization,helper=window.Twitch?.ext;
+    if(!currentAuthorization||helper?.features?.isBitsEnabled!==true||!helper.bits){
+      promptLockState=null;renderPromptLock();return;
+    }
+    try{
+      const response=await fetch(`${API}/extension/bits/prompt-lock/state?stream=${encodeURIComponent(selectedStreamSlug)}`,{
+        headers:{"x-extension-jwt":currentAuthorization.token},cache:"no-store",
+      });
+      const state=await response.json().catch(()=>({}));
+      if(requestEpoch!==identityEpoch||requestStreamEpoch!==streamEpoch)return;
+      if(!response.ok||state.enabled!==true||!Array.isArray(state.products)||!Array.isArray(state.proposals)){
+        promptLockState={enabled:false,requiresLinkedIdentity:state.requiresLinkedIdentity===true,products:[],proposals:[]};
+        renderPromptLock();return;
+      }
+      const catalog=await helper.bits.getProducts();
+      if(requestEpoch!==identityEpoch||requestStreamEpoch!==streamEpoch)return;
+      const eligibleCatalog=catalog.filter(item=>item.inDevelopment!==true&&item.cost?.type==="bits");
+      const products=state.products.filter(item=>eligibleCatalog.some(listed=>listed.sku===item.sku&&Number(listed.cost.amount)===item.amountBits));
+      promptLockState={...state,enabled:products.length>0,products};
+      renderPromptLock();
+    }catch{
+      if(requestEpoch!==identityEpoch||requestStreamEpoch!==streamEpoch)return;
+      promptLockState=null;renderPromptLock();
+    }
+  }
+
   async function checkBitsIntent() {
     if (!authorization || !bitsIntent) return;
     const requestEpoch = identityEpoch;
@@ -204,16 +275,18 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
       const result = await response.json();
       if (typeof result.state !== "string") throw new Error("status_invalid");
       if (requestEpoch !== identityEpoch || bitsIntent?.intentId !== intentId) return;
+      if(result.actionKind&&!bitsIntent.actionKind)bitsIntent={...bitsIntent,actionKind:result.actionKind};
       clearError();
       if (isLateReceiptGracePending(result.state,result.transactionReceived,result.expiresAt)) {
-        setTurboStatus("Bits verification in progress.");
+        setBitsActionStatus("Bits verification in progress.");
         bitsTimer = window.setTimeout(checkBitsIntent, 5000);
         return;
       }
-      const outcome = bitsOutcome(result.state);
-      setTurboStatus(outcome.text);
+      const outcome = bitsIntent.actionKind==="prompt_lock"?promptLockBitsOutcome(result.state):bitsOutcome(result.state);
+      setBitsActionStatus(outcome.text);
       bitsReceiptUnverified = result.state === "receipt_unverified";
-      nodes.turboReconcile.hidden = !bitsReceiptUnverified;
+      nodes.turboReconcile.hidden = !bitsReceiptUnverified||bitsIntent.actionKind==="prompt_lock";
+      nodes.promptLockReconcile.hidden = !bitsReceiptUnverified||bitsIntent.actionKind!=="prompt_lock";
       if (outcome.pending) {
         bitsTimer = window.setTimeout(checkBitsIntent, bitsReceiptUnverified ? 30_000 : 5000);
         return;
@@ -221,6 +294,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
       if (outcome.error) setError(outcome.text);
       clearBitsIntent();
       await loadTurbo();
+      await loadPromptLock();
     } catch {
       if (requestEpoch === identityEpoch && bitsIntent?.intentId === intentId)
         bitsTimer = window.setTimeout(checkBitsIntent, 5000);
@@ -278,6 +352,39 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     }
   }
 
+  async function usePromptLockBits(product,proposal){
+    const helper=window.Twitch?.ext;
+    if(!authorization||!linkedIdentity(authorization)||!promptLockState?.enabled||!helper?.bits||bitsBusy||bitsPending)return;
+    const currentAuthorization=authorization,requestEpoch=identityEpoch,requestStreamEpoch=streamEpoch;
+    bitsBusy=true;clearError();promptLockStatusText="";renderPromptLock();
+    let intentId=null;
+    try{
+      const response=await fetch(`${API}/extension/bits/prompt-lock/intents`,{
+        method:"POST",headers:{"Content-Type":"application/json","x-extension-jwt":currentAuthorization.token},
+        body:JSON.stringify({sku:product.sku,proposalId:proposal.proposalId,stream:selectedStreamSlug}),
+      });
+      const result=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(result.message||"Prompt Lock is unavailable for this scene.");
+      intentId=result.intentId;
+      if(typeof intentId!=="string"||result.proposalId!==proposal.proposalId||result.streamSlug!==selectedStreamSlug)
+        throw new Error("The selected prompt changed. Refresh the Extension before using Bits.");
+      if(requestEpoch!==identityEpoch||requestStreamEpoch!==streamEpoch)throw new Error("Account or stream changed before confirmation.");
+      bitsIntent={intentId,sku:product.sku,promptPreview:proposal.promptPreview,actionKind:"prompt_lock",proposalId:proposal.proposalId,identityEpoch:requestEpoch};
+      bitsPending=true;
+      const linkedId=helper.viewer?.id;
+      if(linkedId){try{window.sessionStorage.setItem(`sloptogether-bits:${currentAuthorization.channelId}:${linkedId}`,intentId);}catch{/* Server state remains authoritative. */}}
+      setBitsActionStatus(`Confirm ${product.amountBits} Bits to lock this prompt.`);
+      bitsTransactionEpoch=requestEpoch;
+      helper.bits.useBits(product.sku);
+      bitsTimer=window.setTimeout(checkBitsIntent,5000);
+    }catch(error){
+      if(intentId)void fetch(`${API}/extension/bits/intents/${encodeURIComponent(intentId)}/cancel`,{method:"POST",headers:{"x-extension-jwt":currentAuthorization.token}});
+      if(requestEpoch===identityEpoch){bitsIntent=null;bitsPending=false;bitsTransactionEpoch=null;setError(error.message||"Prompt Lock could not be started.");}
+    }finally{
+      if(requestEpoch===identityEpoch){bitsBusy=false;renderPromptLock();}
+    }
+  }
+
   async function retryBitsReconciliation() {
     if (!authorization || !bitsIntent || !bitsReceiptUnverified) return;
     const requestEpoch = identityEpoch;
@@ -291,7 +398,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
       if (!response.ok) throw new Error(result.message || "Transaction check could not be queued.");
       if (requestEpoch !== identityEpoch || bitsIntent?.intentId !== intentId) return;
       clearError();
-      setTurboStatus(result.queued ? "Verification queued." : `Verification already queued${result.retryAfterSeconds ? `; retry in ${result.retryAfterSeconds}s.` : "."}`);
+      setBitsActionStatus(result.queued ? "Verification queued." : `Verification already queued${result.retryAfterSeconds ? `; retry in ${result.retryAfterSeconds}s.` : "."}`);
       bitsTimer = window.setTimeout(checkBitsIntent, 5000);
     } catch (error) { if (requestEpoch === identityEpoch) setError(error.message || "Transaction check could not be queued."); }
   }
@@ -345,6 +452,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     nodes.link.hidden = !authorization || linkedIdentity(authorization);
     nodes.status.hidden = true;
     nodes.submit.disabled = true;
+    renderPromptLock();
   }
 
   function renderPromptForm(allowed = canSubmitPrompts) {
@@ -408,6 +516,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
         button.dataset.choiceId = choice.id;
         nodes.submit.disabled = !linkedIdentity(authorization) || isSubmitting;
         nodes.submit.textContent = ownChoice === choice.id ? "Keep my vote" : ownChoice ? "Change vote" : "Cast vote";
+        renderPromptLock();
       });
       button.dataset.choiceId = choice.id;
       nodes.choices.append(button);
@@ -428,6 +537,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     nodes.helper.textContent = election.state === "open"
       ? "Choose one scene."
       : "Voting closed.";
+    renderPromptLock();
   }
 
   function renderSubscriberNotice(value) {
@@ -473,6 +583,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
       if (errorSource === "refresh") clearError();
       renderPromptForm(result.canSubmitPrompts === true);
       void loadTurbo();
+      void loadPromptLock();
       const election = result.activeElection || result.election ||
         (Array.isArray(result.elections) ? result.elections.find((item) => item?.state === "open") : null);
       if (!election) {
@@ -631,9 +742,9 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
       if (visible) { refresh(); if (bitsPending) void checkBitsIntent(); }
       else { stopPolling(); if (bitsTimer) window.clearTimeout(bitsTimer); bitsTimer = 0; }
     });
-    helper.features?.onChanged?.(() => { void loadTurbo(); });
+    helper.features?.onChanged?.(() => { void loadTurbo(); void loadPromptLock(); });
     helper.bits?.onTransactionComplete?.((receipt) => {
-      if (!PAID_TURBO_UI_ENABLED) return;
+      if (!PAID_TURBO_UI_ENABLED&&bitsIntent?.actionKind!=="prompt_lock") return;
       if (bitsTransactionEpoch !== identityEpoch || !bitsIntent || bitsIntent.identityEpoch !== identityEpoch || receipt?.initiator !== "current_user" || typeof receipt.transactionReceipt !== "string" || !authorization) return;
       bitsTransactionEpoch = null;
       const requestEpoch = identityEpoch;
@@ -646,19 +757,20 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
         const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.message || "Bits receipt could not be verified.");
         if (requestEpoch !== identityEpoch || bitsIntent?.intentId !== intentId) return;
-        const outcome = bitsOutcome(result.state || "receipt_seen");
-        setTurboStatus(outcome.text);
+        if(result.actionKind&&!bitsIntent.actionKind)bitsIntent={...bitsIntent,actionKind:result.actionKind};
+        const outcome = bitsIntent?.actionKind==="prompt_lock"?promptLockBitsOutcome(result.state||"receipt_seen"):bitsOutcome(result.state||"receipt_seen");
+        setBitsActionStatus(outcome.text);
         if (outcome.error) setError(outcome.text);
         void checkBitsIntent();
       }).catch((error) => { if (requestEpoch === identityEpoch) setError(error.message || "Bits receipt verification failed."); });
     });
     helper.bits?.onTransactionCancelled?.(() => {
-      if (!PAID_TURBO_UI_ENABLED) return;
+      if (!PAID_TURBO_UI_ENABLED&&bitsIntent?.actionKind!=="prompt_lock") return;
       if (bitsTransactionEpoch !== identityEpoch || !bitsIntent || bitsIntent.identityEpoch !== identityEpoch || !authorization) return;
       bitsTransactionEpoch = null;
       const intentId = bitsIntent.intentId;
       void fetch(`${API}/extension/bits/intents/${encodeURIComponent(intentId)}/cancel`, { method: "POST", headers: { "x-extension-jwt": authorization.token } });
-      setTurboStatus("Bits action cancelled. No render was started.");
+      setBitsActionStatus(bitsIntent.actionKind==="prompt_lock"?"Prompt Lock cancelled. No job was started.":"Bits action cancelled. No render was started.");
       clearBitsIntent();
     });
   }
@@ -672,11 +784,13 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     isSubmitting=false;
     isSubmittingPrompt=false;
     canSubmitPrompts=false;
+    promptLockState=null;
     currentElection=null;selectedChoiceId=null;
     nodes.ballot.hidden=true;nodes.empty.hidden=true;nodes.status.hidden=false;
     message(nodes.status,"Loading stream…");
     clearError();
     renderPromptForm(false);
+    renderPromptLock();
     void refresh();
   });
   nodes.promptToggle.addEventListener("click", togglePromptForm);
@@ -686,6 +800,11 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     catch { setError("Identity linking is unavailable right now."); }
   });
   nodes.turboReconcile.addEventListener("click", () => { void retryBitsReconciliation(); });
+  nodes.promptLockLink.addEventListener("click",()=>{
+    try{window.Twitch?.ext?.actions?.requestIdShare();message(nodes.promptLockStatus,"Confirm identity sharing, then return to lock a prompt.");nodes.promptLockStatus.hidden=false;nodes.promptLock.hidden=false;}
+    catch{setError("Identity linking is unavailable right now.");}
+  });
+  nodes.promptLockReconcile.addEventListener("click",()=>{void retryBitsReconciliation();});
   nodes.link.addEventListener("click", () => {
     try {
       window.Twitch?.ext?.actions?.requestIdShare();

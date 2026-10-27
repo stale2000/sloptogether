@@ -80,6 +80,13 @@ h2 { margin: 0; font-size: 14px; font-weight: 700; }
 .turbo-product:disabled { opacity: .58; cursor: not-allowed; }
 .turbo-product span { font-size: 11px; font-weight: 700; }
 .turbo-product small { color: var(--soft); font-size: 10px; white-space: nowrap; }
+.prompt-lock { margin-top: 10px; }
+.prompt-lock-products { display: grid; gap: 6px; margin-top: 6px; }
+.prompt-lock-product { display: flex; width: 100%; min-height: 42px; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 9px; border: 1px solid var(--purple-action); border-radius: 4px; background: var(--surface); text-align: left; cursor: pointer; }
+.prompt-lock-product:hover:not(:disabled) { border-color: var(--purple); background: var(--field); }
+.prompt-lock-product:disabled { opacity: .58; cursor: not-allowed; }
+.prompt-lock-product span { font-size: 11px; font-weight: 700; }
+.prompt-lock-product small { color: var(--soft); font-size: 10px; white-space: nowrap; }
 .countdown { color: var(--purple); font-size: 10px; font-variant-numeric: tabular-nums; }
 .helper,.note { color: var(--soft); font-size: 10px; line-height: 1.45; }
 .helper { margin: 6px 0 9px; }

@@ -33,6 +33,13 @@
         <div id="choices" class="choices"></div>
         <button id="submit-vote" class="primary" type="button" disabled>Cast vote</button>
       </section>
+      <section id="prompt-lock" class="prompt-lock" aria-label="Prompt Lock" hidden>
+        <h2>Prompt Lock</h2>
+        <div id="prompt-lock-products" class="prompt-lock-products"></div>
+        <p id="prompt-lock-status" class="note" role="status" aria-live="polite" hidden></p>
+        <button id="prompt-lock-link" class="secondary" type="button" hidden>Link account</button>
+        <button id="prompt-lock-reconcile" class="secondary" type="button" hidden>Retry transaction check</button>
+      </section>
       <section id="prompt-section" class="prompt-section" aria-label="Suggest a scene" hidden>
         <button id="prompt-toggle" class="prompt-toggle" type="button" aria-expanded="false" aria-controls="prompt-form">Suggest a scene</button>
         <div id="prompt-form" class="prompt-form" hidden>
