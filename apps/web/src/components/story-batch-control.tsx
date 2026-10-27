@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { ApiError, apiFetch, displayProblem, type SessionSummary } from "./api";
+import { useChannelTimeline } from "./channel-data";
 import { approveStoryCandidate, submitOwnerCandidate, createStoryBatchRequester, createStoryCandidateReplanner, createStoryCandidateScreenRetry, rejectStoryCandidate, storyBatchBlocker, storyBatchItemLabel, storyBatchPath, storyCandidateFrames, type StoryBatchAvailability, type StoryBatchItem, type StoryBatchStatus, type StoryCandidateFrame } from "./story-batch-request";
 
 export function StoryBatchControl({ channel, stream }: { channel: string; stream: string }) {
@@ -92,8 +93,35 @@ function StoryBatchControlInner({ channel, stream }: { channel: string; stream: 
     {error ? <span role="alert" className="inline-error">{error}</span> : null}
     {queueError ? <span role="alert">Queue unavailable <button type="button" className="button secondary small" onClick={() => void refresh.current?.()}>Retry</button></span> : null}
   </div>
+  {authorized ? <StreamUpscaleControl channel={channel} stream={stream}/> : null}
   <StoryBatchList batches={batches} channel={channel} stream={stream} owner={authorized} onChanged={() => void refresh.current?.()}/>
   </>;
+}
+
+function StreamUpscaleControl({channel,stream}:{channel:string;stream:string}) {
+  const timeline=useChannelTimeline(channel,stream);
+  const [selected,setSelected]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [note,setNote]=useState<string|null>(null);
+  const clips=timeline.state==="ready"?timeline.value.segments.filter(segment=>segment.programItemId):[];
+  const target=clips.find(clip=>clip.id===selected)??clips[0];
+  if(!clips.length)return null;
+  const queue=async()=>{
+    if(!target?.programItemId)return;
+    setBusy(true);setNote(null);
+    try {
+      const result=await apiFetch<{existing:boolean}>(`/channels/${encodeURIComponent(channel)}/streams/${encodeURIComponent(stream)}/upscale`,{method:"POST",body:JSON.stringify({programItemId:target.programItemId})});
+      setNote(result.existing?"Upscale already queued.":"Upscale queued.");
+    } catch(error) {setNote(displayProblem(error));}
+    finally {setBusy(false);}
+  };
+  return <div className="panel row">
+    <label>Clip <select className="select-input" value={target?.id??""} onChange={event=>setSelected(event.currentTarget.value)}>
+      {clips.map(clip=><option key={clip.id} value={clip.id}>Clip {clip.ordinal+1}</option>)}
+    </select></label>
+    <button type="button" className="button secondary small" disabled={busy||!target?.programItemId} onClick={()=>void queue()}>{busy?"Queueing…":"Request upscale"}</button>
+    {note?<span role="status">{note}</span>:null}
+  </div>;
 }
 
 function CandidateApproval({ item, channel, stream, owner, onChanged }: { item: StoryBatchItem; channel: string; stream: string; owner:boolean; onChanged: () => void }) {

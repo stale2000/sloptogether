@@ -211,7 +211,7 @@ describe("upscale requests",()=>{
     const client={query:vi.fn(async(sql:string,_values?:unknown[])=>{
       void _values;
       if(sql.includes("SELECT twitch_channel_id FROM sloptogether.channels"))return {rows:[{twitch_channel_id:"123"}],rowCount:1};
-      if(sql.includes("SELECT a.id AS asset_id"))return {rows:[{asset_id:"asset",segment_revision_id:"revision",sha256:Buffer.alloc(32),screen_id:"screen",width:sourceWidth,height:sourceHeight}],rowCount:1};
+      if(sql.includes("SELECT a.id AS asset_id"))return {rows:[{asset_id:"asset",segment_revision_id:"revision",stream_id:"stream-main",sha256:Buffer.alloc(32),screen_id:"screen",width:sourceWidth,height:sourceHeight}],rowCount:1};
       return {rows:[],rowCount:1};
     })};
     mocks.transaction.mockImplementation(async(work:(db:typeof client)=>Promise<unknown>)=>work(client));
@@ -221,6 +221,18 @@ describe("upscale requests",()=>{
     expect(insert?.[1]?.[3]).toBe(recipeId);
     expect((insert?.[1]?.[4] as Buffer).toString("hex")).toBe(hash);
     expect(JSON.parse(String(insert?.[1]?.[8]))).toMatchObject({inputScreenId:"screen",outputWidth,outputHeight});
+    expect(insert?.[1]?.[9]).toBe("stream-main");
+  });
+
+  it("limits a stream request to clips on that stream",async()=>{
+    vi.stubEnv("PUBLIC_APP_URL","https://www.clips.gg/sloptogether");
+    const client={query:vi.fn(async(sql:string)=>sql.includes("SELECT a.id AS asset_id")?{rows:[],rowCount:0}:{rows:[{}],rowCount:1})};
+    mocks.transaction.mockImplementation(async(work:(db:typeof client)=>Promise<unknown>)=>work(client));
+    const request=new Request("https://www.clips.gg/sloptogether/api/v1/channels/channel/streams/main/upscale",{method:"POST",headers:{Origin:"https://www.clips.gg","Content-Type":"application/json"},body:JSON.stringify({programItemId:"00000000-0000-4000-8000-000000000001"})});
+    await expect(requestClipUpscale("channel",request,"main")).rejects.toMatchObject({status:404,code:"approved_story_clip_not_found"});
+    const source=client.query.mock.calls.find(([sql])=>String(sql).includes("SELECT a.id AS asset_id"));
+    expect(source?.[0]).toContain("pi.stream_id=$3");
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.jobs"))).toBe(false);
   });
 
   it.each([{width:1920,height:1080,code:"clip_already_at_upscale_target"},{width:512,height:256,code:"clip_dimensions_invalid"}])

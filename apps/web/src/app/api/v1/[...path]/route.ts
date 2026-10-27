@@ -70,6 +70,7 @@ async function dispatch(request:NextRequest,path:string[]){
       if(p[4]==="story-proposals"&&p.length===5&&method==="POST")return jsonOk(await submitStoryProposal(locator,request,stream.slug),{status:201});
       if(p[4]==="story-batches"&&p.length===5&&method==="POST")return jsonOk(await createStoryBatch(locator,request,stream.slug),{status:201});
       if(p[4]==="story-batches"&&p.length===5&&method==="GET")return jsonOk(await listStoryBatches(locator,request,stream.slug));
+      if(p[4]==="upscale"&&p.length===5&&method==="POST")return jsonOk(await requestClipUpscale(locator,request,stream.slug),{status:202});
       if(p[4]==="story-candidates"&&p[5]==="frames"&&p.length===6&&method==="GET")return jsonOk(await listStoryCandidateFrames(locator,request,stream.slug));
       if(p[4]==="story-candidates"&&p[5]==="frames"&&p.length===6&&method==="POST")return jsonOk(await addStreamSeedFrame(locator,request,stream.slug),{status:201});
       if(p[4]==="story-candidates"&&p[5]&&p[6]==="approve"&&p.length===7&&method==="POST")return jsonOk(await approveStoryCandidate(locator,p[5]!,request,stream.slug));

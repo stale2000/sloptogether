@@ -55,26 +55,28 @@ const SUBSCRIBER_INTERRUPT_FRAME_COUNT=243;
 const SMALL_UPSCALE_SIZE={outputWidth:1184,outputHeight:666} as const;
 const LARGE_UPSCALE_SIZE={outputWidth:1920,outputHeight:1080} as const;
 
-export async function requestClipUpscale(locator:string,request:Request){
+export async function requestClipUpscale(locator:string,request:Request,streamSlug?:string){
   assertSameOrigin(request);
   const channel=await findChannel(locator);const principal=await requestPrincipal(request);
   const actor=await requireStreamerController(channel,principal);
   if(await isBanned(channel.twitch_channel_id,actor))throw new ApiError(403,"channel_ban_active");
+  const stream=streamSlug===undefined?null:await getStream(channel.twitch_channel_id,streamSlug);
   const body=await readJson(request,z.object({programItemId:z.string().uuid()}).strict());
   return transaction(async client=>{
     const locked=await client.query("SELECT twitch_channel_id FROM sloptogether.channels WHERE twitch_channel_id=$1 AND is_enabled FOR UPDATE",[channel.twitch_channel_id]);
     if(!locked.rowCount)throw new ApiError(404,"channel_not_found");
-    const source=await client.query<{asset_id:string;segment_revision_id:string;prompt:string;sha256:Buffer;screen_id:string;width:number;height:number}>(
-      `SELECT a.id AS asset_id,sr.id AS segment_revision_id,sr.prompt,a.sha256,aa.input_screen_id AS screen_id,a.width,a.height
+    const source=await client.query<{asset_id:string;segment_revision_id:string;stream_id:string;prompt:string;sha256:Buffer;screen_id:string;width:number;height:number}>(
+      `SELECT a.id AS asset_id,sr.id AS segment_revision_id,pi.stream_id,sr.prompt,a.sha256,aa.input_screen_id AS screen_id,a.width,a.height
        FROM sloptogether.program_items pi JOIN sloptogether.assets a ON a.id=pi.asset_id
        JOIN sloptogether.segments s ON s.id=pi.segment_id
+       JOIN sloptogether.branches branch ON branch.id=s.branch_id AND branch.stream_id=pi.stream_id AND branch.twitch_channel_id=pi.twitch_channel_id
        JOIN sloptogether.segment_revisions sr ON sr.id=s.selected_revision_id
        JOIN LATERAL(SELECT input_screen_id,decision FROM sloptogether.artifact_approvals aa
          WHERE aa.asset_id=a.id AND aa.sha256=a.sha256 ORDER BY aa.created_at DESC,aa.id DESC LIMIT 1) aa ON aa.decision='approved'
        JOIN sloptogether.input_screens i ON i.id=aa.input_screen_id AND i.twitch_channel_id=a.twitch_channel_id
          AND i.effective_state='clear' AND (i.expires_at IS NULL OR i.expires_at>now())
-       WHERE pi.id=$1 AND pi.twitch_channel_id=$2 AND pi.item_kind='story' AND pi.committed_at IS NOT NULL
-         AND a.status='published' AND a.sha256 IS NOT NULL AND a.media_kind='video'`,[body.programItemId,channel.twitch_channel_id]);
+       WHERE pi.id=$1 AND pi.twitch_channel_id=$2 AND ($3::uuid IS NULL OR pi.stream_id=$3) AND pi.item_kind='story' AND pi.committed_at IS NOT NULL
+         AND a.twitch_channel_id=pi.twitch_channel_id AND a.status='published' AND a.sha256 IS NOT NULL AND a.media_kind='video'`,[body.programItemId,channel.twitch_channel_id,stream?.id??null]);
     const item=source.rows[0];if(!item)throw new ApiError(404,"approved_story_clip_not_found");
     if(!Number.isSafeInteger(item.width)||!Number.isSafeInteger(item.height)||item.width<1||item.height<1||item.width*9!==item.height*16)
       throw new ApiError(409,"clip_dimensions_invalid","The source clip must have valid 16:9 dimensions.");
@@ -83,13 +85,13 @@ export async function requestClipUpscale(locator:string,request:Request){
     const recipeSha=target===SMALL_UPSCALE_SIZE?SMALL_UPSCALE_RECIPE_SHA256:UPSCALE_RECIPE_SHA256;
     if(item.width>=target.outputWidth||item.height>=target.outputHeight)throw new ApiError(409,"clip_already_at_upscale_target","The approved upscale profile cannot enlarge this clip further.");
     const existing=await client.query<{id:string;state:string}>(`SELECT id,state FROM sloptogether.jobs
-      WHERE twitch_channel_id=$1 AND stage='video_upscale' AND parent_asset_id=$2 AND state NOT IN ('failed','cancelled','expired')
-      ORDER BY created_at DESC LIMIT 1`,[channel.twitch_channel_id,item.asset_id]);
+      WHERE twitch_channel_id=$1 AND stage='video_upscale' AND parent_asset_id=$2 AND stream_id=$3 AND state NOT IN ('failed','cancelled','expired')
+      ORDER BY created_at DESC LIMIT 1`,[channel.twitch_channel_id,item.asset_id,item.stream_id]);
     if(existing.rows[0])return {accepted:true,jobId:existing.rows[0].id,state:existing.rows[0].state,existing:true};
     const jobId=randomUUID(),attemptId=randomUUID();
-    await client.query(`INSERT INTO sloptogether.jobs(id,twitch_channel_id,segment_revision_id,stage,execution_mode,state,recipe_id,recipe_sha256,input_sha256,requested_by,parent_asset_id,planning_payload,result_deadline_at)
-      VALUES($1,$2,$3,'video_upscale','pull_worker','ready',$4,$5,$6,$7,$8,$9::jsonb,now()+interval '24 hours')`,
-      [jobId,channel.twitch_channel_id,item.segment_revision_id,recipeId,Buffer.from(recipeSha,"hex"),item.sha256,actor,item.asset_id,JSON.stringify({inputScreenId:item.screen_id,...target})]);
+    await client.query(`INSERT INTO sloptogether.jobs(id,twitch_channel_id,segment_revision_id,stage,execution_mode,state,recipe_id,recipe_sha256,input_sha256,requested_by,parent_asset_id,planning_payload,result_deadline_at,stream_id)
+      VALUES($1,$2,$3,'video_upscale','pull_worker','ready',$4,$5,$6,$7,$8,$9::jsonb,now()+interval '24 hours',$10)`,
+      [jobId,channel.twitch_channel_id,item.segment_revision_id,recipeId,Buffer.from(recipeSha,"hex"),item.sha256,actor,item.asset_id,JSON.stringify({inputScreenId:item.screen_id,...target}),item.stream_id]);
     await client.query(`INSERT INTO sloptogether.job_attempts(id,job_id,attempt_number,fence,client_idempotency_key,state,attempt_deadline_at,input_sha256)
       VALUES($1,$2,1,1,$3,'ready',now()+interval '24 hours',$4)`,[attemptId,jobId,`job:${jobId}:attempt:1`,item.sha256]);
     await client.query("INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,action,target_kind,target_id,after_state) VALUES($1,$2,'upscale.requested','asset',$3,$4::jsonb)",

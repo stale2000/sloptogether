@@ -13,7 +13,7 @@ import {pool} from "./db";
 import {hashWorkerSecret} from "./crypto";
 import * as principalModule from "./principals";
 import {createStoryBatch,listStoryBatches} from "./story-batch-service";
-import {claimStoryProducer,claimWorkerLease,downloadWorkerAsset,submitStoryProposal} from "./worker-service";
+import {claimStoryProducer,claimWorkerLease,downloadWorkerAsset,requestClipUpscale,submitStoryProposal} from "./worker-service";
 import {approveStoryCandidate,listStoryCandidateFrames,rejectStoryCandidate,replanStoryCandidate,retryStoryCandidateScreen} from "./story-candidate-service";
 import {submitProposal} from "./proposal-service";
 import {castBallot} from "./voting-service";
@@ -133,6 +133,33 @@ integration("four-scene story batch PostgreSQL flow",()=>{
       const approved=await database!.query("SELECT candidate_prompt,approved_candidate_revision,candidate_revision FROM sloptogether.story_batch_items WHERE id=$1",[item]);
       expect(approved.rows[0]).toMatchObject({candidate_prompt:expect.stringContaining("A cartoon fox waves"),approved_candidate_revision:"2",candidate_revision:"2"});
       expect((await database!.query("SELECT 1 FROM sloptogether.jobs WHERE stream_id=$1",[stream.id])).rowCount).toBe(0);
+    } finally {spy.mockRestore();}
+  });
+
+  it("queues a published clip for upscale on its own stream",async()=>{
+    const session={id:channelId,twitchUserId:channelId,twitchLogin:`batch_${channelId}`,displayName:"Local Owner",accessToken:"local-test",scopes:["openid"],expiresAt:new Date(Date.now()+60_000)};
+    const spy=vi.spyOn(principalModule,"requestPrincipal").mockResolvedValue({kind:"session",session});
+    try {
+      const post=(body:unknown)=>new Request("http://localhost:3000/sloptogether/api/v1/test",{method:"POST",headers:{Origin:"http://localhost:3000","Content-Type":"application/json"},body:JSON.stringify(body)});
+      const stream=await createStream(channelId,post({slug:"upscale-test",displayName:"Upscale test"}));
+      const segment=(await database!.query<{id:string}>("SELECT s.id FROM sloptogether.segments s JOIN sloptogether.branches b ON b.id=s.branch_id WHERE b.stream_id=$1",[stream.id])).rows[0]!.id;
+      const revision=randomUUID(),asset=randomUUID(),programItem=randomUUID(),digest=Buffer.alloc(32,9);
+      await database!.query(`INSERT INTO sloptogether.segment_revisions(id,segment_id,revision,prompt,start_boundary_revision_id,planning_mode,provider_recipe_id,input_sha256,requested_by,state)
+        VALUES($1,$2,1,'Cartoon scene',$3,'continuation','fast-h3-trim-5step-vsa20-b1',$4,$5,'ready')`,[revision,segment,initialBoundaryId,digest,channelId]);
+      await database!.query("UPDATE sloptogether.segments SET selected_revision_id=$2,state='ready' WHERE id=$1",[segment,revision]);
+      await database!.query(`INSERT INTO sloptogether.assets(id,twitch_channel_id,storage_key,sha256,media_kind,content_type,status,width,height)
+        VALUES($1,$2,$3,$4,'video','video/mp4','published',512,288)`,[asset,channelId,`test/${asset}.mp4`,digest]);
+      const screen=(await database!.query<{id:string}>(`INSERT INTO sloptogether.input_screens(twitch_channel_id,input_sha256,prompt_sha256,moderation_model,moderation_policy_revision,automated_state,effective_state,expires_at)
+        VALUES($1,$2,$2,'local-test',1,'clear','clear',now()+interval '1 hour') RETURNING id`,[channelId,digest])).rows[0]!.id;
+      await database!.query(`INSERT INTO sloptogether.artifact_approvals(asset_id,sha256,input_screen_id,approval_path,reviewer_twitch_user_id,trust_policy_revision,decision)
+        VALUES($1,$2,$3,'human_review',$4,1,'approved')`,[asset,digest,screen,channelId]);
+      await database!.query(`INSERT INTO sloptogether.program_items(id,twitch_channel_id,stream_id,item_kind,segment_id,asset_id,item_order,program_epoch,committed_at)
+        VALUES($1,$2,$3,'story',$4,$5,0,1,now())`,[programItem,channelId,stream.id,segment,asset]);
+      await expect(requestClipUpscale(channelId,post({programItemId:programItem}),"main")).rejects.toMatchObject({code:"approved_story_clip_not_found"});
+      const created=await requestClipUpscale(channelId,post({programItemId:programItem}),"upscale-test");
+      expect(created).toMatchObject({accepted:true,state:"ready",existing:false});
+      expect((await database!.query<{stream_id:string}>("SELECT stream_id FROM sloptogether.jobs WHERE id=$1",[created.jobId])).rows[0]?.stream_id).toBe(stream.id);
+      await database!.query("DELETE FROM sloptogether.jobs WHERE id=$1",[created.jobId]);
     } finally {spy.mockRestore();}
   });
 
