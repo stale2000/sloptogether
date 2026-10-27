@@ -203,6 +203,8 @@ async function resolveExpiredElections(client:import("pg").PoolClient,channelId:
   const elections=await client.query<{id:string;segment_id:string}>(`SELECT e.id,e.segment_id FROM sloptogether.elections e
     JOIN sloptogether.segments s ON s.id=e.segment_id WHERE s.twitch_channel_id=$1 AND s.protected_at IS NULL
       AND s.state IN ('open','voting','selected') AND e.state='open' AND e.closes_at<=now()
+      AND NOT EXISTS(SELECT 1 FROM sloptogether.paid_action_intents pai WHERE pai.election_id=e.id AND pai.action_kind='prompt_lock'
+        AND ((pai.state='intent_open' AND pai.expires_at>now()) OR pai.state IN ('receipt_seen','receipt_unverified','verified_unallocated')))
     ORDER BY e.closes_at LIMIT 10 FOR UPDATE OF e,s SKIP LOCKED`,[channelId]);
   for(const election of elections.rows){
     const winner=await client.query<{proposal_id:string;revision_id:string;author_id:string;prompt:string;start_boundary_id:string;end_boundary_id:string|null;planning_mode:string;recipe_id:string;input_sha256:Buffer;input_screen_id:string}>(
