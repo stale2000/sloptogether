@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bitsOutcome, isLateReceiptGracePending } from "../src/bits-state.mjs";
+import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from "../src/bits-state.mjs";
 
 test("keeps unverified Bits receipts pending and locked", () => {
   assert.deepEqual(bitsOutcome("receipt_seen"), { pending: true, error: false, text: "Receipt received. Verification in progress; do not use Bits again yet." });
@@ -21,4 +21,11 @@ test("holds an expired intent briefly for a delayed Twitch receipt", () => {
   assert.equal(isLateReceiptGracePending("expired", false, expiry, Date.parse("2026-10-24T10:05:00Z")), true);
   assert.equal(isLateReceiptGracePending("expired", true, expiry, Date.parse("2026-10-24T10:05:00Z")), false);
   assert.equal(isLateReceiptGracePending("expired", false, expiry, Date.parse("2026-10-24T10:11:00Z")), false);
+});
+
+test("describes Prompt Lock as one worker attempt and keeps spent actions consumed",()=>{
+  assert.equal(promptLockBitsOutcome("reserved").text,"Prompt locked. One worker attempt is queued.");
+  assert.equal(promptLockBitsOutcome("consumed_rejected").error,true);
+  assert.match(promptLockBitsOutcome("consumed_rejected").text,/attempt is spent/);
+  assert.equal(promptLockBitsOutcome("development_ignored").error,true);
 });

@@ -10,7 +10,7 @@ import { submitProposal } from "@/lib/server/proposal-service";
 import { applyStreamerOverride,listOverrideCandidates,listActiveBans,createChannelBan,revokeChannelBan } from "@/lib/server/override-service";
 import { issueAssetUpload,completeAssetUpload,getApprovedMediaAsset,authorizeUploadGateway } from "@/lib/server/upload-service";
 import { handleSubscriberSettings,getExtensionState,handleEventSubWebhook } from "@/lib/server/subscriber-service";
-import { getExtensionBitsState,createExtensionBitsIntent,recordExtensionBitsReceipt,cancelExtensionBitsIntent,getExtensionBitsIntentStatus,requestBitsReceiptReconciliation,reconcilePaidBitsReceipt } from "@/lib/server/paid-bits-service";
+import { getExtensionBitsState,createExtensionBitsIntent,getExtensionPromptLockState,createExtensionPromptLockIntent,recordExtensionBitsReceipt,cancelExtensionBitsIntent,getExtensionBitsIntentStatus,requestBitsReceiptReconciliation,reconcilePaidBitsReceipt } from "@/lib/server/paid-bits-service";
 import { cancelComfyGeneration,createComfyFrameGeneration,createComfyPromptGeneration,getComfyFrameGenerationImage,getComfyGeneration,getComfyPromptGenerationText,listComfyGenerations } from "@/lib/server/comfy-frame-service";
 import { listWindowsWorkerRelease,recordWorkerProviderRequest,claimStoryProducer,submitStoryProposal,downloadWorkerAsset,failWorkerLease,requestClipUpscale } from "@/lib/server/worker-service";
 import { jsonError,jsonOk } from "@/lib/server/http";
@@ -34,6 +34,8 @@ async function dispatch(request:NextRequest,path:string[]){
   if(p.join("/")==="extension/state"&&method==="GET")return jsonOk(await getExtensionState(request));
   if(p.join("/")==="extension/bits/state"&&method==="GET")return jsonOk(await getExtensionBitsState(request));
   if(p.join("/")==="extension/bits/intents"&&method==="POST")return jsonOk(await createExtensionBitsIntent(request),{status:201});
+  if(p.join("/")==="extension/bits/prompt-lock/state"&&method==="GET")return jsonOk(await getExtensionPromptLockState(request));
+  if(p.join("/")==="extension/bits/prompt-lock/intents"&&method==="POST")return jsonOk(await createExtensionPromptLockIntent(request),{status:201});
   if(p.join("/")==="extension/bits/receipt"&&method==="POST")return jsonOk(await recordExtensionBitsReceipt(request));
   if(p[0]==="extension"&&p[1]==="bits"&&p[2]==="intents"&&p[3]&&p.length===4&&method==="GET")return jsonOk(await getExtensionBitsIntentStatus(p[3]!,request));
   if(p[0]==="extension"&&p[1]==="bits"&&p[2]==="intents"&&p[3]&&p[4]==="reconcile"&&p.length===5&&method==="POST")return jsonOk(await requestBitsReceiptReconciliation(p[3]!,request));

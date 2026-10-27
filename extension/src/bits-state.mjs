@@ -16,6 +16,24 @@ export function bitsOutcome(state) {
   }
 }
 
+export function promptLockBitsOutcome(state) {
+  switch (state) {
+    case "receipt_seen": return { pending: true, error: false, text: "Verification in progress. Do not use Bits again yet." };
+    case "receipt_unverified": return { pending: true, error: false, text: "Receipt not verified. No job was started; do not use Bits again yet." };
+    case "reserved": return { pending: false, error: false, text: "Prompt locked. One worker attempt is queued." };
+    case "paid_unfulfilled": return { pending: false, error: true, text: "Prompt Lock could not be completed. Contact the channel owner." };
+    case "verified_unallocated": return { pending: false, error: true, text: "Prompt Lock could not be matched. Contact the channel owner." };
+    case "development_ignored": return { pending: false, error: true, text: "Test transaction. No job was started." };
+    case "consumed_succeeded": return { pending: false, error: false, text: "The prompt clip completed." };
+    case "consumed_failed":
+    case "consumed_rejected":
+    case "consumed_uncertain": return { pending: false, error: true, text: "This Prompt Lock attempt is spent. A new attempt requires a new Bits exchange." };
+    case "expired": return { pending: false, error: false, text: "The Prompt Lock expired without a receipt. No job was started." };
+    case "cancelled": return { pending: false, error: true, text: "Prompt Lock cancelled. No job was started." };
+    default: return { pending: true, error: false, text: "Verification in progress." };
+  }
+}
+
 export function isLateReceiptGracePending(state, transactionReceived, expiresAt, now = Date.now()) {
   const expiry = Date.parse(expiresAt || "");
   return state === "expired" && !transactionReceived && Number.isFinite(expiry) && now < expiry + 10 * 60_000;
