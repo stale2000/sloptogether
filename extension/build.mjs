@@ -1,4 +1,4 @@
-import { copyFileSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19,27 +19,39 @@ function renderSurfaceView(panelHtml, surface, title) {
     .replace("<title>SlopTogether scene vote</title>", `<title>SlopTogether ${title}</title>`);
 }
 
-export function syncExtensionAssets() {
-  const sourceFiles = [
-    ...publicAssets.map(name => path.join(extensionRoot, "public", name)),
-    ...sourceScripts.map(name => path.join(extensionRoot, "src", name)),
-  ];
-  for (const file of sourceFiles) {
-    const stat = lstatSync(file);
-    if (stat.isSymbolicLink() || !stat.isFile()) throw new Error(`extension_asset_invalid:${path.basename(file)}`);
+export function extensionAssets() {
+  const files = {};
+  for (const [directory, names] of [["public", publicAssets], ["src", sourceScripts]]) {
+    for (const name of names) {
+      const file = path.join(extensionRoot, directory, name);
+      const stat = lstatSync(file);
+      if (stat.isSymbolicLink() || !stat.isFile()) throw new Error(`extension_asset_invalid:${name}`);
+      files[name] = readFileSync(file);
+    }
   }
-
-  rmSync(outputDirectory, { recursive: true, force: true });
-  mkdirSync(outputDirectory, { recursive: true });
-  for (const name of publicAssets) copyFileSync(path.join(extensionRoot, "public", name), path.join(outputDirectory, name));
-  for (const name of sourceScripts) copyFileSync(path.join(extensionRoot, "src", name), path.join(outputDirectory, name));
-  const panelHtml = readFileSync(path.join(extensionRoot, "public", "panel.html"), "utf8");
+  const panelHtml = files["panel.html"].toString("utf8");
   for (const [name, surface, title] of surfaceViews) {
-    writeFileSync(path.join(outputDirectory, name), renderSurfaceView(panelHtml, surface, title));
+    files[name] = Buffer.from(renderSurfaceView(panelHtml, surface, title));
   }
-  return outputDirectory;
+  return files;
+}
+
+export function syncExtensionAssets(destination = outputDirectory) {
+  const files = extensionAssets();
+  rmSync(destination, { recursive: true, force: true });
+  mkdirSync(destination, { recursive: true });
+  for (const [name, contents] of Object.entries(files)) writeFileSync(path.join(destination, name), contents);
+  return destination;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  console.log(`Twitch Extension assets synced to ${syncExtensionAssets()}`);
+  if (process.argv[2] === "--package-json") {
+    const files = extensionAssets();
+    console.log(JSON.stringify({
+      files: Object.fromEntries(Object.entries(files).map(([name, contents]) => [name, contents.toString("base64")])),
+      viewerPages: ["panel.html", ...surfaceViews.map(([name]) => name)],
+    }));
+  } else {
+    console.log(`Twitch Extension assets synced to ${syncExtensionAssets()}`);
+  }
 }
