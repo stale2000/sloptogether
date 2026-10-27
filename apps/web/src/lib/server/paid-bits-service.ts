@@ -154,10 +154,10 @@ async function fulfillVerifiedPromptLock(client:PoolClient,tx:VerifiedBitsRecord
   const channel=await client.query<{policy_revision:number;is_enabled:boolean;visibility:string}>(
     "SELECT policy_revision,is_enabled,visibility FROM sloptogether.channels WHERE twitch_channel_id=$1 FOR UPDATE",[tx.broadcaster_twitch_id]);
   const target=await client.query<{policy_revision:number;is_enabled:boolean;visibility:string;stream_is_selected:boolean;segment_id:string;segment_state:string;protected_at:Date|null;
-    selected_revision_id:string|null;election_state:string;election_closes_at:Date;winner_proposal_id:string|null;proposal_state:string;proposal_author:string;
+    selected_revision_id:string|null;election_state:string;winner_proposal_id:string|null;proposal_state:string;proposal_author:string;
     revision_id:string;prompt:string;revision_hash:Buffer;screen_id:string;screen_hash:Buffer;screen_clear:boolean;start_boundary_id:string;
     start_asset_id:string;start_hash:Buffer;end_boundary_id:string|null;end_asset_id:string|null;end_hash:Buffer|null;predecessor_boundary_id:string|null;dependency_resolution_id:string|null;committed:boolean;active_render:boolean}>(`SELECT c.policy_revision,c.is_enabled,c.visibility,b.is_selected AS stream_is_selected,s.id AS segment_id,s.state AS segment_state,s.protected_at,
-      s.selected_revision_id,e.state AS election_state,e.closes_at AS election_closes_at,e.winner_proposal_id,p.state AS proposal_state,p.author_twitch_user_id AS proposal_author,
+      s.selected_revision_id,e.state AS election_state,e.winner_proposal_id,p.state AS proposal_state,p.author_twitch_user_id AS proposal_author,
       r.id AS revision_id,r.prompt,r.input_sha256 AS revision_hash,i.id AS screen_id,i.input_sha256 AS screen_hash,
       (i.effective_state='clear' AND (i.expires_at IS NULL OR i.expires_at>now())) AS screen_clear,
       r.start_boundary_revision_id AS start_boundary_id,sb.asset_id AS start_asset_id,sa.sha256 AS start_hash,
@@ -191,7 +191,7 @@ async function fulfillVerifiedPromptLock(client:PoolClient,tx:VerifiedBitsRecord
   const row=target.rows[0],channelRow=channel.rows[0];
   const eligible=Boolean(row&&channelRow?.is_enabled&&channelRow.visibility!=="private"&&channelRow.policy_revision===intent.policy_revision
     &&row.policy_revision===intent.policy_revision&&row.is_enabled&&row.visibility!=="private"&&row.stream_is_selected
-    &&row.segment_id===intent.segment_id&&!row.protected_at&&["open","voting"].includes(row.segment_state)&&row.election_state==="open"&&row.election_closes_at.getTime()>Date.now()
+    &&row.segment_id===intent.segment_id&&!row.protected_at&&["open","voting"].includes(row.segment_state)&&row.election_state==="open"
     &&row.winner_proposal_id===null&&row.proposal_state==="eligible"&&row.proposal_author===tx.purchaser_twitch_user_id
     &&row.revision_id===intent.segment_revision_id&&row.prompt===snapshot.prompt&&row.revision_hash.equals(intent.input_sha256)
     &&row.screen_id===intent.input_screen_id&&row.screen_clear&&row.screen_hash.equals(Buffer.from(snapshot.input.screenSha256,"hex"))
@@ -436,7 +436,7 @@ export async function createExtensionBitsIntent(request:Request){
       [channel.twitch_channel_id]);
     const row=candidate.rows[0];
     if(!row)throw new ApiError(409,"turbo_target_not_ready","There is no selected scene eligible for the fixed Turbo product.");
-    const id=randomUUID(),expiresAt=new Date(Date.now()+60_000);
+    const id=randomUUID(),expiresAt=new Date(Date.now()+5*60_000);
     const snapshot={schemaVersion:1,channelId:channel.twitch_channel_id,policyRevision:channel.policy_revision,segmentId:row.segment_id,
       segmentRevisionId:row.revision_id,prompt:row.prompt,input:{screenId:row.input_screen_id,screenSha256:row.screen_sha256.toString("hex"),
         revisionSha256:row.input_sha256.toString("hex"),moderationModel:row.moderation_model,moderationPolicyRevision:row.moderation_policy_revision},
@@ -458,12 +458,15 @@ export async function getExtensionPromptLockState(request:Request){
   if(!promptLockFlagsReady())return {enabled:false,products:[],proposals:[],requiresLinkedIdentity:false};
   const actor=principal.linkedTwitchUserId;
   if(!actor||await isBanned(principal.channelId,actor))return {enabled:false,products:[],proposals:[],requiresLinkedIdentity:true};
-  const products=await availablePromptLockProducts();
-  if(!products.length)return {enabled:false,products:[],proposals:[],requiresLinkedIdentity:false};
   const channel=await findChannel(principal.channelId);
   if(!await canContribute(channel,{kind:"extension",extension:principal}))return {enabled:false,products:[],proposals:[],requiresLinkedIdentity:false};
   const streamSlug=new URL(request.url).searchParams.get("stream")?.toLowerCase()??"main";
   const stream=await getStream(channel.twitch_channel_id,streamSlug);
+  const pending=await query("SELECT 1 FROM sloptogether.paid_action_intents WHERE twitch_channel_id=$1 AND stream_id=$2 AND action_kind='prompt_lock' AND state IN ('intent_open','receipt_seen','verified_unallocated','receipt_unverified') LIMIT 1",
+    [channel.twitch_channel_id,stream.id]);
+  if(pending.rowCount)return {enabled:false,products:[],proposals:[],requiresLinkedIdentity:false,pending:true,stream:{id:stream.id,slug:stream.slug}};
+  const products=await availablePromptLockProducts();
+  if(!products.length)return {enabled:false,products:[],proposals:[],requiresLinkedIdentity:false};
   const proposals=await query<{election_id:string;segment_id:string;proposal_id:string;prompt:string}>(`SELECT e.id AS election_id,s.id AS segment_id,p.id AS proposal_id,p.prompt
     FROM sloptogether.elections e JOIN sloptogether.segments s ON s.id=e.segment_id
     JOIN sloptogether.branches b ON b.id=s.branch_id AND b.is_selected AND b.archived_at IS NULL
@@ -497,6 +500,9 @@ export async function createExtensionPromptLockIntent(request:Request){
     const locked=await client.query("SELECT policy_revision FROM sloptogether.channels WHERE twitch_channel_id=$1 AND is_enabled AND visibility<>'private' FOR UPDATE",[channel.twitch_channel_id]);
     if(!locked.rowCount||Number(locked.rows[0]!.policy_revision)!==channel.policy_revision)throw new ApiError(409,"channel_policy_changed");
     await client.query("UPDATE sloptogether.paid_action_intents SET state='expired',state_reason='purchase_window_elapsed',updated_at=now() WHERE twitch_channel_id=$1 AND state IN ('intent_open','receipt_seen') AND expires_at<=now()",[channel.twitch_channel_id]);
+    const pendingStream=await client.query("SELECT 1 FROM sloptogether.paid_action_intents WHERE twitch_channel_id=$1 AND stream_id=$2 AND action_kind='prompt_lock' AND state IN ('intent_open','receipt_seen','verified_unallocated','receipt_unverified') LIMIT 1",
+      [channel.twitch_channel_id,stream.id]);
+    if(pendingStream.rowCount)throw new ApiError(409,"bits_prompt_lock_in_progress","A Bits Prompt Lock is already being confirmed for this stream.");
     const recent=await client.query<{count:string}>("SELECT count(*)::text AS count FROM sloptogether.paid_action_intents WHERE twitch_channel_id=$1 AND twitch_user_id=$2 AND created_at>now()-interval '10 minutes'",[channel.twitch_channel_id,actor]);
     if(Number(recent.rows[0]?.count??0)>=3)throw new ApiError(429,"bits_intent_rate_limited","Try again after the current purchase window ends.");
     const candidate=await client.query<{segment_id:string;election_id:string;proposal_id:string;revision_id:string;prompt:string;input_screen_id:string;

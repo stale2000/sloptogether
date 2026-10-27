@@ -248,7 +248,21 @@ describe.skipIf(!run)("isolated Bits transaction pipeline",()=>{
     expect(intent).toMatchObject({actionKind:"prompt_lock",proposalId:target.proposalId,streamSlug:"main",amountBits:400});
     await expect(createExtensionPromptLockIntent(request("extension/bits/prompt-lock/intents",{
       sku:promptLockSku,proposalId:target.proposalId,stream:"main",
-    },auth(f)))).rejects.toMatchObject({status:409,code:"prompt_lock_slot_already_locked"});
+    },auth(f)))).rejects.toMatchObject({status:409,code:"bits_prompt_lock_in_progress"});
+
+    const keyId=randomUUID(),credential=`slw_${keyId}.ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-`;
+    await database.query(`insert into sloptogether.application_keys(key_id,secret_hash,key_prefix,issuing_twitch_user_id,twitch_channel_id,display_name,scopes,worker_roles)
+      values($1,$2,$3,$4,$5,'Prompt lock test worker',ARRAY['worker:generation'],ARRAY['generation'])`,
+      [keyId,hashWorkerSecret(credential),`slw_${keyId}`,f.channel,f.channel]);
+    await database.query(`insert into sloptogether.trusted_executions(twitch_channel_id,key_id,issuer_twitch_user_id,execution_role,policy_revision)
+      select $1,$2,$1,'generation',policy_revision from sloptogether.channels where twitch_channel_id=$1`,[f.channel,keyId]);
+    await database.query("update sloptogether.elections set closes_at=now()-interval '1 second' where id=$1",[target.electionId]);
+    const beforePayment=await claimWorkerLease(new Request("http://127.0.0.1:3000/sloptogether/api/v1/workers/leases?role=generation",{
+      method:"POST",headers:{Authorization:`Bearer ${credential}`,"Content-Type":"application/json"},
+      body:JSON.stringify({supportedRecipes:["fast-h3-trim-5step-vsa20-b1"]}),
+    }));
+    expect(beforePayment).toMatchObject({status:"empty"});
+    expect((await database.query<{state:string}>("select state from sloptogether.elections where id=$1",[target.electionId])).rows[0]?.state).toBe("open");
 
     const transactionId=`local-prompt-lock-${randomUUID()}`,time=new Date();
     const receiptBody={intentId:intent.intentId,transactionReceipt:receipt(f,transactionId,false,time)};
@@ -261,12 +275,6 @@ describe.skipIf(!run)("isolated Bits transaction pipeline",()=>{
       .resolves.toMatchObject({accepted:true,actionKind:"prompt_lock",state:"reserved"});
     expect(await counts(f)).toEqual({funding:"1",jobs:"1",dispatches:"0"});
 
-    const keyId=randomUUID(),credential=`slw_${keyId}.ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-`;
-    await database.query(`insert into sloptogether.application_keys(key_id,secret_hash,key_prefix,issuing_twitch_user_id,twitch_channel_id,display_name,scopes,worker_roles)
-      values($1,$2,$3,$4,$5,'Prompt lock test worker',ARRAY['worker:generation'],ARRAY['generation'])`,
-      [keyId,hashWorkerSecret(credential),`slw_${keyId}`,f.channel,f.channel]);
-    await database.query(`insert into sloptogether.trusted_executions(twitch_channel_id,key_id,issuer_twitch_user_id,execution_role,policy_revision)
-      select $1,$2,$1,'generation',policy_revision from sloptogether.channels where twitch_channel_id=$1`,[f.channel,keyId]);
     const lease=await claimWorkerLease(new Request("http://127.0.0.1:3000/sloptogether/api/v1/workers/leases?role=generation",{
       method:"POST",headers:{Authorization:`Bearer ${credential}`,"Content-Type":"application/json"},
       body:JSON.stringify({supportedRecipes:["fast-h3-trim-5step-vsa20-b1"]}),
