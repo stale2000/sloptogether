@@ -194,50 +194,64 @@ export function ChannelModerationQueue({ channel,streamSlug="main" }: { channel:
   }, [load]);
 
   const decide = async (item: QueueEntry, decision: "approve" | "reject") => {
-    const reason = decision === "reject" ? window.prompt("Why is this clip being rejected? This will be added to the moderation record.") : "";
+    const reason = decision === "reject" ? window.prompt("Reason for rejection:") : "";
     if (decision === "reject" && (reason === null || !reason.trim())) return;
     setActingOn(item.id); setError(null); setNote(null);
     try {
       const path=item.endpointScreenId?`/channels/${encodeURIComponent(channel)}/moderation/endpoint-input/${encodeURIComponent(item.endpointScreenId)}`:item.videoUrl?`/channels/${encodeURIComponent(channel)}/moderation/assets/${encodeURIComponent(item.id)}`:`/channels/${encodeURIComponent(channel)}/moderation/${encodeURIComponent(item.id)}`;
       const result=await apiFetch<{preairPending?:boolean}>(path, { method: "POST", body: JSON.stringify({ decision, reason }) });
       setItems((current) => current?.filter((entry) => entry.id !== item.id) ?? []);
-      setNote(item.endpointScreenId?"The generated endpoint frame was rejected; the placeholder stays open for another start-frame proposal.":item.videoUrl?(decision==="approve"?(item.kind==="upscale"?(result.preairPending?"Upscale approved for playback.":"Upscale approved; it will not rewrite committed playback."):"Clip approved and queued for publication."):"Clip rejected; its attempt cannot be replayed with the same funding."):decision === "approve" ? "Approved revision was recorded." : "Rejected attempt consumed its funding and reopened the slot.");
+      setNote(item.endpointScreenId?"End frame rejected.":item.videoUrl?(decision==="approve"?(item.kind==="upscale"?(result.preairPending?"Upscale approved.":"Upscale approved; playback history is unchanged."):"Clip approved."):"Clip rejected. The attempt was used."):decision === "approve" ? "Approved." : "Rejected. The attempt was used.");
     } catch (problem) { setError(displayProblem(problem)); }
     finally { setActingOn(null); }
   };
 
   const banContributor = async (item:QueueEntry) => {
-    const reason=window.prompt("Reason for banning this Twitch user from the channel:");
+    const reason=window.prompt("Reason for ban:");
     if(reason===null||!reason.trim())return;
     setActingOn(item.id);setError(null);setNote(null);
     try{
       if(!/^\d{1,32}$/.test(item.contributor))throw new Error("This artifact has no ban-eligible Twitch uploader.");
       await apiFetch(`/channels/${encodeURIComponent(channel)}/bans`,{method:"POST",body:JSON.stringify({twitchUserId:item.contributor,reason:reason.trim()})});
       setItems((current)=>current?.filter(entry=>entry.id!==item.id)??[]);
-      setNote("Contributor banned. Their pending proposals were rejected and their worker keys were revoked.");
+      setNote("Contributor banned.");
     }catch(problem){setError(displayProblem(problem));}
     finally{setActingOn(null);}
   };
 
   const resolveInputHold=async(item:QueueEntry)=>{
-    const reason=window.prompt("Why is the broadcaster overriding the automated input hold?");
+    const reason=window.prompt("Reason for clearing the input hold:");
     if(reason===null||!reason.trim())return;
     setActingOn(item.id);setError(null);setNote(null);
     try{
       const path=item.endpointScreenId?`/channels/${encodeURIComponent(channel)}/moderation/endpoint-input/${encodeURIComponent(item.endpointScreenId)}`:`/channels/${encodeURIComponent(channel)}/moderation/${encodeURIComponent(item.id)}/input-resolution`;
       await apiFetch(path,{method:"POST",body:JSON.stringify({decision:"clear",reason:reason.trim()})});
       await load();
-      setNote("The streamer explicitly cleared this input hold. A reviewer can now approve or reject the proposal.");
+      setNote("Input hold cleared.");
     }catch(problem){setError(displayProblem(problem))}finally{setActingOn(null)}
   };
 
   return <>
-    <div className="page-top"><Breadcrumbs items={[{ label: "Channels", href: "/" }, { label: channel, href: `/channels/${encodeURIComponent(channel)}` }, { label: streamSlug }, { label: "Moderate" }]}/></div>
-    <PageTitle eyebrow="TRUSTED REVIEW" title="Review the next scenes." description="Each decision attaches to one immutable upload, prompt and revision." action={<Link className="button secondary small" href={`/control/${encodeURIComponent(channel)}`}>Channel settings</Link>}/>
     <StoryBatchControl channel={channel} stream={streamSlug}/>
     {error ? <div role="alert" className="alert error">{error} <button className="button ghost small" onClick={() => void load()}>Retry</button></div> : null}
     {note ? <div role="status" className="alert success">{note}</div> : null}
-    {items === null ? error?<div className="empty-state review-empty"><strong>Review queue unavailable.</strong><button className="button secondary small" onClick={()=>void load()}>Retry</button></div>:<div className="panel"><div className="loading-pulse"/><div className="loading-pulse short"/></div> : items.length === 0 ? <div className="empty-state review-empty"><span className="empty-glyph">✓</span><strong>Nothing is waiting for human review.</strong><p>Ordinary public uploads arrive here. Trusted generation follows the channel&apos;s system-approval policy.</p></div> : <div className="review-list">{items.map((item) => <article key={item.id} className="review-card"><div className={`review-preview${item.endThumbnailUrl?" review-pair-preview":""}`}>{item.videoUrl?<video src={item.videoUrl} controls preload="metadata" aria-label="Generated clip for review"/>:item.thumbnailUrl ? <Image src={item.thumbnailUrl} alt="Start frame preview" width={480} height={270} unoptimized/> : <span aria-hidden="true">◈</span>}{item.endThumbnailUrl?<Image src={item.endThumbnailUrl} alt="End frame preview" width={480} height={270} unoptimized/>:null}</div><div className="review-detail"><div className="review-meta"><span className="section-label">{item.kind.replaceAll("_", " ")}</span><span>{/^\d{1,32}$/.test(item.contributor)?`Twitch user ID ${item.contributor}`:item.contributor}</span><span>{new Date(item.submittedAt).toLocaleString()}</span>{item.durationSeconds? <span>{item.durationSeconds.toFixed(1)} sec</span>:null}</div>{item.inputHeld?<p className="inline-error">Automated input screen: {item.automatedState??"held"}. Reject this artifact or resolve the source input before approval.</p>:null}{item.videoUrl&&item.inputScreenExpired?<p className="panel-copy">The source check was clear when this clip was dispatched. Its review window expired while the clip waited; review the clip itself below.</p>:null}<p>{item.prompt}</p><span className="hash-line">{item.videoUrl?"Artifact ID":"Revision ID"} <code>{item.id}</code></span></div><div className="review-actions">{item.inputHeld&&!item.videoUrl?<button disabled={actingOn!==null} className="button secondary small" onClick={()=>void resolveInputHold(item)}>Streamer clear hold</button>:item.inputHeld?null:<button disabled={actingOn!==null} className="button small" onClick={() => void decide(item,"approve")}>{actingOn===item.id?"Saving…":"Approve"}</button>}<button disabled={actingOn!==null} className="button danger small" onClick={() => void decide(item,"reject")}>Reject</button>{/^\d{1,32}$/.test(item.contributor)?<button disabled={actingOn!==null} className="button danger small" onClick={() => void banContributor(item)}>Ban user</button>:null}</div></article>)}</div>}
+    {items === null ? error ? <div className="empty-state review-empty"><strong>Review queue unavailable</strong><button className="button secondary small" onClick={() => void load()}>Retry</button></div> : <div className="panel"><div className="loading-pulse"/><div className="loading-pulse short"/></div> : items.length === 0 ? <div className="empty-state review-empty"><strong>Nothing to review</strong></div> : <div className="review-list">{items.map(item => <article key={item.id} className="review-card">
+      <div className={`review-preview${item.endThumbnailUrl ? " review-pair-preview" : ""}`}>
+        {item.videoUrl ? <video src={item.videoUrl} controls preload="metadata" aria-label="Generated clip for review"/> : item.thumbnailUrl ? <Image src={item.thumbnailUrl} alt="Start frame preview" width={480} height={270} unoptimized/> : <span aria-hidden="true">◈</span>}
+        {item.endThumbnailUrl ? <Image src={item.endThumbnailUrl} alt="End frame preview" width={480} height={270} unoptimized/> : null}
+      </div>
+      <div className="review-detail">
+        <p className="review-prompt">{item.prompt}</p>
+        {item.inputHeld ? <p className="inline-error">Input check: {item.automatedState ?? "held"}</p> : null}
+        {item.videoUrl && item.inputScreenExpired ? <p className="review-note">Input check expired after dispatch.</p> : null}
+        <details className="review-details"><summary>Details</summary><div className="review-meta"><span>{item.kind.replaceAll("_", " ")}</span><span>{/^\d{1,32}$/.test(item.contributor) ? `Twitch user ID ${item.contributor}` : item.contributor}</span><span>{new Date(item.submittedAt).toLocaleString()}</span>{item.durationSeconds ? <span>{item.durationSeconds.toFixed(1)} sec</span> : null}<span>{item.videoUrl ? "Artifact ID" : "Revision ID"}: {item.id}</span></div></details>
+      </div>
+      <div className="review-actions">
+        {item.inputHeld && !item.videoUrl ? <button disabled={actingOn !== null} className="button secondary small" onClick={() => void resolveInputHold(item)}>Clear hold</button> : item.inputHeld ? null : <button disabled={actingOn !== null} className="button small" onClick={() => void decide(item, "approve")}>{actingOn === item.id ? "Saving…" : "Approve"}</button>}
+        <button disabled={actingOn !== null} className="button danger small" onClick={() => void decide(item, "reject")}>Reject</button>
+        {/^\d{1,32}$/.test(item.contributor) ? <button disabled={actingOn !== null} className="button danger small" onClick={() => void banContributor(item)}>Ban user</button> : null}
+      </div>
+    </article>)}</div>}
   </>;
 }
 

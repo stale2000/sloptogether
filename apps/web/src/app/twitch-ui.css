@@ -26,3 +26,29 @@ body { font-family: var(--sans); line-height: 1.55; background: var(--bg); }
 .field input:focus,.field textarea:focus,.field select:focus,.search-box:focus,.prompt-input:focus,.select-input:focus,.text-input:focus { border-color: #9147ff; box-shadow: 0 0 0 2px rgb(145 71 255 / 18%); }
 .vote-window,.free-pill { border-radius: 4px; }
 .support-orbit { display: none; }
+
+/* Moderation is a working queue: readable prompts, clear previews, few labels. */
+.moderation-view { --sans: "Helvetica Neue", Helvetica, Arial, sans-serif; font-family: var(--sans); font-size: 16px; }
+.moderation-view .page-top { padding-top: 26px; }
+.moderation-view .breadcrumbs { font-size: 13px; }
+.moderation-view .page-title-row { margin: 14px 0 24px; align-items: center; }
+.moderation-view .page-title-row h1 { margin: 0; font-size: 30px; line-height: 1.2; letter-spacing: 0; }
+.moderation-view .button.small { font-size: 14px; padding: 9px 13px; }
+.moderation-view .review-list { gap: 10px; margin-top: 12px; }
+.moderation-view .review-card { grid-template-columns: minmax(160px, 220px) minmax(0, 1fr) auto; gap: 20px; padding: 16px; }
+.moderation-view .review-preview { width: 100%; height: auto; aspect-ratio: 16 / 9; }
+.moderation-view .review-detail .review-prompt { margin: 0; font-size: 16px; line-height: 1.5; }
+.moderation-view .review-detail .inline-error, .moderation-view .review-note { margin: 8px 0 0; font-size: 13px; }
+.moderation-view .review-details { margin-top: 8px; color: var(--soft); font-size: 13px; }
+.moderation-view .review-details summary { width: fit-content; cursor: pointer; }
+.moderation-view .review-meta { gap: 6px 14px; margin-top: 8px; font-size: 12px; overflow-wrap: anywhere; }
+.moderation-view .review-actions { flex-wrap: wrap; }
+@media (max-width: 900px) {
+  .moderation-view .review-card { grid-template-columns: minmax(120px, 180px) minmax(0, 1fr); }
+  .moderation-view .review-actions { grid-column: 2; justify-content: flex-start; }
+}
+@media (max-width: 560px) {
+  .moderation-view .page-title-row { align-items: flex-start; }
+  .moderation-view .review-card { grid-template-columns: 1fr; gap: 12px; }
+  .moderation-view .review-actions { grid-column: auto; }
+}
