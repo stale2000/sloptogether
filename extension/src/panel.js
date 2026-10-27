@@ -46,6 +46,7 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
   let abortController = null;
   let voteAbortController = null;
   let pollTimer = 0;
+  let refreshEpoch = 0;
   let isVisible = true;
   let isSubmitting = false;
   let isSubmittingPrompt = false;
@@ -409,6 +410,7 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
   }
 
   function stopPolling() {
+    refreshEpoch += 1;
     if (pollTimer) window.clearTimeout(pollTimer);
     pollTimer = 0;
     if (abortController) abortController.abort();
@@ -563,12 +565,13 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
     const requestEpoch = identityEpoch;
     const requestStreamEpoch = streamEpoch;
     stopPolling();
+    const requestRefreshEpoch = refreshEpoch;
     abortController = new AbortController();
     try {
       const channelId = authorization.channelId;
       if (!channelId) throw new Error("Channel context unavailable.");
       const result = await api(`/extension/state?stream=${encodeURIComponent(selectedStreamSlug)}`, { signal: abortController.signal });
-      if (requestEpoch !== identityEpoch || requestStreamEpoch !== streamEpoch) return;
+      if (requestEpoch !== identityEpoch || requestStreamEpoch !== streamEpoch || requestRefreshEpoch !== refreshEpoch) return;
       currentChannelLogin=result.channel?.twitchLogin||null;
       const streams=Array.isArray(result.streams)?result.streams:[];
       const available=streams.filter(item=>item&&typeof item.slug==="string"&&typeof item.displayName==="string");
@@ -594,7 +597,7 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
       }
       pollTimer = window.setTimeout(refresh, POLL_MS);
     } catch (error) {
-      if (requestEpoch !== identityEpoch || requestStreamEpoch !== streamEpoch) return;
+      if (requestEpoch !== identityEpoch || requestStreamEpoch !== streamEpoch || requestRefreshEpoch !== refreshEpoch) return;
       if (error.name === "AbortError") return;
       nodes.status.hidden = false;
       message(nodes.status, "The vote is temporarily unavailable. Your channel is still playing its current scene.");

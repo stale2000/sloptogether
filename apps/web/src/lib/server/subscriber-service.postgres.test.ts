@@ -88,6 +88,44 @@ describeDatabase("subscriber EventSub PostgreSQL concurrency",()=>{
     }finally{await database?.end();vi.unstubAllEnvs();}
   },20_000);
 
+  it("rejects a notification whose registration is removed while it waits for the channel lock",async()=>{
+    const locker=await pool().connect();
+    const messageId=`local-registration-race-${channelId}`;
+    let committed=false;
+    let delivery:Promise<{status:number}|{error:unknown}>|undefined;
+    try{
+      await locker.query("BEGIN");
+      await locker.query("SELECT twitch_channel_id FROM sloptogether.channels WHERE twitch_channel_id=$1 FOR UPDATE",[channelId]);
+      // The early registration read sees the committed row; admission then
+      // waits on this channel lock until the revocation transaction commits.
+      delivery=handleEventSubWebhook(request(messageId)).then(response=>({status:response.status}),error=>({error}));
+      const deadline=Date.now()+5000;
+      let blocked=false;
+      while(Date.now()<deadline){
+        const waiting=await pool().query<{waiting:boolean}>(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+          WHERE datname=current_database() AND pid<>pg_backend_pid() AND state='active' AND wait_event_type='Lock'
+            AND query LIKE 'SELECT owner_twitch_user_id,subscriber_interrupt_policy,%FOR UPDATE%') AS waiting`);
+        if(waiting.rows[0]?.waiting){blocked=true;break;}
+        await new Promise(resolve=>setTimeout(resolve,20));
+      }
+      expect(blocked).toBe(true);
+      await locker.query("DELETE FROM sloptogether.eventsub_config_fingerprints WHERE twitch_channel_id=$1 AND registration_key='subscriber-events'",[channelId]);
+      await locker.query("COMMIT");committed=true;
+      expect(await delivery).toMatchObject({error:{status:403,code:"eventsub_subscription_unregistered"}});
+      const persisted=await pool().query<{receipts:string;funded:string}>(`SELECT
+        (SELECT count(*)::text FROM sloptogether.subscription_events WHERE twitch_message_id=$2) AS receipts,
+        (SELECT count(*)::text FROM sloptogether.funding_authorizations WHERE twitch_channel_id=$1) AS funded`,[channelId,messageId]);
+      expect(persisted.rows[0]).toEqual({receipts:"0",funded:"0"});
+    }finally{
+      if(!committed)await locker.query("ROLLBACK");
+      locker.release();
+      if(delivery)await delivery;
+      await pool().query(`INSERT INTO sloptogether.eventsub_config_fingerprints(twitch_channel_id,registration_key,config_fingerprint,subscription_ids)
+        VALUES($1,'subscriber-events',$2,ARRAY['local-integration']) ON CONFLICT(twitch_channel_id,registration_key)
+        DO UPDATE SET subscription_ids=EXCLUDED.subscription_ids`,[channelId,randomBytes(32)]);
+    }
+  },20_000);
+
   it("serializes concurrent signed subscriptions so only one render is funded inside the gap",async()=>{
     const ids=[`local-concurrent-${channelId}-1`,`local-concurrent-${channelId}-2`];
     const responses=await Promise.all(ids.map(id=>handleEventSubWebhook(request(id))));

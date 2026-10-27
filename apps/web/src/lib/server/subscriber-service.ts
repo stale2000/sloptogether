@@ -605,11 +605,11 @@ export async function handleEventSubWebhook(request: Request): Promise<Response>
     return new Response(null,{status:204});
   }
   validateSubscriptionEvent(envelope.subscription.type, event);
-  await admitSubscriptionEvent(channelId, envelope.subscription.type, event, receipt.messageId, receipt.eventAt);
+  await admitSubscriptionEvent(channelId, envelope.subscription.type, event, receipt.messageId, receipt.eventAt, envelope.subscription.id);
   return new Response(null, { status: 204 });
 }
 
-async function admitSubscriptionEvent(channelId: string, type: SubscriptionEventType, event: Record<string, unknown>, messageId: string, eventAt: Date) {
+async function admitSubscriptionEvent(channelId: string, type: SubscriptionEventType, event: Record<string, unknown>, messageId: string, eventAt: Date, subscriptionId: string) {
   return transaction(async (client) => {
     const channels = await client.query<{ owner_twitch_user_id: string; subscriber_interrupt_policy: unknown; owner_budget_cap_usd: string; policy_revision: number; is_enabled: boolean }>(
       "SELECT owner_twitch_user_id,subscriber_interrupt_policy,owner_budget_cap_usd,policy_revision,is_enabled FROM sloptogether.channels WHERE twitch_channel_id=$1 FOR UPDATE",
@@ -617,6 +617,13 @@ async function admitSubscriptionEvent(channelId: string, type: SubscriptionEvent
     );
     const channel = channels.rows[0];
     if (!channel) throw new ApiError(404, "eventsub_channel_not_found");
+    // Revocation and disable also lock the channel before changing the current
+    // registration. Recheck under that lock so an old notification cannot be
+    // admitted after its initial check raced a registration change.
+    const currentRegistration = await client.query(`SELECT 1 FROM sloptogether.eventsub_config_fingerprints
+      WHERE twitch_channel_id=$1 AND registration_key='subscriber-events' AND subscription_ids @> ARRAY[$2]::text[] FOR SHARE`,
+      [channelId, subscriptionId]);
+    if (!currentRegistration.rowCount) throw new ApiError(403, "eventsub_subscription_unregistered");
     await cancelPendingInterrupts(client, channelId, true);
     const actor = event.is_anonymous === true ? null : typeof event.user_id === "string" && /^\d{1,32}$/.test(event.user_id) ? event.user_id : null;
     // Resub chat text is deliberately omitted from planner input and receipts.

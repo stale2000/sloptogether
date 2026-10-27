@@ -35,7 +35,8 @@ function panelHarness({ proposalResponse = { ok:true, json:async()=>({state:"eli
   receiptResponse = {ok:true,json:async()=>({accepted:true,actionKind:"prompt_lock",state:"receipt_seen"})},
   intentStatusResponse = {ok:true,json:async()=>({actionKind:"prompt_lock",state:"reserved",expiresAt:"2026-10-27T14:00:00Z",transactionReceived:true})},
   bitsProducts = [{ sku:"turbo", cost:{type:"bits",amount:"100"}, inDevelopment:false }],
-  streams = [{ slug:"main", displayName:"Main stream", isDefault:true }], streamsByToken = null } = {}) {
+  streams = [{ slug:"main", displayName:"Main stream", isDefault:true }], streamsByToken = null,
+  stateResponse = null } = {}) {
   const elements = new Map();
   const getElementById = id => {
     if (!elements.has(id)) elements.set(id, new Element());
@@ -63,6 +64,7 @@ function panelHarness({ proposalResponse = { ok:true, json:async()=>({state:"eli
   const fetch = (url, options = {}) => {
     calls.push({ url, options });
     if (url.startsWith("https://www.clips.gg/sloptogether/api/v1/extension/state?stream=")) {
+      if(stateResponse)return stateResponse(url,options);
       const stream = new URL(url).searchParams.get("stream");
       const availableStreams=streamsByToken?.[options.headers?.["x-extension-jwt"]]??streams;
       if(!availableStreams.some(item=>item.slug===stream))return Promise.resolve({ok:false,json:async()=>({message:"Stream not found."})});
@@ -122,6 +124,26 @@ test("a polling refresh does not cancel an in-flight ballot", async () => {
   panel.completeBallot();
   await settle();
   assert.equal(panel.elements.get("error").hidden, true);
+});
+
+test("an older state response cannot replace a newer election after an overlapping refresh", async () => {
+  let finishOldState;
+  let requests=0;
+  const state=(id)=>({channel:{twitchLogin:"channel"},streams:[{slug:"main",displayName:"Main",isDefault:true}],
+    activeElection:{id:`election-${id}`,state:"open",choices:[{id:`choice-${id}`,title:`Scene ${id}`,voteCount:0}]},canSubmitPrompts:true});
+  const panel=panelHarness({stateResponse:()=>{
+    requests++;
+    if(requests===1)return Promise.resolve({ok:true,json:()=>new Promise(resolve=>{finishOldState=resolve;})});
+    return Promise.resolve({ok:true,json:async()=>state("new")});
+  }});
+  panel.authorize({channelId:"channel",userId:"viewer-one",token:"one"});
+  await settle();
+  panel.show();
+  await settle();
+  assert.equal(panel.elements.get("choices").children[0].dataset.choiceId,"choice-new");
+  finishOldState(state("old"));
+  await settle();
+  assert.equal(panel.elements.get("choices").children[0].dataset.choiceId,"choice-new");
 });
 
 test("changing identity cancels the old ballot without showing its error to the new viewer", async () => {

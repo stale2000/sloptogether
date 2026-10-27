@@ -28,13 +28,14 @@ function signedEvent(messageId:string,subscriptionId="sub-1",callback:string|nul
   },body});
 }
 
-function configureAdmission({duplicate=false,hourlySpendCapUsd=1,lastCreatedAt=null,enabled=true,activeSubscriptionId="sub-1"}:{duplicate?:boolean;hourlySpendCapUsd?:number;lastCreatedAt?:Date|null;enabled?:boolean;activeSubscriptionId?:string}={}){
+function configureAdmission({duplicate=false,hourlySpendCapUsd=1,lastCreatedAt=null,enabled=true,activeSubscriptionId="sub-1",transactionRegistrationActive=true}:{duplicate?:boolean;hourlySpendCapUsd?:number;lastCreatedAt?:Date|null;enabled?:boolean;activeSubscriptionId?:string;transactionRegistrationActive?:boolean}={}){
   const calls:string[]=[];
   const settings={enabled,eventSubListening:true,newSubscriptions:true,resubscriptionMessages:false,giftMode:"off",minimumGapSeconds:60,eventMaxAgeSeconds:180,hourlySpendCapUsd,fallback:"skip"};
   const client={query:vi.fn(async(sql:string,_values?:unknown[])=>{
     void _values;
     calls.push(sql);
     if(sql.includes("SELECT owner_twitch_user_id,subscriber_interrupt_policy"))return {rows:[{owner_twitch_user_id:"789",subscriber_interrupt_policy:settings,owner_budget_cap_usd:"10",policy_revision:3,is_enabled:true}],rowCount:1};
+    if(sql.includes("FROM sloptogether.eventsub_config_fingerprints"))return {rows:[],rowCount:transactionRegistrationActive?1:0};
     if(sql.includes("INSERT INTO sloptogether.subscription_events"))return duplicate?{rows:[],rowCount:0}:{rows:[{id:"event-1"}],rowCount:1};
     if(sql.includes("FROM sloptogether.sessions WHERE twitch_user_id"))return {rows:[],rowCount:1};
     if(sql.includes("FROM sloptogether.bans"))return {rows:[],rowCount:0};
@@ -112,6 +113,14 @@ describe("subscriber EventSub admission",()=>{
   it("rejects a signed notification from a subscription ID that is not currently registered",async()=>{
     const {client}=configureAdmission();
     await expect(handleEventSubWebhook(signedEvent("event-from-stale-subscription","old-sub")))
+      .rejects.toMatchObject({status:403,code:"eventsub_subscription_unregistered"});
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.subscription_events"))).toBe(false);
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.funding_authorizations"))).toBe(false);
+  });
+
+  it("rejects a notification if its registration is revoked before admission obtains the channel lock",async()=>{
+    const {client}=configureAdmission({transactionRegistrationActive:false});
+    await expect(handleEventSubWebhook(signedEvent("event-raced-revocation")))
       .rejects.toMatchObject({status:403,code:"eventsub_subscription_unregistered"});
     expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.subscription_events"))).toBe(false);
     expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.funding_authorizations"))).toBe(false);
