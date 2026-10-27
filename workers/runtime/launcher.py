@@ -52,7 +52,7 @@ def _run_setup(root: Path, role: str, install_comfy: bool) -> int:
         return 1
     arguments = [str(powershell), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-Role", role]
     if install_comfy:
-        print("Installing ComfyUI and dependencies. Model downloads are a separate step.")
+        print("Installing ComfyUI and dependencies. Generation model weights download automatically after setup.")
         arguments.append("-InstallComfyUI")
     else:
         arguments.append("-InstallNodes")
@@ -199,9 +199,6 @@ def _generation_models(root: Path, role: str, *, login: bool) -> int:
             installer = root / "Install-ComfyStreamerNodes.ps1"
             if not installer.is_file():
                 raise ValueError("model installer unavailable")
-            print("Accept the model terms and log in to Hugging Face first. This downloads large files.")
-            print("https://huggingface.co/FastVideo/FastVideo-FastH3-Trim-Comfy")
-            print("https://huggingface.co/Comfy-Org/MiniMax-H3")
             arguments = [str(executable), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(installer),
                          "-Distro", distro, "-ComfyRoot", comfy_root, "-ComfyPython", comfy_python,
                          "-Role", "generation", "-DownloadModels"]
@@ -211,6 +208,35 @@ def _generation_models(root: Path, role: str, *, login: bool) -> int:
     except (KeyError, OSError, TypeError, ValueError, tomllib.TOMLDecodeError):
         print("Could not use this WSL configuration. Run setup for generation first.")
         return 1
+
+
+def _download_models_after_setup(root: Path, role: str) -> int:
+    """Download generation weights after setup, obtaining WSL Hugging Face auth if needed."""
+    if role != "generation":
+        return 0
+    try:
+        _config, distro, comfy_root = _wsl_location(root, role)
+        comfy_python = _comfy_python(root, role, comfy_root)
+        system_root = os.environ.get("SystemRoot")
+        if not system_root:
+            raise ValueError("Windows system directory unavailable")
+        wsl = Path(system_root) / "System32" / "wsl.exe"
+        if not wsl.is_file():
+            raise ValueError("WSL unavailable")
+        hf = f"{comfy_python.rsplit('/', 1)[0]}/hf"
+        auth = subprocess.run([str(wsl), "--distribution", distro, "--exec", hf, "auth", "whoami"],
+                              check=False, capture_output=True, text=True)
+    except (KeyError, OSError, TypeError, ValueError, tomllib.TOMLDecodeError):
+        print("Could not check Hugging Face access. Run model setup from the worker menu.")
+        return 1
+    if auth.returncode != 0:
+        print("Accept access to the FastH3 Trim and MiniMax H3 models, then sign in to Hugging Face in WSL.")
+        print("https://huggingface.co/FastVideo/FastVideo-FastH3-Trim-Comfy")
+        print("https://huggingface.co/Comfy-Org/MiniMax-H3")
+        if _generation_models(root, role, login=True) != 0:
+            return 1
+    print("Downloading and verifying the pinned generation models. This may take a while.")
+    return _generation_models(root, role, login=False)
 
 
 def _roles_share_state(root: Path) -> bool:
@@ -270,8 +296,11 @@ def interactive_menu(
             role = "upscale" if role == "generation" else "generation"
             continue
         if choice in {"4", "5"}:
-            if run_setup(root, role, choice == "5") != 0:
+            setup_status = run_setup(root, role, choice == "5")
+            if setup_status != 0:
                 print("Setup did not complete.")
+            elif role == "generation" and _download_models_after_setup(root, role) != 0:
+                print("Setup completed, but the generation models are not ready. Fix the message above, then retry model setup.")
             continue
         if choice == "7":
             run_comfy(root, role)

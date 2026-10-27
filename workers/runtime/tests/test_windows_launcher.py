@@ -145,10 +145,42 @@ class WindowsLauncherTest(unittest.TestCase):
     def test_setup_actions_are_explicit_and_use_current_role(self):
         setup = Mock(return_value=0)
         choices = iter(["4", "6", "5", "0"])
-        launcher.interactive_menu(Path("unused"), read_input=lambda _prompt: next(choices),
-                                  run_command=Mock(), run_setup=setup)
+        with patch.object(launcher, "_download_models_after_setup", return_value=0) as download:
+            launcher.interactive_menu(Path("unused"), read_input=lambda _prompt: next(choices),
+                                       run_command=Mock(), run_setup=setup)
         self.assertEqual(setup.call_args_list, [unittest.mock.call(Path("unused"), "generation", False),
                                                 unittest.mock.call(Path("unused"), "upscale", True)])
+        download.assert_called_once_with(Path("unused"), "generation")
+
+    def test_generation_setup_automatically_downloads_models(self):
+        setup = Mock(return_value=0)
+        download = Mock(return_value=0)
+        choices = iter(["5", "0"])
+        with patch("builtins.print"), patch.object(launcher, "_download_models_after_setup", download):
+            self.assertEqual(launcher.interactive_menu(Path("worker-root"), read_input=lambda _prompt: next(choices),
+                                                       run_command=Mock(), run_setup=setup,
+                                                       run_models=Mock(), run_dependencies=Mock()), 0)
+        download.assert_called_once_with(Path("worker-root"), "generation")
+
+    def test_post_setup_download_authenticates_then_fetches_generation_models(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "worker.generation.toml").write_text(
+                "[worker]\nplatform='wsl'\n"
+                "comfy_input_dir='\\\\wsl.localhost\\Ubuntu-24.04\\home\\alice\\ComfyUI\\input'\n"
+            )
+            wsl = root / "System32" / "wsl.exe"
+            wsl.parent.mkdir(parents=True)
+            wsl.touch()
+            with patch.dict(launcher.os.environ, {"SystemRoot": str(root)}, clear=True), \
+                 patch.object(launcher.subprocess, "run", side_effect=[Mock(returncode=1), Mock(returncode=0)]) as run, \
+                 patch.object(launcher, "_generation_models", side_effect=[0, 0]) as models:
+                self.assertEqual(launcher._download_models_after_setup(root, "generation"), 0)
+            self.assertEqual(run.call_args.args[0][-3:], ["/home/alice/ComfyUI/.venv/bin/hf", "auth", "whoami"])
+            self.assertEqual(models.call_args_list, [
+                unittest.mock.call(root, "generation", login=True),
+                unittest.mock.call(root, "generation", login=False),
+            ])
 
     def test_comfy_start_uses_the_configured_wsl_distribution_and_root(self):
         with tempfile.TemporaryDirectory() as directory:

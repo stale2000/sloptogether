@@ -4,6 +4,12 @@ Collaborative Twitch video generation: viewers submit scene prompts through the 
 
 Public URL: **https://www.clips.gg/sloptogether** (the apex domain redirects to `www`).
 
+## Windows test build
+
+The current Windows worker ZIP is not published yet. [Build it locally on Windows](workers/runtime/build-windows.ps1); the [latest Windows workflow run](https://github.com/stale2000/sloptogether/actions/runs/40562494674) failed before producing an artifact. GitHub Actions has no downloadable build. Once a Windows bundle is uploaded, it will be linked from [GitHub Releases](https://github.com/stale2000/sloptogether/releases/latest).
+
+The bundled launcher installs WSL2 ComfyUI, prompts for Hugging Face sign-in only when needed, and automatically downloads and verifies the pinned generation models after setup. Accept the model terms at the linked model pages first. Then choose **Start worker** to poll the channel and stream in the worker config and run ready jobs. The [test stream queue](https://www.clips.gg/sloptogether/channels/stale2000/streams/cartoon-demo/moderate) has ready jobs; use `stream_slug = "cartoon-demo"` to target them. WSL inference remains experimental pending RTX 4090 qualification.
+
 ## Planning documents
 
 - [What's left, in priority order](.omx/plans/sloptogether-remaining-work.md)
@@ -36,7 +42,7 @@ Public URL: **https://www.clips.gg/sloptogether** (the apex domain redirects to 
 
 Current status and remaining work: [implementation audit](docs/implementation-audit-2026-10-24.md) and [completion plan](docs/completion-plan-2026-10-27.md). The product supports continuous streams as its target; the four-clip local fixture is only a smoke test, with no intended clip-count limit.
 
-The isolated Next app, Twitch OAuth routes and Extension voting/Bits frontend, channel settings/moderation, upload tickets and Cloudflare R2 gateway, paired worker clients, Linux/Fal inference path, subscriber EventSub intake, browser OBS output, playback controls, and scoped worker/streamer keys are implemented in this repository. Native Windows inference remains unavailable; the WSL2 backend path requires separately installed Linux nodes/models and is not yet hardware-qualified or packaged as a signed installer. `apps/web/next.config.ts` mounts the app at `/sloptogether`.
+The isolated Next app, Twitch OAuth routes and Extension voting/Bits frontend, channel settings/moderation, upload tickets and Cloudflare R2 gateway, paired worker clients, Linux/Fal inference path, subscriber EventSub intake, browser OBS output, playback controls, and scoped worker/streamer keys are implemented in this repository. Native Windows inference remains unavailable; the WSL2 backend path requires Linux nodes/models and is not yet hardware-qualified. `apps/web/next.config.ts` mounts the app at `/sloptogether`.
 
 The child app and host proxy are deployed at `https://www.clips.gg/sloptogether`. A production-gated `localdemo` fallback plays four static HLS clips on the output route for smoke testing; it does not seed a channel or replace database-backed streams. The live output page and HLS stream have been verified, including clip jumps, seeking and pause/resume. The production `stale2000` channel has eight committed spans. Its separate prompt/frame form is at `/sloptogether/channels/stale2000/participate`; the output page stays focused on playback. The Twitch Extension is in Hosted Test; a free prompt and ballot passed a live smoke test, but no worker job was created from that test. Subscription OAuth is connected, while subscriber interrupts remain disabled with a `$0` owner budget and no EventSub registration. Production upload-gateway operations were smoke-tested, but no fresh render has completed the full production upload, review and publish path. Continuous refill, role/moderation coverage, Bits approval, Windows signing and RTX 4090 qualification remain incomplete; see the [remaining-work plan](.omx/plans/sloptogether-remaining-work.md).
 
