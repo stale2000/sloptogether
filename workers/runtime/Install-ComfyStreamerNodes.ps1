@@ -19,7 +19,6 @@ param(
 $ErrorActionPreference = "Stop"
 if ($DownloadModels) {
     if ($Role -ne "generation") { throw "FastH3 generator models are only used by the generation role." }
-    if ($FastVideoRevision -notmatch "^[0-9a-fA-F]{40}$") { throw "Pass a reviewed 40-character FastVideo model revision." }
     $InstallDependencies = $true
 }
 if ($InstallComfyUI) {
@@ -179,7 +178,10 @@ try {
         @("comfystream_sol_refiner_h3", "comfystream_worker_identity")
     }
     $sourceNodeRoot = Join-Path $runtimeExtract "deploy/custom_nodes"
-    $customNodesWindows = Join-Path (($ComfyRoot.Replace("/", "\"))) "custom_nodes"
+    # Windows file operations must target the selected WSL distribution;
+    # a bare converted /home path would resolve on the current Windows drive.
+    $comfyRootWindows = '\\wsl$\' + $Distro + $ComfyRoot.Replace('/', '\')
+    $customNodesWindows = Join-Path $comfyRootWindows "custom_nodes"
     foreach ($name in $nodeNames) {
         $source = Join-Path $sourceNodeRoot $name
         if (-not (Test-Path -LiteralPath $source -PathType Container)) { throw "Pinned node source is missing: $name" }
@@ -189,7 +191,7 @@ try {
         }
     }
 
-    $runtimeTargetWindows = Join-Path (($ComfyRoot.Replace("/", "\"))) ".sloptogether-runtime"
+    $runtimeTargetWindows = Join-Path $comfyRootWindows ".sloptogether-runtime"
     if ((Test-Path -LiteralPath $runtimeTargetWindows) -and -not (Test-IdenticalTree $runtimeExtract $runtimeTargetWindows)) {
         throw "Existing .sloptogether-runtime differs from this bundle; setup will not overwrite it."
     }
@@ -234,7 +236,7 @@ try {
         $modelScript = "$ComfyRoot/.sloptogether-runtime/scripts/download_fasth3_models.sh"
         $null = Invoke-Wsl @("--distribution", $Distro, "--exec", "env",
             "COMFYUI_ROOT=$ComfyRoot", "COMFYSTREAM_ROOT=$ComfyRoot/.sloptogether-runtime",
-            "HF_REVISION_FASTVIDEO=$FastVideoRevision", "PYTHON_BIN=$ComfyPython", "FASTH3_TRIM_ONLY=1",
+            "PYTHON_BIN=$ComfyPython", "FASTH3_TRIM_ONLY=1",
             "bash", $modelScript)
     }
     if ($Role -eq "generation") { Write-Host "Installed pinned generation nodes and ClipProj $clipProjRef." }

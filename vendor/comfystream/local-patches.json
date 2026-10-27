@@ -197,6 +197,21 @@
         "load_time_fp8": "CPU regression verified; GPU inference and actual RAM reduction not measured",
         "memory_peak": "sampling-added; no GPU trace collected"
       }
+    },
+    {
+      "id": "sloptogether-fasth3-trim-download-v1",
+      "purpose": "Download and verify the manifest-pinned Trim checkpoint for both model sets without requiring an unrelated alternate revision for Trim-only workers.",
+      "files": [
+        {
+          "path": "runtime/scripts/download_fasth3_models.sh",
+          "upstream_sha256": "de69921ae7ad0ab5f39c4c8711c13250a05fcb70f2e6fff772e3cc011ff0178b",
+          "patched_sha256": "2f072cd481523208440304425d1e4da030cd9ec3bc7c618fbda15971d8b29bff"
+        }
+      ],
+      "qualification": {
+        "windows": "installer not run on Windows",
+        "download": "offline fake-curl fixtures; no model weights downloaded"
+      }
     }
   ]
 }
