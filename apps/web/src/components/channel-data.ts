@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { API_BASE, ApiError, type LiveElection, type ProgramOutput, type PublicTimelineResponse, apiFetch, displayProblem } from "./api";
 import type { PublicTimelineSegment } from "@sloptogether/contracts";
 import type { ProgramManifest } from "./program-player";
+import { startChannelPolling } from "./channel-polling";
 
 export interface ChannelDetail {
   twitchChannelId: string;
@@ -69,50 +70,22 @@ export function useChannelTimeline(channel: string,streamSlug="main"): Loadable<
 
   useEffect(() => {
     if(isLocalDemoFallbackEnabled(channel,undefined,streamSlug))return;
-    let stopped = false;
-    let channelMissing = false;
-    let reading=false;
-    const abort = new AbortController();
-
-    const read = async () => {
-      if(reading||channelMissing||document.hidden)return;
-      reading=true;
-      try {
-        const response = await fetch(`${API_BASE}/channels/${encodeURIComponent(channel)}/streams/${encodeURIComponent(streamSlug)}/timeline`, {
-          credentials: "same-origin",
-          cache: "no-store",
-          signal: abort.signal,
-        });
-        const body = await response.json().catch(() => null) as TimelinePayload | { error?: string; message?: string } | null;
-        if (!response.ok) {
-          const record = body as { error?: unknown; message?: unknown } | null;
-          const code=typeof record?.error==="string"?record.error:undefined;
-          throw new ApiError(typeof record?.message === "string" ? record.message : code??`Timeline unavailable (${response.status}).`,response.status,code);
-        }
-        if (!body || !("channel" in body) || !Array.isArray(body.segments)) throw new Error("The timeline response wasn't valid.");
-        if (!stopped) {
-          setValue({channel:`${channel}/${streamSlug}`,payload:body as TimelinePayload});
-          setError(null);
-        }
-      } catch (problem) {
-        if (!stopped && !(problem instanceof DOMException && problem.name === "AbortError")) {
-          if(problem instanceof ApiError&&problem.status===404&&problem.code==="channel_not_found"){
-            channelMissing=true;
-          }
-          setError({channel:`${channel}/${streamSlug}`,message:displayProblem(problem)});
-        }
-      }finally{reading=false}
-    };
-
-    void read();
-    const timer = window.setInterval(() => {
-      if (!document.hidden) void read();
-    }, 6000);
-    return () => {
-      stopped = true;
-      abort.abort();
-      window.clearInterval(timer);
-    };
+    return startChannelPolling(6000, async (signal) => {
+      const response = await fetch(`${API_BASE}/channels/${encodeURIComponent(channel)}/streams/${encodeURIComponent(streamSlug)}/timeline`, {
+        credentials: "same-origin", cache: "no-store", signal,
+      });
+      const body = await response.json().catch(() => null) as TimelinePayload | { error?: string; message?: string } | null;
+      if (!response.ok) {
+        const record = body as { error?: unknown; message?: unknown } | null;
+        const code=typeof record?.error==="string"?record.error:undefined;
+        throw new ApiError(typeof record?.message === "string" ? record.message : code??`Timeline unavailable (${response.status}).`,response.status,code);
+      }
+      if (!body || !("channel" in body) || !Array.isArray(body.segments)) throw new Error("The timeline response wasn't valid.");
+      return body as TimelinePayload;
+    }, payload => {
+      setValue({channel:`${channel}/${streamSlug}`,payload});
+      setError(null);
+    }, problem => setError({channel:`${channel}/${streamSlug}`,message:displayProblem(problem)}));
   }, [channel,streamSlug, revision]);
 
   if(isLocalDemoFallbackEnabled(channel,undefined,streamSlug))return {state:"ready",value:localDemoTimeline};
@@ -140,57 +113,35 @@ export function useChannelProgram(channel: string,streamSlug="main"): Loadable<P
       });
       return()=>{stopped=true};
     }
-    let stopped = false;
-    let channelMissing = false;
-    let reading = false;
-    const controller = new AbortController();
-    const read = async () => {
-      if (reading || channelMissing || document.hidden) return;
-      reading = true;
-      try {
-        const response = await fetch(`${API_BASE}/channels/${encodeURIComponent(channel)}/streams/${encodeURIComponent(streamSlug)}/program`, {
-          cache: "no-store", credentials: "same-origin", signal: controller.signal,
-        });
-        const body = await response.json().catch(() => null) as (ProgramManifest & {error?:string;message?:string}) | null;
-        if (!response.ok) {
-          const code=body&&"error" in body&&typeof body.error==="string"?body.error:undefined;
-          const message=body&&"message" in body&&typeof body.message==="string"?body.message:code??`Continuous program unavailable (${response.status}).`;
-          throw new ApiError(message,response.status,code);
+    return startChannelPolling(5000, async (signal) => {
+      const response = await fetch(`${API_BASE}/channels/${encodeURIComponent(channel)}/streams/${encodeURIComponent(streamSlug)}/program`, {
+        cache: "no-store", credentials: "same-origin", signal,
+      });
+      const body = await response.json().catch(() => null) as (ProgramManifest & {error?:string;message?:string}) | null;
+      if (!response.ok) {
+        const code=body&&"error" in body&&typeof body.error==="string"?body.error:undefined;
+        const message=body&&"message" in body&&typeof body.message==="string"?body.message:code??`Continuous program unavailable (${response.status}).`;
+        throw new ApiError(message,response.status,code);
+      }
+      if (!body || !Number.isSafeInteger(body.epoch) || !Number.isSafeInteger(body.manifestRevision) || !Array.isArray(body.programSpans)) {
+        throw new Error("The continuous program manifest was invalid.");
+      }
+      if (body.playlistUrl) {
+        const url = new URL(body.playlistUrl, window.location.origin);
+        const configuredOrigins = (process.env.NEXT_PUBLIC_MEDIA_ORIGINS ?? "")
+          .split(",").map((origin) => origin.trim()).filter(Boolean);
+        const developmentOrigin = process.env.NODE_ENV !== "production"
+          && ["localhost", "127.0.0.1"].includes(url.hostname);
+        if (url.origin !== window.location.origin && !configuredOrigins.includes(url.origin) && !developmentOrigin) {
+          throw new Error("The media source is not in the configured media-origin allowlist.");
         }
-        if (!body || !Number.isSafeInteger(body.epoch) || !Number.isSafeInteger(body.manifestRevision) || !Array.isArray(body.programSpans)) {
-          throw new Error("The continuous program manifest was invalid.");
-        }
-        if (body.playlistUrl) {
-          const url = new URL(body.playlistUrl, window.location.origin);
-          const configuredOrigins = (process.env.NEXT_PUBLIC_MEDIA_ORIGINS ?? "")
-            .split(",").map((origin) => origin.trim()).filter(Boolean);
-          const developmentOrigin = process.env.NODE_ENV !== "production"
-            && ["localhost", "127.0.0.1"].includes(url.hostname);
-          if (url.origin !== window.location.origin && !configuredOrigins.includes(url.origin) && !developmentOrigin) {
-            throw new Error("The media source is not in the configured media-origin allowlist.");
-          }
-          if (url.protocol !== "https:" && !developmentOrigin) throw new Error("Production media sources must use HTTPS.");
-        }
-        if (!stopped) { setValue({channel:`${channel}/${streamSlug}`,manifest:body}); setError(null); }
-      } catch (problem) {
-        if (!stopped && !(problem instanceof DOMException && problem.name === "AbortError")) {
-          if(problem instanceof ApiError&&problem.status===404&&problem.code==="channel_not_found"){
-            channelMissing=true;
-            if(isLocalDemoFallbackEnabled(channel,undefined,streamSlug)){
-              try{
-                const manifest=await loadLocalDemoProgram();
-                if(!stopped){setValue({channel:`${channel}/${streamSlug}`,manifest});setError(null);}
-                return;
-              }catch{/* Keep the original missing-channel state if fixture packaging is incomplete. */}
-            }
-          }
-          setError({channel:`${channel}/${streamSlug}`,message:displayProblem(problem)});
-        }
-      } finally { reading = false; }
-    };
-    void read();
-    const timer = window.setInterval(() => { void read(); }, 5000);
-    return () => { stopped = true; controller.abort(); window.clearInterval(timer); };
+        if (url.protocol !== "https:" && !developmentOrigin) throw new Error("Production media sources must use HTTPS.");
+      }
+      return body;
+    }, manifest => {
+      setValue({channel:`${channel}/${streamSlug}`,manifest});
+      setError(null);
+    }, problem => setError({channel:`${channel}/${streamSlug}`,message:displayProblem(problem)}));
   }, [channel,streamSlug, revision]);
 
   const identity=`${channel}/${streamSlug}`;

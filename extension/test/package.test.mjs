@@ -1,9 +1,35 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { syncExtensionAssets } from "../build.mjs";
+
+test("synced assets match every packaged asset", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "sloptogether-extension-parity-"));
+  try {
+    const output = path.join(directory, "extension.zip");
+    const synced = path.join(directory, "synced");
+    syncExtensionAssets(synced);
+    execFileSync("python3.12", ["extension/package.py", "--output", output]);
+    const packaged = JSON.parse(execFileSync("python3.12", ["-c", [
+      "import base64,json,zipfile,sys",
+      "with zipfile.ZipFile(sys.argv[1]) as z:",
+      " print(json.dumps({n:base64.b64encode(z.read(n)).decode('ascii') for n in z.namelist()}))",
+    ].join("\n"), output], { encoding: "utf8" }));
+    assert.deepEqual(Object.keys(packaged).sort(), [
+      "bits-state.mjs", "config.html", "config.js", "extension.css", "figtree-latin.woff2",
+      "mobile.html", "panel.html", "panel.js", "video_component.html", "video_overlay.html",
+    ]);
+    for (const [name, contents] of Object.entries(packaged)) {
+      assert.deepEqual(readFileSync(path.join(synced, name)), Buffer.from(contents, "base64"), name);
+    }
+    assert.deepEqual(Object.keys(packaged).sort(), readdirSync(synced).sort());
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test("packages exactly the Twitch Extension assets with CDN-safe paths", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "sloptogether-extension-"));
