@@ -3,6 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 import json
+import os
 import signal
 import tempfile
 import threading
@@ -22,6 +23,23 @@ from sloptogether_worker.service import WorkerService
 
 
 class WorkerLifecycleTest(unittest.TestCase):
+    def test_pairing_rejects_credentials_that_would_mask_the_new_key(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            config=SimpleNamespace(role="generation",platform="linux",state_dir=root)
+            api=Mock()
+            path=root/"worker.toml"
+            path.write_text('[worker]\ncredential_file="other.key"\n')
+            with patch.dict(os.environ,{},clear=True):
+                with self.assertRaisesRegex(WorkerError,"credential"):
+                    cli._pair(config,api,open_browser=False,config_path=path)
+            path.write_text('[worker]\nrole="generation"\n')
+            for variable in ("SLOPTOGETHER_WORKER_KEY", "SLOPTOGETHER_WORKER_KEY_GENERATION"):
+                with self.subTest(variable=variable), patch.dict(os.environ,{variable:"private-test-key"},clear=True):
+                    with self.assertRaisesRegex(WorkerError,"credential"):
+                        cli._pair(config,api,open_browser=False,config_path=path)
+            api.create_pairing.assert_not_called()
+
     def test_claim_advertises_only_the_checked_recipe_list(self) -> None:
         config = SimpleNamespace(role="upscale", channel_id="123", api_base_url="https://www.clips.gg/sloptogether/api/v1", worker_key="key", allowed_upload_hosts=())
         api = WorkerApi(config)

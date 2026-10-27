@@ -11,7 +11,7 @@ import webbrowser
 from pathlib import Path
 
 from .client import WorkerApi
-from .config import WorkerConfig
+from .config import WorkerConfig, load_config
 from .credential_store import save_secret
 from .errors import ApiError, WorkerError
 from .service import WorkerService
@@ -49,11 +49,14 @@ def _device_id(state_dir: Path) -> str:
     return value
 
 
-def _pair(config: WorkerConfig, api: WorkerApi, *, open_browser: bool) -> None:
+def _pair(config: WorkerConfig, api: WorkerApi, *, open_browser: bool, config_path: Path | None = None) -> None:
     if config.platform not in {"windows", "wsl", "linux"}:
         raise WorkerError("pairing_platform_unsupported", "Headless fal workers must use an issued channel worker key.")
     if config.role == "story-producer":
         raise WorkerError("story_producer_key_required", "Story producer access must use a broadcaster-issued scoped key.")
+    scoped_key = f"SLOPTOGETHER_WORKER_KEY_{config.role.upper()}"
+    if os.environ.get("SLOPTOGETHER_WORKER_KEY") or scoped_key in os.environ or load_config(config_path).get("credential_file"):
+        raise WorkerError("pairing_credential_override", "Remove the credential file or worker-key environment override before pairing.")
     instructions = api.create_pairing({
         "installationId": _device_id(config.state_dir),
         "displayName": {"windows":"Windows GPU worker","wsl":"Windows WSL2 GPU worker","linux":"Linux GPU worker"}.get(config.platform,"fal GPU worker"),
@@ -92,7 +95,7 @@ def main() -> int:
         api = WorkerApi(config)
         if command == "pair":
             WorkerService(config, api=api).check()
-            _pair(config, api, open_browser=True)
+            _pair(config, api, open_browser=True, config_path=args.config)
             return 0
         if command == "check":
             profiles = WorkerService(config, api=api).check()
@@ -107,7 +110,7 @@ def main() -> int:
             if getattr(args, "headless", False):
                 raise WorkerError("worker_key_required", "Set a paired worker key for headless execution.")
             service.check()
-            _pair(config, api, open_browser=True)
+            _pair(config, api, open_browser=True, config_path=args.config)
         def stop_handler(_signum: int, _frame: object) -> None:
             service.stop.set()
 

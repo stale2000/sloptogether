@@ -8,7 +8,7 @@ Production gates remain the hardware, continuous-output, real subscriber, separa
 
 ## Implemented on local main
 
-- Added a Windows console launcher with independent generation/upscale credentials, explicit WSL/Comfy setup and model-login/download actions. Existing shared credential settings are left intact and blocked from accidental overwrite. Corrected WSL UNC destinations and made the Trim-only downloader fetch and hash-check its manifest-pinned checkpoint without requiring the unrelated alternate model revision. Model weights are downloaded only on explicit user action.
+- Added a Windows console launcher with independent generation/upscale credentials, explicit WSL/Comfy setup and model-login/download actions. Existing shared credential settings are left intact and blocked from accidental overwrite; both menu and direct CLI pairing reject overrides that would hide the newly paired key. Corrected WSL UNC destinations and made the Trim-only downloader fetch and hash-check its manifest-pinned checkpoint without requiring the unrelated alternate model revision. Model weights are downloaded only on explicit user action.
 - Unified the story-producer CLI with the supervised worker service, added safe retry diagnostics, and close the lease heartbeat/fail the attempt if a private workspace cannot be created.
 - Recheck EventSub registration while holding the channel lock, preventing a notification from being stored or funded after concurrent revocation. Fence overlapping Extension refreshes so an older election cannot replace newer state.
 - Added a Linux user-systemd publisher service and read-only backlog/retry health check, with a guarded local PostgreSQL test runner. This is deployment material; no remote CPU host has been provisioned.
@@ -16,7 +16,7 @@ Production gates remain the hardware, continuous-output, real subscriber, separa
 
 ## Verification
 
-- 192 worker tests passed, one PowerShell-only case skipped; fake-curl tests verified Trim download selection, hashes, authentication-file cleanup and no final-verifier error without fetching models.
+- 193 worker tests ran: 192 passed and one PowerShell-only case was skipped; fake-curl tests verified Trim download selection, hashes, authentication-file cleanup and no final-verifier error without fetching models.
 - 180 web tests passed, 23 database-only cases skipped in the normal run; 20 script/Extension tests passed. The guarded local EventSub run passed 16 web/database cases and 20 publisher cases; the separate Bits run passed five database cases and three guard cases.
 - 60 publisher unit cases passed; 21 database-only cases skipped there. The dedicated guarded queue-health PostgreSQL test passed separately. Linux service scripts and model downloader passed ShellCheck and Bash syntax checks.
 - Lint, typecheck, production build, offline weight-free WSL runtime packaging and Fal context assembly passed. Both SlopTogether Fal apps had zero runners during this work.
