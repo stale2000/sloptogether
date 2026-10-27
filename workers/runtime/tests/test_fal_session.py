@@ -84,6 +84,41 @@ class FalSessionTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2)
 
+    def test_generation_only_session_does_not_start_or_ping_upscale_app(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            fal,state,calls=self._fake_fal(root)
+            authorization_headers=[]
+
+            class Handler(BaseHTTPRequestHandler):
+                def do_GET(self):
+                    authorization_headers.append(self.headers.get("authorization"))
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"{}")
+
+                def log_message(self,*_args):
+                    pass
+
+            server=ThreadingHTTPServer(("127.0.0.1",0),Handler)
+            thread=threading.Thread(target=server.serve_forever,daemon=True)
+            thread.start()
+            try:
+                generation_url=f"http://127.0.0.1:{server.server_port}/generation"
+                with patch.dict(os.environ,{"FAL_TEST_STATE":str(state),"FAL_TEST_CALLS":str(calls)}):
+                    run_session("slop-generation",None,generation_url=generation_url,upscale_url=None,
+                        fal_key="dummy-fal-key-for-test",fal_cli=str(fal),runtime_seconds=1)
+                self.assertEqual(json.loads(state.read_text()),{"slop-generation":[]})
+                self.assertEqual(authorization_headers,["Key dummy-fal-key-for-test"])
+                commands=[json.loads(line) for line in calls.read_text().splitlines()]
+                apps={args[2] for args in commands if args[:2]==["apps","scale"]}
+                self.assertEqual(apps,{"slop-generation"})
+                self.assertIn(["runners","stop","runner-slop-generation"],commands)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
     def test_failed_second_start_scales_the_first_role_back_down(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { contributionModeSchema,workerKeyScopes } from "@sloptogether/contracts";
+import { contributionModeSchema,interruptSettingsSchema,workerKeyScopes } from "@sloptogether/contracts";
 import { transaction,transactionOnClient,query } from "./db";
 import { ApiError,assertSameOrigin,readJson } from "./http";
 import { currentSession } from "./session";
@@ -83,16 +83,19 @@ export async function readChannelSettings(locator:string,request:Request){
     FROM sloptogether.funding_authorizations WHERE twitch_channel_id=$1 AND source='owner_budget' AND state<>'released'`,[channel.twitch_channel_id]);
   const subscriptionAuth=await query<{authorized:boolean}>(`SELECT EXISTS(SELECT 1 FROM sloptogether.sessions WHERE twitch_user_id=$1 AND revoked_at IS NULL
     AND expires_at>now() AND granted_scopes @> ARRAY['channel:read:subscriptions']::text[]) AS authorized`,[channel.owner_twitch_user_id]);
+  const subscriptionRegistration=await query<{registered:boolean}>(`SELECT EXISTS(SELECT 1 FROM sloptogether.eventsub_config_fingerprints
+    WHERE twitch_channel_id=$1 AND registration_key='subscriber-events' AND cardinality(subscription_ids)>0) AS registered`,[channel.twitch_channel_id]);
   const budget=ownerBudgetSummary(channel.owner_budget_cap_usd,funding.rows[0]?.committed??"0",reservationUsd("SLOPTOGETHER_GENERATION_ATTEMPT_RESERVATION_USD"));
   return {
     twitchChannelId:channel.twitch_channel_id,login:channel.twitch_login,displayName:channel.display_name,
     contributionMode:channel.contribution_mode,contributorWhitelist:channel.contributor_whitelist,
     reviewerWhitelist:channel.reviewer_whitelist,uploadApprovalBypassIds:channel.upload_approval_bypass_ids,
-    roleBasedUploadBypass:channel.role_based_upload_bypass,subscriberInterrupts:channel.subscriber_interrupt_policy,
+    roleBasedUploadBypass:channel.role_based_upload_bypass,subscriberInterrupts:interruptSettingsSchema.parse(channel.subscriber_interrupt_policy),
     storyWorldPrompt:channel.story_world_prompt,h3StyleProfile:channel.h3_style_profile,
     ownerBudgetCapUsd:Number(channel.owner_budget_cap_usd),...budget,policyRevision:channel.policy_revision,chatVotingEnabled:channel.chat_voting_enabled,
     subscriberAttemptReservationUsd:reservationUsd("SLOPTOGETHER_SUBSCRIBER_ATTEMPT_RESERVATION_USD"),
     subscriberEventSubAuthorized:Boolean(subscriptionAuth.rows[0]?.authorized),
+    subscriberEventSubRegistered:Boolean(subscriptionRegistration.rows[0]?.registered),
     preairUpscaleEnabled:channel.preair_upscale_enabled,preairUpscaleWaitSeconds:channel.preair_upscale_wait_seconds,
   };
 }

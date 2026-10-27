@@ -98,6 +98,7 @@ export const streamerOverrideSchema = z.object({
 
 export const interruptSettingsSchema = z.object({
   enabled: z.boolean(),
+  eventSubListening: z.boolean().default(false),
   newSubscriptions: z.boolean(),
   resubscriptionMessages: z.boolean(),
   giftMode: z.enum(["off", "gifter_batch", "recipient_each"]),

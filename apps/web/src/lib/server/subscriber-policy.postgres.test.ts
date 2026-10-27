@@ -12,7 +12,7 @@ const channelId=String(800000000000000n+BigInt(`0x${randomBytes(4).toString("hex
 const ownerId=channelId;
 const secret="local-policy-eventsub-test-secret";
 const keyId=randomUUID();
-const settings={enabled:true,newSubscriptions:true,resubscriptionMessages:false,giftMode:"off",minimumGapSeconds:60,eventMaxAgeSeconds:180,hourlySpendCapUsd:1,fallback:"skip"} as const;
+const settings={enabled:true,eventSubListening:false,newSubscriptions:true,resubscriptionMessages:false,giftMode:"off",minimumGapSeconds:60,eventMaxAgeSeconds:180,hourlySpendCapUsd:1,fallback:"skip"} as const;
 let created=false;
 
 function revocation(messageId:string,type:"channel.subscribe"|"channel.chat.message",subscriptionId:string){
@@ -177,5 +177,18 @@ testDatabase("subscriber trust policy PostgreSQL integration",()=>{
     expect(result.rows[0]).toEqual({channel_revision:6,binding_revision:3,chat_voting_enabled:false});
     const audit=await pool().query<{policy_revision:number}>("SELECT policy_revision FROM sloptogether.audit_log WHERE twitch_channel_id=$1 AND action='eventsub.revoked' AND target_id='chat-policy'",[channelId]);
     expect(audit.rows[0]?.policy_revision).toBe(6);
+  },20_000);
+
+  it("registers subscription listening without enabling or reserving generated clips",async()=>{
+    await pool().query("UPDATE sloptogether.channels SET owner_budget_cap_usd=0 WHERE twitch_channel_id=$1",[channelId]);
+    const before=await pool().query<{count:string}>("SELECT count(*)::text AS count FROM sloptogether.funding_authorizations WHERE twitch_channel_id=$1",[channelId]);
+    await transaction(client=>persistSubscriberSettings(client,channelId,ownerId,{...settings,enabled:false,eventSubListening:true,hourlySpendCapUsd:0}));
+    const saved=await pool().query<{enabled:boolean;event_sub_listening:boolean}>(`SELECT
+      (subscriber_interrupt_policy->>'enabled')::boolean AS enabled,
+      (subscriber_interrupt_policy->>'eventSubListening')::boolean AS event_sub_listening
+      FROM sloptogether.channels WHERE twitch_channel_id=$1`,[channelId]);
+    const after=await pool().query<{count:string}>("SELECT count(*)::text AS count FROM sloptogether.funding_authorizations WHERE twitch_channel_id=$1",[channelId]);
+    expect(saved.rows[0]).toEqual({enabled:false,event_sub_listening:true});
+    expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
   },20_000);
 });

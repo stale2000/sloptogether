@@ -15,7 +15,7 @@ describe("channel settings owner budget summary",()=>{
     vi.resetAllMocks();
     mocks.findChannel.mockResolvedValue({
       twitch_channel_id:"123",owner_twitch_user_id:"42",twitch_login:"channel",display_name:"Channel",contribution_mode:"any_non_banned_twitch_user",
-      contributor_whitelist:[],reviewer_whitelist:[],upload_approval_bypass_ids:[],role_based_upload_bypass:[],subscriber_interrupt_policy:{},
+      contributor_whitelist:[],reviewer_whitelist:[],upload_approval_bypass_ids:[],role_based_upload_bypass:[],subscriber_interrupt_policy:{enabled:false,newSubscriptions:true,resubscriptionMessages:false,giftMode:"off",minimumGapSeconds:60,eventMaxAgeSeconds:180,hourlySpendCapUsd:0,fallback:"skip"},
       story_world_prompt:"A safe story",h3_style_profile:"trim",owner_budget_cap_usd:"0.5500",policy_revision:2,chat_voting_enabled:false,
       preair_upscale_enabled:false,preair_upscale_wait_seconds:1200,
     });

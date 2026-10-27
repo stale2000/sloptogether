@@ -45,7 +45,7 @@ assert_scratch_database
 for migration in "$repo_root"/db/migrations/[0-9][0-9][0-9]_*.sql; do
   case "$(basename "$migration")" in
     018_*|019_*|023_*) continue ;;
-    0[0-1][0-9]_*|020_*|021_*|022_*) ;;
+    0[0-1][0-9]_*|020_*|021_*|022_*|024_*|025_*) ;;
     *) continue ;;
   esac
   env -i "PATH=$PATH" PGSSLMODE=disable PGCONNECT_TIMEOUT=3 psql -h 127.0.0.1 -p "$pg_port" -U postgres -d "$test_db" -v ON_ERROR_STOP=1 -q -f "$migration" >/dev/null

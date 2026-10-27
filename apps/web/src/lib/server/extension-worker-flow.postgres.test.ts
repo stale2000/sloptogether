@@ -81,6 +81,21 @@ integration("Twitch Extension prompt to pull-worker PostgreSQL flow",()=>{
     endAssetId=randomUUID();
     await database.query(`INSERT INTO sloptogether.assets(id,twitch_channel_id,storage_key,sha256,media_kind,content_type,byte_size,status,uploaded_by_twitch_user_id)
       VALUES($1,$2,$3,$4,'image','image/png',$5,'approved',$6)`,[endAssetId,channelId,`private/${channelId}/end.png`,createHash("sha256").update(endImage).digest(),endImage.length,authorId]);
+    const stream=(await database.query<{id:string}>("SELECT id FROM sloptogether.streams WHERE twitch_channel_id=$1 AND is_default",[channelId])).rows[0]!;
+    const branchId=(await database.query<{id:string}>(`SELECT id FROM sloptogether.branches
+      WHERE twitch_channel_id=$1 AND stream_id=$2 AND is_selected AND archived_at IS NULL`,[channelId,stream.id])).rows[0]!.id;
+    const initialBoundaryId=(await database.query<{id:string}>(`INSERT INTO sloptogether.boundary_revisions(twitch_channel_id,asset_id,created_by)
+      VALUES($1,$2,$3) RETURNING id`,[channelId,startAssetId,authorId])).rows[0]!.id;
+    const initialSegmentId=(await database.query<{id:string}>(`SELECT id FROM sloptogether.segments
+      WHERE twitch_channel_id=$1 AND branch_id=$2 AND ordinal=0`,[channelId,branchId])).rows[0]!.id;
+    const initialRevisionId=randomUUID();
+    await database.query(`INSERT INTO sloptogether.segment_revisions(id,segment_id,revision,prompt,start_boundary_revision_id,
+      requested_end_boundary_revision_id,planning_mode,provider_recipe_id,input_sha256,requested_by,state)
+      VALUES($1,$2,1,'Local fixture boundary',$3,$3,'planned_anchors','fast-h3-trim-5step-vsa20-b1',$4,$5,'ready')`,
+      [initialRevisionId,initialSegmentId,initialBoundaryId,Buffer.alloc(32,1),authorId]);
+    await database.query("UPDATE sloptogether.segments SET selected_revision_id=$2 WHERE id=$1",[initialSegmentId,initialRevisionId]);
+    await database.query("UPDATE sloptogether.segments SET state='played' WHERE id=$1",[initialSegmentId]);
+    await database.query("INSERT INTO sloptogether.segments(twitch_channel_id,branch_id,ordinal,state) VALUES($1,$2,1,'open')",[channelId,branchId]);
     preflight.inputAsset.mockImplementation(async(_channel:string,asset:string)=>({assetId:asset,bytes:asset===endAssetId?endImage:startImage,contentType:"image/png"}));
     vi.stubGlobal("fetch",async(input:RequestInfo|URL)=>{
       const url=new URL(String(input));
@@ -150,7 +165,7 @@ integration("Twitch Extension prompt to pull-worker PostgreSQL flow",()=>{
     const voterId=(BigInt(channelId)+2n).toString();
     const prompt="A tiny cartoon astronaut rides a toast slice past the moon and waves.";
     const submission=await submitProposal(channelId,extensionRequest("channels/flow/proposals",authorId,{
-      prompt,imageAssetId:startAssetId,endFrameAssetId:endAssetId,planningMode:"planned_anchors",
+      prompt,endFrameAssetId:endAssetId,planningMode:"planned_anchors",
     }));
     expect(submission).toMatchObject({state:"eligible",screen:"clear",awaitingUpstreamBoundary:false});
     const principal=await requestPrincipal(extensionRequest("channels/flow/elections",voterId,{}));

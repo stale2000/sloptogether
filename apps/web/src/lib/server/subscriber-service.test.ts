@@ -27,9 +27,9 @@ function signedEvent(messageId:string){
   },body});
 }
 
-function configureAdmission({duplicate=false,hourlySpendCapUsd=1,lastCreatedAt=null}:{duplicate?:boolean;hourlySpendCapUsd?:number;lastCreatedAt?:Date|null}={}){
+function configureAdmission({duplicate=false,hourlySpendCapUsd=1,lastCreatedAt=null,enabled=true}:{duplicate?:boolean;hourlySpendCapUsd?:number;lastCreatedAt?:Date|null;enabled?:boolean}={}){
   const calls:string[]=[];
-  const settings={enabled:true,newSubscriptions:true,resubscriptionMessages:false,giftMode:"off",minimumGapSeconds:60,eventMaxAgeSeconds:180,hourlySpendCapUsd,fallback:"skip"};
+  const settings={enabled,eventSubListening:true,newSubscriptions:true,resubscriptionMessages:false,giftMode:"off",minimumGapSeconds:60,eventMaxAgeSeconds:180,hourlySpendCapUsd,fallback:"skip"};
   const client={query:vi.fn(async(sql:string,_values?:unknown[])=>{
     void _values;
     calls.push(sql);
@@ -117,5 +117,15 @@ describe("subscriber EventSub admission",()=>{
       mocks.query.mockReset();
       mocks.transaction.mockReset();
     }
+  });
+
+  it("records listen-only subscription events without reserving a render",async()=>{
+    const {client}=configureAdmission({enabled:false,hourlySpendCapUsd:0});
+    await expect(handleEventSubWebhook(signedEvent("event-listen-only"))).resolves.toMatchObject({status:204});
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.subscription_events"))).toBe(true);
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.funding_authorizations"))).toBe(false);
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.interrupt_requests"))).toBe(false);
+    const ignored=client.query.mock.calls.find(([sql])=>String(sql).includes("subscriber_interrupt.not_queued"));
+    expect(ignored?.[1]?.[2]).toBe("feature_or_event_disabled");
   });
 });
