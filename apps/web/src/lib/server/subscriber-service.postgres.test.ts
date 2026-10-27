@@ -65,6 +65,8 @@ describeDatabase("subscriber EventSub PostgreSQL concurrency",()=>{
       granted_scopes,token_expires_at,expires_at)
       VALUES($1,$2,'local_eventsub_test','Local EventSub Test',$3,ARRAY['channel:read:subscriptions'],now()+interval '1 hour',now()+interval '1 hour')`,
     [randomBytes(32),ownerId,Buffer.from("test-only-encrypted-access-token")]);
+    await database.query(`INSERT INTO sloptogether.eventsub_config_fingerprints(twitch_channel_id,registration_key,config_fingerprint,subscription_ids)
+      VALUES($1,'subscriber-events',$2,ARRAY['local-integration'])`,[channelId,randomBytes(32)]);
   },20_000);
 
   afterAll(async()=>{
@@ -78,6 +80,7 @@ describeDatabase("subscriber EventSub PostgreSQL concurrency",()=>{
         await db.query("DELETE FROM sloptogether.interrupt_requests WHERE broadcaster_twitch_id=$1",[channelId]);
         await db.query("DELETE FROM sloptogether.subscription_events WHERE broadcaster_twitch_id=$1",[channelId]);
         await db.query("DELETE FROM sloptogether.audit_log WHERE twitch_channel_id=$1",[channelId]);
+        await db.query("DELETE FROM sloptogether.eventsub_config_fingerprints WHERE twitch_channel_id=$1",[channelId]);
         await db.query("DELETE FROM sloptogether.sessions WHERE twitch_user_id=$1",[ownerId]);
         await db.query("DELETE FROM sloptogether.channels WHERE twitch_channel_id=$1",[channelId]);
       }

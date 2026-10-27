@@ -153,6 +153,7 @@ integration("Twitch Extension prompt to pull-worker PostgreSQL flow",()=>{
       await database.query("DELETE FROM sloptogether.input_screens WHERE twitch_channel_id=$1",[channelId]);
       await database.query("DELETE FROM sloptogether.comfy_frame_generations WHERE twitch_channel_id=$1",[channelId]);
       await database.query("DELETE FROM sloptogether.funding_authorizations WHERE twitch_channel_id=$1",[channelId]);
+      await database.query("DELETE FROM sloptogether.eventsub_config_fingerprints WHERE twitch_channel_id=$1",[channelId]);
       await database.query("DELETE FROM sloptogether.channels WHERE twitch_channel_id=$1",[channelId]);
     }
     await database?.end();
@@ -173,6 +174,8 @@ integration("Twitch Extension prompt to pull-worker PostgreSQL flow",()=>{
     const ballot=await castBallot(submission.electionId,submission.proposalId,principal!,"extension",undefined,undefined);
     expect(ballot).toMatchObject({state:"recorded",choiceId:submission.proposalId});
     await database!.query("UPDATE sloptogether.channels SET chat_voting_enabled=true WHERE twitch_channel_id=$1",[channelId]);
+    await database!.query(`INSERT INTO sloptogether.eventsub_config_fingerprints(twitch_channel_id,registration_key,config_fingerprint,subscription_ids)
+      VALUES($1,$2,$3,ARRAY['local-chat-subscription'])`,[channelId,`chat:${channelId}`,Buffer.alloc(32,3)]);
     const chatMessageId=`local-chat-vote-${randomUUID()}`;const chatTimestamp=new Date().toISOString();
     const chatBody=Buffer.from(JSON.stringify({subscription:{id:"local-chat-subscription",type:"channel.chat.message",version:"1",
       condition:{broadcaster_user_id:channelId,user_id:channelId},transport:{method:"webhook"}},event:{broadcaster_user_id:channelId,
@@ -212,6 +215,8 @@ integration("Twitch Extension prompt to pull-worker PostgreSQL flow",()=>{
       granted_scopes,token_expires_at,expires_at) VALUES($1,$2,'local_owner','Local Owner',$3,ARRAY['channel:read:subscriptions'],now()+interval '1 hour',now()+interval '1 hour')`,
       [randomBytes(32),channelId,Buffer.from("local-only-token")]);
     const messageId=`local-sub-${randomUUID()}`;const timestamp=new Date().toISOString();
+    await database!.query(`INSERT INTO sloptogether.eventsub_config_fingerprints(twitch_channel_id,registration_key,config_fingerprint,subscription_ids)
+      VALUES($1,'subscriber-events',$2,ARRAY['local-subscription-flow'])`,[channelId,Buffer.alloc(32,4)]);
     const body=Buffer.from(JSON.stringify({subscription:{id:"local-subscription-flow",type:"channel.subscribe",version:"1",
       condition:{broadcaster_user_id:channelId},transport:{method:"webhook"}},event:{broadcaster_user_id:channelId,user_id:"987654321",
       user_login:"local_subscriber",user_name:"Local Subscriber",is_anonymous:false,is_gift:false}}));
