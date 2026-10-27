@@ -36,12 +36,14 @@ endpoint passed automatic screening and clip 8 visibly played in the browser.
 Upscaler auto-trust approval remains a user decision; do not treat the base
 auto-approval as proof of an unattended full pipeline.
 
-The matching production publisher was restarted locally with its dedicated
-moderation key restored from local configuration; that key returned HTTP 200
-for a benign OpenAI test request. This process is not durable hosting. A prior
-generated base endpoint was screened, while screening of future generated
-endpoints still requires verification. Keep the publisher environment protected
-as described below before any restart.
+The local publisher process was restarted with its dedicated moderation key
+restored from local configuration; that key returned HTTP 200 for a benign
+OpenAI test request. Its database URL targets `127.0.0.1:56432/sloptogether`,
+so it does not poll the live Clips.gg database and is not a production publisher.
+Durable production publication remains unverified. A prior generated base
+endpoint was screened, while screening of future generated endpoints still
+requires verification. Keep the publisher environment protected as described
+below before any restart.
 
 Migration `020_preair_upscale.sql` was applied only in the `sloptogether`
 schema. Pre-air upscale settings default off and were enabled on `stale2000`
