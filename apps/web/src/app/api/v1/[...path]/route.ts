@@ -9,7 +9,7 @@ import { getProgramManifest, getProgramPlaylist, heartbeatPlayback,claimPlayback
 import { submitProposal } from "@/lib/server/proposal-service";
 import { applyStreamerOverride,listOverrideCandidates,listActiveBans,createChannelBan,revokeChannelBan } from "@/lib/server/override-service";
 import { issueAssetUpload,completeAssetUpload,getApprovedMediaAsset,authorizeUploadGateway } from "@/lib/server/upload-service";
-import { handleSubscriberSettings,getExtensionState,handleEventSubWebhook } from "@/lib/server/subscriber-service";
+import { handleSubscriberSettings,getExtensionState,handleEventSubWebhook,registerExtensionBitsEventSub } from "@/lib/server/subscriber-service";
 import { getExtensionBitsState,createExtensionBitsIntent,getExtensionPromptLockState,createExtensionPromptLockIntent,recordExtensionBitsReceipt,cancelExtensionBitsIntent,getExtensionBitsIntentStatus,requestBitsReceiptReconciliation,reconcilePaidBitsReceipt } from "@/lib/server/paid-bits-service";
 import { cancelComfyGeneration,createComfyFrameGeneration,createComfyPromptGeneration,getComfyFrameGenerationImage,getComfyGeneration,getComfyPromptGenerationText,listComfyGenerations } from "@/lib/server/comfy-frame-service";
 import { listWindowsWorkerRelease,recordWorkerProviderRequest,claimStoryProducer,submitStoryProposal,downloadWorkerAsset,failWorkerLease,requestClipUpscale } from "@/lib/server/worker-service";
@@ -102,6 +102,7 @@ async function dispatch(request:NextRequest,path:string[]){
     }
     if(p[2]==="settings"&&p.length===3&&method==="GET")return jsonOk(await readChannelSettings(locator,request));
     if(p[2]==="settings"&&p.length===3&&method==="PATCH")return jsonOk(await updateChannelSettings(locator,request));
+    if(p[2]==="bits-eventsub"&&p.length===3&&method==="POST")return jsonOk(await registerExtensionBitsEventSub(locator,request));
     if(p[2]==="worker-keys"&&p.length===3&&method==="POST")return jsonOk(await issueWorkerKey(locator,request),{status:201});
     if(p[2]==="worker-keys"&&p.length===3&&method==="GET")return jsonOk(await listWorkerKeys(locator,request));
     if(p[2]==="worker-keys"&&p[3]&&p[4]==="revoke"&&p.length===5&&method==="POST")return jsonOk(await revokeWorkerKey(locator,p[3]!,request));

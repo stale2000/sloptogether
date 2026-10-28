@@ -85,6 +85,10 @@ export async function readChannelSettings(locator:string,request:Request){
     AND expires_at>now() AND granted_scopes @> ARRAY['channel:read:subscriptions']::text[]) AS authorized`,[channel.owner_twitch_user_id]);
   const subscriptionRegistration=await query<{registered:boolean}>(`SELECT EXISTS(SELECT 1 FROM sloptogether.eventsub_config_fingerprints
     WHERE twitch_channel_id=$1 AND registration_key='subscriber-events' AND cardinality(subscription_ids)>0) AS registered`,[channel.twitch_channel_id]);
+  const bitsRegistration=process.env.TWITCH_EXTENSION_CLIENT_ID
+    ?await query<{registered:boolean}>(`SELECT EXISTS(SELECT 1 FROM sloptogether.extension_bits_eventsub_subscriptions
+      WHERE extension_client_id=$1 AND state='enabled') AS registered`,[process.env.TWITCH_EXTENSION_CLIENT_ID])
+    :{rows:[{registered:false}]};
   const budget=ownerBudgetSummary(channel.owner_budget_cap_usd,funding.rows[0]?.committed??"0",reservationUsd("SLOPTOGETHER_GENERATION_ATTEMPT_RESERVATION_USD"));
   return {
     twitchChannelId:channel.twitch_channel_id,login:channel.twitch_login,displayName:channel.display_name,
@@ -96,6 +100,8 @@ export async function readChannelSettings(locator:string,request:Request){
     subscriberAttemptReservationUsd:reservationUsd("SLOPTOGETHER_SUBSCRIBER_ATTEMPT_RESERVATION_USD"),
     subscriberEventSubAuthorized:Boolean(subscriptionAuth.rows[0]?.authorized),
     subscriberEventSubRegistered:Boolean(subscriptionRegistration.rows[0]?.registered),
+    bitsEventSubRegistered:Boolean(bitsRegistration.rows[0]?.registered),
+    isChannelOwner:principal?.kind==="session"&&principal.session.twitchUserId===channel.owner_twitch_user_id,
     preairUpscaleEnabled:channel.preair_upscale_enabled,preairUpscaleWaitSeconds:channel.preair_upscale_wait_seconds,
   };
 }

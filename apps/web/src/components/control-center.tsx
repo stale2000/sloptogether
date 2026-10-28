@@ -15,7 +15,7 @@ interface SessionResponse extends SessionSummary { channels?: ChannelLink[] }
 interface KeyResponse { keyId: string; secret: string; displayName: string; scopes: WorkerKeyScope[]; expiresAt: string | null }
 interface ActiveWorkerKey { keyId:string;displayName:string;scopes:WorkerKeyScope[];createdAt:string;lastUsedAt:string|null }
 interface QueueEntry { id: string; kind: "base_video" | "upscale" | "frame" | "start_frame" | "end_frame" | "anchor_pair" | "prompt"; prompt: string; contributor: string; submittedAt: string; thumbnailUrl?: string;endThumbnailUrl?:string;videoUrl?:string;endpointScreenId?:string;durationSeconds?:number;inputScreenExpired?:boolean;state: string; inputHeld?:boolean;automatedState?:string|null;reason?: string; paidAttemptConsumed?: boolean }
-interface ChannelPolicyView { contributionMode: string; contributorWhitelist: string[]; reviewerWhitelist: string[]; uploadApprovalBypassIds: string[]; roleBasedUploadBypass: Array<"broadcaster"|"moderator">; subscriberInterrupts: InterruptSettings; subscriberAttemptReservationUsd:number|null; subscriberEventSubAuthorized:boolean; subscriberEventSubRegistered:boolean; chatVotingEnabled:boolean; preairUpscaleEnabled:boolean; preairUpscaleWaitSeconds:number; ownerBudgetCapUsd:number; ownerBudgetCommittedUsd:number; ownerBudgetRemainingUsd:number; ownerGenerationAttemptReservationUsd:number|null; ownerBudgetRemainingAttempts:number|null; storyWorldPrompt:string }
+interface ChannelPolicyView { contributionMode: string; contributorWhitelist: string[]; reviewerWhitelist: string[]; uploadApprovalBypassIds: string[]; roleBasedUploadBypass: Array<"broadcaster"|"moderator">; subscriberInterrupts: InterruptSettings; subscriberAttemptReservationUsd:number|null; subscriberEventSubAuthorized:boolean; subscriberEventSubRegistered:boolean; bitsEventSubRegistered:boolean; isChannelOwner:boolean; chatVotingEnabled:boolean; preairUpscaleEnabled:boolean; preairUpscaleWaitSeconds:number; ownerBudgetCapUsd:number; ownerBudgetCommittedUsd:number; ownerBudgetRemainingUsd:number; ownerGenerationAttemptReservationUsd:number|null; ownerBudgetRemainingAttempts:number|null; storyWorldPrompt:string }
 
 export function ControlCenter() {
   const router=useRouter();
@@ -77,6 +77,7 @@ export function ChannelSettings({ channel }: { channel: string }) {
   const [issuedKey, setIssuedKey] = useState<KeyResponse | null>(null);
   const [workerKeys,setWorkerKeys]=useState<ActiveWorkerKey[]>([]);
   const [storyWorldDraft,setStoryWorldDraft]=useState("");
+  const [bitsEventSubSaving,setBitsEventSubSaving]=useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -106,6 +107,15 @@ export function ChannelSettings({ channel }: { channel: string }) {
       setPolicy(current=>current?{...current,subscriberInterrupts:result.settings,subscriberEventSubRegistered:result.eventSubRegistered}:current);
       setMessage("Subscriber settings saved.");
     }catch(problem){setError(displayProblem(problem))}finally{setSaving(false)}
+  };
+
+  const registerBitsEventSub=async()=>{
+    setBitsEventSubSaving(true);setError(null);setMessage(null);
+    try{
+      const result=await apiFetch<{registered:boolean;subscription:{state:"enabled"|"pending"}}>(`/channels/${encodeURIComponent(channel)}/bits-eventsub`,{method:"POST",body:"{}"});
+      setPolicy(current=>current?{...current,bitsEventSubRegistered:result.registered}:current);
+      setMessage(result.registered?"Bits transaction events are connected.":"Twitch is verifying the transaction webhook.");
+    }catch(problem){setError(displayProblem(problem))}finally{setBitsEventSubSaving(false)}
   };
 
   const toggleKeyScope = (scope: WorkerKeyScope) => setKeyScopes((current) => current.includes(scope) ? current.filter((entry) => entry !== scope) : [...current, scope]);
@@ -157,6 +167,8 @@ export function ChannelSettings({ channel }: { channel: string }) {
       </section>
 
       <section className="panel"><SectionLabel>CHAT VOTING</SectionLabel><h2>Use the same ballot in chat.</h2><p className="panel-copy">The broadcaster&apos;s Twitch account must authorize chat-reading scopes. Viewers type <code>!slop vote 1</code> or a choice ID; chat, site, and Extension ballots share one account vote.</p><ToggleRow label="Enable !slop vote" description="Signed Twitch EventSub messages link to the channel election." checked={policy.chatVotingEnabled} onChange={checked=>void updatePolicy({chatVotingEnabled:checked})}/><a className="text-link" href="/sloptogether/api/v1/auth/twitch/start?scope=openid%20user%3Aread%3Amoderated_channels%20user%3Aread%3Achat%20user%3Abot&return_to=%2Fsloptogether%2Fcontrol">Reconnect Twitch with chat-event access ↗</a></section>
+
+      <section className="panel"><SectionLabel>EXTENSION BITS</SectionLabel><h2>Connect transaction events.</h2><p className="panel-copy">Status: {policy.bitsEventSubRegistered?"connected":"not connected"}. Development purchases never dispatch paid renders.</p>{policy.isChannelOwner?<button className="button secondary small" disabled={bitsEventSubSaving||policy.bitsEventSubRegistered} onClick={()=>void registerBitsEventSub()}>{bitsEventSubSaving?"Connecting…":policy.bitsEventSubRegistered?"Connected":"Connect Bits EventSub"}</button>:null}</section>
 
       <section className="panel"><SectionLabel>UPSCALE BEFORE PLAYBACK</SectionLabel><h2>Upscale future clips</h2><label className="check-row"><input type="checkbox" checked={policy.preairUpscaleEnabled} onChange={event=>setPolicy({...policy,preairUpscaleEnabled:event.target.checked})}/><span>Upscale newly approved clips without fixed end frames</span></label><label className="field"><span>Maximum wait, seconds</span><input className="text-input" type="number" min={60} max={3600} step={60} value={policy.preairUpscaleWaitSeconds} onChange={event=>setPolicy({...policy,preairUpscaleWaitSeconds:Number(event.target.value)})}/></label><p className="panel-copy">If the upscale fails, is rejected, or times out, the approved base clip plays.</p><button className="button secondary small" disabled={saving} onClick={()=>void updatePolicy({preairUpscaleEnabled:policy.preairUpscaleEnabled,preairUpscaleWaitSeconds:policy.preairUpscaleWaitSeconds})}>{saving?"Saving…":"Save upscale settings"}</button></section>
       <section className="panel"><SectionLabel>STORY FEED &amp; OWNER BUDGET</SectionLabel><h2>Configure the test story producer.</h2><p className="panel-copy">The owner story worker only appends a scene when its generation attempt can be reserved under this channel budget.</p><label className="field"><span>Story world</span><textarea className="text-input text-area" value={storyWorldDraft} maxLength={4000} onChange={event=>setStoryWorldDraft(event.target.value)} placeholder="A gentle sci-fi story about a crew exploring impossible places…"/></label><label className="field"><span>Maximum owner-funded generation spend, USD</span><input className="text-input" type="number" min={0} max={10000} step="0.01" value={policy.ownerBudgetCapUsd} onChange={event=>setPolicy({...policy,ownerBudgetCapUsd:Number(event.target.value)})}/></label><p className="panel-copy">Committed or reserved: ${policy.ownerBudgetCommittedUsd.toFixed(2)} · remaining: ${policy.ownerBudgetRemainingUsd.toFixed(2)}. Per-scene reservation: {policy.ownerGenerationAttemptReservationUsd===null?"not configured":`$${policy.ownerGenerationAttemptReservationUsd.toFixed(2)}`}{policy.ownerBudgetRemainingAttempts===null?"":" · scenes available: "+policy.ownerBudgetRemainingAttempts}.</p><button className="button secondary small" disabled={saving} onClick={()=>void updatePolicy({storyWorldPrompt:storyWorldDraft,ownerBudgetCapUsd:policy.ownerBudgetCapUsd})}>{saving?"Saving…":"Save story feed settings"}</button></section>

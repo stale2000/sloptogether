@@ -10,7 +10,7 @@ import { ApiError, assertSameOrigin, readJson } from "./http";
 import { requestPrincipal } from "./principals";
 import { getActiveElections } from "./timeline";
 import { currentSession } from "./session";
-import { appAccessToken,twitchCredentials } from "./twitch";
+import { appAccessToken,extensionAppAccessToken,twitchCredentials,twitchExtensionClientId } from "./twitch";
 import { castBallot } from "./voting-service";
 import { recordVerifiedExtensionBitsEvent } from "./paid-bits-service";
 import { reservationUsd } from "./reservation";
@@ -81,7 +81,7 @@ async function ownerAuthorized(client: { query(text: string, values: unknown[]):
   return Boolean(result.rowCount);
 }
 
-type ExistingSubscription={id:string;type:string;version:string;status?:string;condition?:{broadcaster_user_id?:string;user_id?:string};transport?:{method?:string;callback?:string}};
+type ExistingSubscription={id:string;type:string;version:string;status?:string;condition?:{broadcaster_user_id?:string;user_id?:string;extension_client_id?:string};transport?:{method?:string;callback?:string}};
 
 async function allSubscriptions(headers:Record<string,string>){
   const statuses=["enabled","webhook_callback_verification_pending","webhook_callback_verification_failed","notification_failures_exceeded","authorization_revoked","moderator_removed"];
@@ -264,6 +264,57 @@ export async function ensureChatVoteSubscription(channel:ChannelRow,session:NonN
   subscriptionIds.add(id);
   await storeRegistrationFingerprint(client,channel.twitch_channel_id,registrationKey,fingerprint,[...subscriptionIds]);
   return {enabled:true};
+}
+
+/** Register the Extension-wide transaction webhook after explicit broadcaster action. */
+export async function registerExtensionBitsEventSub(locator:string,request:Request){
+  assertSameOrigin(request);
+  const channel=await findChannel(locator);
+  const session=await currentSession(request);
+  if(!session||session.twitchUserId!==channel.owner_twitch_user_id)throw new ApiError(403,"broadcaster_session_required");
+  const extensionId=twitchExtensionClientId();
+  const result=await withEventSubLifecycleLock(`extension-bits:${extensionId}`,async client=>ensureExtensionBitsEventSub(extensionId,client));
+  return {subscription:result,registered:result.state==="enabled"};
+}
+
+async function ensureExtensionBitsEventSub(extensionId:string,client:PoolClient){
+  const callback=process.env.TWITCH_EVENTSUB_CALLBACK_URL??`${(process.env.PUBLIC_APP_URL??"").replace(/\/$/,"")}/api/v1/webhooks/eventsub`;
+  const secret=process.env.TWITCH_EVENTSUB_SECRET;
+  if(!secret||secret.length<10||secret.length>100||!callback.startsWith("https://"))throw new ApiError(503,"eventsub_not_configured");
+  const fingerprint=eventSubConfigFingerprint(callback,secret);
+  const headers={"Client-Id":extensionId,Authorization:`Bearer ${await extensionAppAccessToken()}`,"Content-Type":"application/json"};
+  const subscriptions=await allSubscriptions(headers);
+  const relevant=subscriptions.filter(row=>row.type===BITS_EVENT_TYPE&&row.condition?.extension_client_id===extensionId);
+  const stored=await client.query<{subscription_id:string;config_fingerprint:Buffer|null;state:string}>(
+    "SELECT subscription_id,config_fingerprint,state FROM sloptogether.extension_bits_eventsub_subscriptions WHERE extension_client_id=$1 FOR UPDATE",[extensionId]);
+  const storedById=new Map(stored.rows.map(row=>[row.subscription_id,row]));
+  const reusable=relevant.filter(row=>["enabled","webhook_callback_verification_pending"].includes(row.status??"")
+    &&row.version==="1"&&row.transport?.method==="webhook"&&row.transport.callback===callback
+    &&storedById.get(row.id)?.config_fingerprint?.equals(fingerprint));
+  const reusableIds=new Set(reusable.map(row=>row.id));
+  await removeStaleSubscriptions(headers,relevant.filter(row=>!reusableIds.has(row.id)).map(row=>row.id));
+  for(const old of relevant.filter(row=>!reusableIds.has(row.id))){
+    await client.query("UPDATE sloptogether.extension_bits_eventsub_subscriptions SET state='revoked',updated_at=now() WHERE extension_client_id=$1 AND subscription_id=$2",[extensionId,old.id]);
+  }
+  let subscription:ExistingSubscription|undefined=reusable[0];
+  if(!subscription){
+    const response=await fetch("https://api.twitch.tv/helix/eventsub/subscriptions",{
+      method:"POST",headers,cache:"no-store",signal:AbortSignal.timeout(8000),
+      body:JSON.stringify({type:BITS_EVENT_TYPE,version:"1",condition:{extension_client_id:extensionId},transport:{method:"webhook",callback,secret}}),
+    });
+    if(!response.ok)throw new ApiError(502,"eventsub_bits_subscription_create_failed","Twitch could not register Extension transaction events.");
+    const result=await response.json() as {data?:ExistingSubscription[]};
+    subscription=result.data?.[0];
+    if(!subscription?.id)throw new ApiError(502,"eventsub_subscription_response_invalid");
+  }
+  const verified=subscription.status==="enabled";
+  await client.query(`INSERT INTO sloptogether.extension_bits_eventsub_subscriptions(extension_client_id,subscription_id,state,config_fingerprint)
+    VALUES($1,$2,$3,$4) ON CONFLICT(extension_client_id,subscription_id) DO UPDATE SET
+      state=CASE WHEN sloptogether.extension_bits_eventsub_subscriptions.state='enabled' AND EXCLUDED.state='pending'
+        THEN 'enabled' ELSE EXCLUDED.state END,
+      config_fingerprint=EXCLUDED.config_fingerprint,updated_at=now()`,
+    [extensionId,subscription.id,verified?"enabled":"pending",fingerprint]);
+  return {state:verified?"enabled":"pending" as const,subscriptionId:subscription.id};
 }
 
 export async function cancelPendingInterrupts(client: PoolClient, channelId: string, expiredOnly = false, actorId?:string) {
