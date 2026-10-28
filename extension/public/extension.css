@@ -87,6 +87,7 @@ h2 { margin: 0; font-size: 14px; font-weight: 700; }
 .prompt-lock-product:disabled { opacity: .58; cursor: not-allowed; }
 .prompt-lock-product span { font-size: 11px; font-weight: 700; }
 .prompt-lock-product small { color: var(--soft); font-size: 10px; white-space: nowrap; }
+.bits-eventsub-test { margin-top: 10px; }
 .countdown { color: var(--purple); font-size: 10px; font-variant-numeric: tabular-nums; }
 .helper,.note { color: var(--soft); font-size: 10px; line-height: 1.45; }
 .helper { margin: 6px 0 9px; }

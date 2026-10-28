@@ -7,7 +7,7 @@ vi.mock("./extension-auth",()=>({verifyExtensionRequest:mocks.extensionPrincipal
 vi.mock("./twitch",()=>({getExtensionTransaction:mocks.getExtensionTransaction,listExtensionBitsProducts:mocks.listProducts,twitchExtensionClientId:()=>"extension-client"}));
 vi.mock("./channels",()=>({findChannel:mocks.findChannel,isBanned:mocks.isBanned}));
 
-import { createExtensionBitsIntent,createExtensionPromptLockIntent,getExtensionBitsState,getExtensionPromptLockState,reconcilePaidBitsReceipt,recordExtensionBitsReceipt } from "./paid-bits-service";
+import { createExtensionBitsIntent,createExtensionPromptLockIntent,getExtensionBitsEventSubTestState,getExtensionBitsState,getExtensionPromptLockState,reconcilePaidBitsReceipt,recordExtensionBitsReceipt } from "./paid-bits-service";
 import { ApiError } from "./http";
 
 const intentId="73afcad4-d30a-4fd8-9c33-f6c1c277a7bf";
@@ -63,6 +63,36 @@ describe("recordExtensionBitsReceipt",()=>{
     expect(bind).toBeDefined();
     expect(bind?.sql).not.toMatch(/SET state='receipt_seen'/);
     expect(calls.some(call=>call.sql.includes("paid.bits.reconcile_receipt"))).toBe(true);
+  });
+});
+
+describe("getExtensionBitsEventSubTestState",()=>{
+  it("shows only the configured in-development SKU to the broadcaster after EventSub is active",async()=>{
+    vi.stubEnv("SLOPTOGETHER_BITS_EVENTSUB_TEST_ENABLED","true");
+    vi.stubEnv("SLOPTOGETHER_BITS_EVENTSUB_TEST_CHANNEL_ID","123");
+    vi.stubEnv("SLOPTOGETHER_BITS_EVENTSUB_TEST_SKU","prompt-lock-test-100");
+    mocks.extensionPrincipal.mockReturnValue({...principal,role:"broadcaster"});
+    mocks.findChannel.mockResolvedValue({twitch_channel_id:"123",owner_twitch_user_id:"456"});
+    mocks.listProducts.mockResolvedValue([
+      {sku:"prompt-lock-test-100",amountBits:100,inDevelopment:true,displayName:"Prompt Lock Test"},
+      {sku:"production-sku",amountBits:100,inDevelopment:false,displayName:"Production"},
+    ]);
+    mocks.query.mockImplementation(async(sql:string)=>sql.includes("extension_bits_eventsub_subscriptions")
+      ?{rows:[{ready:true}],rowCount:1}
+      :{rows:[{state:"development_ignored",occurred_at:new Date("2026-10-28T21:00:00Z")}],rowCount:1});
+    const since="2026-10-28T20:59:00Z";
+    await expect(getExtensionBitsEventSubTestState(new Request(`https://www.clips.gg/sloptogether/api/v1/extension/bits/eventsub-test/state?since=${encodeURIComponent(since)}`)))
+      .resolves.toMatchObject({enabled:true,sku:"prompt-lock-test-100",amountBits:100,latestEvent:{state:"development_ignored"}});
+    expect(mocks.listProducts).toHaveBeenCalledOnce();
+  });
+
+  it("does not expose the test SKU to a viewer or to an unconfigured channel",async()=>{
+    vi.stubEnv("SLOPTOGETHER_BITS_EVENTSUB_TEST_ENABLED","true");
+    vi.stubEnv("SLOPTOGETHER_BITS_EVENTSUB_TEST_CHANNEL_ID","123");
+    mocks.extensionPrincipal.mockReturnValue({...principal,role:"viewer"});
+    await expect(getExtensionBitsEventSubTestState(new Request("https://www.clips.gg/sloptogether/api/v1/extension/bits/eventsub-test/state")))
+      .resolves.toEqual({enabled:false});
+    expect(mocks.query).not.toHaveBeenCalled();
   });
 });
 

@@ -483,6 +483,34 @@ export async function getExtensionPromptLockState(request:Request){
     requiresLinkedIdentity:false,stream:{id:stream.id,slug:stream.slug}};
 }
 
+/** Owner-only Hosted Test control for proving Twitch development transaction delivery. */
+export async function getExtensionBitsEventSubTestState(request:Request){
+  const principal=verifyExtensionRequest(request);
+  const allowedChannel=process.env.SLOPTOGETHER_BITS_EVENTSUB_TEST_CHANNEL_ID;
+  if(process.env.SLOPTOGETHER_BITS_EVENTSUB_TEST_ENABLED!=="true"||!allowedChannel||principal.channelId!==allowedChannel
+    ||principal.role!=="broadcaster"||!principal.linkedTwitchUserId)return {enabled:false};
+  const channel=await findChannel(principal.channelId);
+  if(principal.linkedTwitchUserId!==channel.owner_twitch_user_id||await isBanned(channel.twitch_channel_id,principal.linkedTwitchUserId))return {enabled:false};
+  const extensionId=twitchExtensionClientId();
+  const eventSub=await query(`SELECT 1 FROM sloptogether.extension_bits_eventsub_subscriptions
+    WHERE extension_client_id=$1 AND state='enabled' LIMIT 1`,[extensionId]);
+  if(!eventSub.rowCount)return {enabled:false};
+  const sku=process.env.SLOPTOGETHER_BITS_EVENTSUB_TEST_SKU;
+  if(!sku)return {enabled:false};
+  const product=(await listExtensionBitsProducts()).find(item=>item.sku===sku&&item.inDevelopment);
+  if(!product)return {enabled:false};
+  const sinceParam=new URL(request.url).searchParams.get("since");
+  const since=sinceParam?new Date(sinceParam):null;
+  if(sinceParam&&(!since||!Number.isFinite(since.getTime())))throw new ApiError(400,"bits_eventsub_test_since_invalid");
+  const result=await query<{state:string;occurred_at:Date}>(`SELECT state,occurred_at FROM sloptogether.extension_bits_transactions
+    WHERE extension_client_id=$1 AND broadcaster_twitch_id=$2 AND purchaser_twitch_user_id=$3 AND product_sku=$4
+      AND is_in_development AND ($5::timestamptz IS NULL OR occurred_at>=$5)
+    ORDER BY occurred_at DESC LIMIT 1`,[extensionId,channel.twitch_channel_id,principal.linkedTwitchUserId,sku,since]);
+  const event=result.rows[0];
+  return {enabled:true,sku:product.sku,amountBits:product.amountBits,displayName:product.displayName,
+    latestEvent:event?{state:event.state,occurredAt:event.occurred_at.toISOString()}:null};
+}
+
 export async function createExtensionPromptLockIntent(request:Request){
   const principal=verifyExtensionRequest(request);
   if(!promptLockFlagsReady())throw new ApiError(503,"bits_prompt_lock_unavailable","Prompt Lock is not enabled for this Extension.");

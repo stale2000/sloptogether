@@ -21,6 +21,9 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
     promptLockStatus: document.getElementById("prompt-lock-status"),
     promptLockLink: document.getElementById("prompt-lock-link"),
     promptLockReconcile: document.getElementById("prompt-lock-reconcile"),
+    bitsEventSubTest: document.getElementById("bits-eventsub-test"),
+    bitsEventSubTestRun: document.getElementById("bits-eventsub-test-run"),
+    bitsEventSubTestStatus: document.getElementById("bits-eventsub-test-status"),
     ballot: document.getElementById("ballot"),
     question: document.getElementById("question"),
     countdown: document.getElementById("countdown"),
@@ -54,6 +57,11 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
   let canSubmitPrompts = false;
   let bitsState = null;
   let promptLockState = null;
+  let bitsEventSubTestState = null;
+  let bitsEventSubTestPending = false;
+  let bitsEventSubTestSince = null;
+  let bitsEventSubTestTimer = 0;
+  let bitsEventSubTestStatusText = "";
   let promptLockStatusText = "";
   let bitsPending = false;
   let bitsBusy = false;
@@ -120,6 +128,63 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
     }
   }
 
+  function renderBitsEventSubTest(){
+    nodes.bitsEventSubTest.hidden=!bitsEventSubTestState?.enabled;
+    nodes.bitsEventSubTestStatus.hidden=!bitsEventSubTestStatusText;
+    message(nodes.bitsEventSubTestStatus,bitsEventSubTestStatusText);
+    nodes.bitsEventSubTestRun.disabled=!bitsEventSubTestState?.productAvailable||!linkedIdentity(authorization)||bitsEventSubTestPending;
+    nodes.bitsEventSubTestRun.textContent=bitsEventSubTestPending?"Waiting for Twitch…":"Run Bits test";
+  }
+
+  async function loadBitsEventSubTest(){
+    const requestEpoch=identityEpoch,currentAuthorization=authorization,helper=window.Twitch?.ext;
+    if(!currentAuthorization||!helper?.bits){bitsEventSubTestState=null;renderBitsEventSubTest();return;}
+    try{
+      const url=new URL(`${API}/extension/bits/eventsub-test/state`);
+      if(bitsEventSubTestSince)url.searchParams.set("since",bitsEventSubTestSince);
+      const response=await fetch(url,{headers:{"x-extension-jwt":currentAuthorization.token},cache:"no-store"});
+      const state=await response.json().catch(()=>({}));
+      if(requestEpoch!==identityEpoch)return;
+      if(!response.ok||state.enabled!==true){bitsEventSubTestState=null;renderBitsEventSubTest();return;}
+      const catalog=await helper.bits.getProducts();
+      if(requestEpoch!==identityEpoch)return;
+      const productAvailable=catalog.some(item=>item.sku===state.sku&&item.inDevelopment===true
+        &&item.cost?.type==="bits"&&Number(item.cost.amount)===state.amountBits);
+      bitsEventSubTestState={...state,productAvailable};
+      if(state.latestEvent?.state==="development_ignored"&&bitsEventSubTestSince
+        &&Date.parse(state.latestEvent.occurredAt)>=Date.parse(bitsEventSubTestSince)){
+        bitsEventSubTestPending=false;
+        bitsEventSubTestStatusText="EventSub received; no render started.";
+        if(bitsEventSubTestTimer)window.clearTimeout(bitsEventSubTestTimer);
+        bitsEventSubTestTimer=0;
+      }
+      renderBitsEventSubTest();
+    }catch{
+      if(requestEpoch!==identityEpoch)return;
+      bitsEventSubTestState=null;renderBitsEventSubTest();
+    }
+  }
+
+  async function pollBitsEventSubTest(){
+    if(!bitsEventSubTestPending)return;
+    if(bitsEventSubTestTimer)window.clearTimeout(bitsEventSubTestTimer);
+    bitsEventSubTestTimer=0;
+    await loadBitsEventSubTest();
+    if(bitsEventSubTestPending)bitsEventSubTestTimer=window.setTimeout(pollBitsEventSubTest,2000);
+  }
+
+  function startBitsEventSubTest(){
+    const helper=window.Twitch?.ext,product=bitsEventSubTestState;
+    if(!authorization||!linkedIdentity(authorization)||!helper?.bits||!product?.enabled||!product.productAvailable||bitsEventSubTestPending)return;
+    bitsEventSubTestPending=true;bitsEventSubTestSince=new Date().toISOString();
+    bitsEventSubTestStatusText="Confirm the development test in Twitch. No render will start.";
+    renderBitsEventSubTest();
+    try{helper.bits.useBits(product.sku);}catch{
+      bitsEventSubTestPending=false;bitsEventSubTestStatusText="Twitch test purchase unavailable.";renderBitsEventSubTest();return;
+    }
+    bitsEventSubTestTimer=window.setTimeout(pollBitsEventSubTest,2000);
+  }
+
   function clearBitsIntent() {
     if (bitsTimer) window.clearTimeout(bitsTimer);
     bitsTimer = 0;
@@ -147,6 +212,8 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
     bitsReceiptUnverified = false;
     bitsIntent = null;
     bitsTransactionEpoch = null;
+    if(bitsEventSubTestTimer)window.clearTimeout(bitsEventSubTestTimer);
+    bitsEventSubTestTimer=0;bitsEventSubTestState=null;bitsEventSubTestPending=false;bitsEventSubTestSince=null;bitsEventSubTestStatusText="";
     bitsTargetInFlight = null;
     nodes.turboProducts.replaceChildren();
     nodes.turboStatus.hidden = true;
@@ -157,6 +224,7 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
     nodes.promptLockProducts.replaceChildren();
     nodes.promptLockStatus.hidden=true;nodes.promptLockStatus.textContent="";
     nodes.promptLockLink.hidden=true;nodes.promptLockReconcile.hidden=true;nodes.promptLock.hidden=true;
+    nodes.bitsEventSubTestStatus.hidden=true;nodes.bitsEventSubTestStatus.textContent="";nodes.bitsEventSubTest.hidden=true;
   }
 
   function renderTurboProducts() {
@@ -587,6 +655,7 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
       renderPromptForm(result.canSubmitPrompts === true);
       void loadTurbo();
       void loadPromptLock();
+      void loadBitsEventSubTest();
       const election = result.activeElection || result.election ||
         (Array.isArray(result.elections) ? result.elections.find((item) => item?.state === "open") : null);
       if (!election) {
@@ -742,11 +811,18 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
     });
     helper.onVisibilityChanged((visible) => {
       isVisible = visible;
-      if (visible) { refresh(); if (bitsPending) void checkBitsIntent(); }
-      else { stopPolling(); if (bitsTimer) window.clearTimeout(bitsTimer); bitsTimer = 0; }
+      if (visible) { refresh(); if (bitsPending) void checkBitsIntent(); if(bitsEventSubTestPending)void pollBitsEventSubTest(); }
+      else {
+        stopPolling();
+        if (bitsTimer) window.clearTimeout(bitsTimer); bitsTimer = 0;
+        if(bitsEventSubTestTimer)window.clearTimeout(bitsEventSubTestTimer);bitsEventSubTestTimer=0;
+      }
     });
-    helper.features?.onChanged?.(() => { void loadTurbo(); void loadPromptLock(); });
+    helper.features?.onChanged?.(() => { void loadTurbo(); void loadPromptLock(); void loadBitsEventSubTest(); });
     helper.bits?.onTransactionComplete?.((receipt) => {
+      if(bitsEventSubTestPending&&receipt?.initiator==="current_user"){
+        bitsEventSubTestStatusText="Waiting for EventSub…";renderBitsEventSubTest();void pollBitsEventSubTest();return;
+      }
       if (!PAID_TURBO_UI_ENABLED&&bitsIntent?.actionKind!=="prompt_lock") return;
       if (bitsTransactionEpoch !== identityEpoch || !bitsIntent || bitsIntent.identityEpoch !== identityEpoch || receipt?.initiator !== "current_user" || typeof receipt.transactionReceipt !== "string" || !authorization) return;
       bitsTransactionEpoch = null;
@@ -768,6 +844,10 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
       }).catch((error) => { if (requestEpoch === identityEpoch) setError(error.message || "Bits receipt verification failed."); });
     });
     helper.bits?.onTransactionCancelled?.(() => {
+      if(bitsEventSubTestPending){
+        bitsEventSubTestPending=false;bitsEventSubTestStatusText="Test purchase cancelled.";
+        if(bitsEventSubTestTimer)window.clearTimeout(bitsEventSubTestTimer);bitsEventSubTestTimer=0;renderBitsEventSubTest();return;
+      }
       if (!PAID_TURBO_UI_ENABLED&&bitsIntent?.actionKind!=="prompt_lock") return;
       if (bitsTransactionEpoch !== identityEpoch || !bitsIntent || bitsIntent.identityEpoch !== identityEpoch || !authorization) return;
       bitsTransactionEpoch = null;
@@ -798,6 +878,7 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
   });
   nodes.promptToggle.addEventListener("click", togglePromptForm);
   nodes.promptSubmit.addEventListener("click", submitPrompt);
+  nodes.bitsEventSubTestRun.addEventListener("click",startBitsEventSubTest);
   nodes.turboLink.addEventListener("click", () => {
     try { window.Twitch?.ext?.actions?.requestIdShare(); setTurboStatus("Confirm identity sharing, then return to use Bits."); }
     catch { setError("Identity linking is unavailable right now."); }
@@ -817,6 +898,6 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
       setError("Identity linking is unavailable right now.");
     }
   });
-  window.addEventListener("pagehide", stopPolling, { once: true });
+  window.addEventListener("pagehide",()=>{stopPolling();if(bitsEventSubTestTimer)window.clearTimeout(bitsEventSubTestTimer);}, { once: true });
   connect();
 })();
