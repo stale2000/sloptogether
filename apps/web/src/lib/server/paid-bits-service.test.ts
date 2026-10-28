@@ -7,7 +7,7 @@ vi.mock("./extension-auth",()=>({verifyExtensionRequest:mocks.extensionPrincipal
 vi.mock("./twitch",()=>({getExtensionTransaction:mocks.getExtensionTransaction,listExtensionBitsProducts:mocks.listProducts,twitchExtensionClientId:()=>"extension-client"}));
 vi.mock("./channels",()=>({findChannel:mocks.findChannel,isBanned:mocks.isBanned}));
 
-import { createExtensionBitsIntent,createExtensionPromptLockIntent,getExtensionBitsEventSubTestState,getExtensionBitsState,getExtensionPromptLockState,reconcilePaidBitsReceipt,recordExtensionBitsReceipt } from "./paid-bits-service";
+import { createExtensionBitsIntent,createExtensionPromptLockIntent,getExtensionBitsEventSubTestState,getExtensionBitsState,getExtensionPromptLockState,reconcilePaidBitsReceipt,recordExtensionBitsReceipt,recordVerifiedExtensionBitsEvent } from "./paid-bits-service";
 import { ApiError } from "./http";
 
 const intentId="73afcad4-d30a-4fd8-9c33-f6c1c277a7bf";
@@ -93,6 +93,37 @@ describe("getExtensionBitsEventSubTestState",()=>{
     await expect(getExtensionBitsEventSubTestState(new Request("https://www.clips.gg/sloptogether/api/v1/extension/bits/eventsub-test/state")))
       .resolves.toEqual({enabled:false});
     expect(mocks.query).not.toHaveBeenCalled();
+  });
+});
+
+describe("recordVerifiedExtensionBitsEvent development smoke test",()=>{
+  const event={extension_client_id:"extension-client",id:"mock-transaction-1",broadcaster_user_id:"123",user_id:"456",
+    product:{sku:"prompt-lock-test-100",bits:100,in_development:false}};
+
+  beforeEach(()=>{
+    vi.stubEnv("SLOPTOGETHER_BITS_EVENTSUB_TEST_ENABLED","true");
+    vi.stubEnv("SLOPTOGETHER_BITS_EVENTSUB_TEST_CHANNEL_ID","123");
+    vi.stubEnv("SLOPTOGETHER_BITS_EVENTSUB_TEST_SKU","prompt-lock-test-100");
+    mocks.listProducts.mockResolvedValue([{sku:"prompt-lock-test-100",amountBits:100,inDevelopment:true,displayName:"Prompt Lock Test"}]);
+    mocks.query.mockImplementation(async(sql:string)=>sql.includes("SELECT owner_twitch_user_id")
+      ?{rows:[{owner_twitch_user_id:"456"}],rowCount:1}:{rows:[],rowCount:1});
+  });
+
+  it("records an owner-only mock delivery as ignored without consulting or dispatching a paid transaction",async()=>{
+    await expect(recordVerifiedExtensionBitsEvent("mock-event-1",event)).resolves.toMatchObject({state:"development_ignored",testEvent:true});
+    expect(mocks.getExtensionTransaction).not.toHaveBeenCalled();
+    const insert=mocks.query.mock.calls.find(([sql])=>String(sql).includes("INSERT INTO sloptogether.extension_bits_transactions"));
+    expect(insert?.[1]).toEqual(["mock-transaction-1","mock-event-1","extension-client","123","456","prompt-lock-test-100",100,
+      JSON.stringify({sku:"prompt-lock-test-100",bits:100,inDevelopment:true,testEvent:true})]);
+    expect(String(insert?.[0])).toContain("'development_ignored'");
+    expect(String(insert?.[0])).not.toContain("INSERT INTO sloptogether.jobs");
+  });
+
+  it("rejects the test SKU when its catalog entry is no longer in development",async()=>{
+    mocks.listProducts.mockResolvedValue([{sku:"prompt-lock-test-100",amountBits:100,inDevelopment:false,displayName:"Prompt Lock Test"}]);
+    await expect(recordVerifiedExtensionBitsEvent("mock-event-1",event)).rejects.toMatchObject({status:403,code:"extension_bits_test_product_mismatch"});
+    expect(mocks.getExtensionTransaction).not.toHaveBeenCalled();
+    expect(mocks.query).not.toHaveBeenCalledWith(expect.stringContaining("INSERT INTO sloptogether.extension_bits_transactions"),expect.anything());
   });
 });
 

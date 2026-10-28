@@ -828,6 +828,24 @@ export async function recordVerifiedExtensionBitsEvent(messageId:string,event:Re
     ||typeof broadcasterId!=="string"||!/^[0-9]{1,32}$/.test(broadcasterId)||typeof userId!=="string"||!/^[0-9]{1,32}$/.test(userId)
     ||typeof sku!=="string"||!sku||sku.length>255||!Number.isSafeInteger(bits)||typeof inDevelopment!=="boolean")
     throw new ApiError(400,"extension_bits_event_invalid");
+  const testSku=process.env.SLOPTOGETHER_BITS_EVENTSUB_TEST_SKU;
+  const testChannel=process.env.SLOPTOGETHER_BITS_EVENTSUB_TEST_CHANNEL_ID;
+  const allowDevelopmentTest=process.env.SLOPTOGETHER_BITS_EVENTSUB_TEST_ENABLED==="true"
+    &&Boolean(testSku&&testChannel)&&broadcasterId===testChannel&&sku===testSku;
+  if(allowDevelopmentTest){
+    // Twitch CLI sends mock transaction payloads that do not exist in Helix.
+    // Accept only the exact owner/channel/SKU when Twitch still marks that SKU
+    // in development, and persist it as ignored so test events can never fund work.
+    const catalog=(await listExtensionBitsProducts()).find(item=>item.sku===testSku&&item.inDevelopment&&item.amountBits===bits);
+    if(!catalog)throw new ApiError(403,"extension_bits_test_product_mismatch");
+    const channel=await query<{owner_twitch_user_id:string}>("SELECT owner_twitch_user_id FROM sloptogether.channels WHERE twitch_channel_id=$1 AND is_enabled=true",[broadcasterId]);
+    if(channel.rows[0]?.owner_twitch_user_id!==userId)throw new ApiError(403,"extension_bits_test_owner_mismatch");
+    await query(`INSERT INTO sloptogether.extension_bits_transactions(transaction_id,eventsub_message_id,extension_client_id,broadcaster_twitch_id,purchaser_twitch_user_id,
+        product_sku,amount_bits,is_in_development,occurred_at,state,transaction_payload,settlement_state,source)
+      VALUES($1,$2,$3,$4,$5,$6,$7,true,now(),'development_ignored',$8::jsonb,'development_ignored','eventsub') ON CONFLICT DO NOTHING`,
+      [transactionId,messageId,extensionId,broadcasterId,userId,sku,bits,JSON.stringify({sku,bits,inDevelopment:true,testEvent:true})]);
+    return {state:"development_ignored",testEvent:true};
+  }
   const verified=await getExtensionTransaction(transactionId);
   if(verified.id!==transactionId||verified.broadcasterId!==broadcasterId||verified.userId!==userId||verified.sku!==sku
     ||verified.amountBits!==bits||verified.inDevelopment!==inDevelopment)

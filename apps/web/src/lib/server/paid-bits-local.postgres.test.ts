@@ -190,6 +190,36 @@ describe.skipIf(!run)("isolated Bits transaction pipeline",()=>{
     expect(await counts(f)).toEqual({funding:"0",jobs:"0",dispatches:"0"});expect(network).not.toHaveBeenCalled();
   });
 
+  it("records a signed Twitch CLI mock for the exact in-development owner SKU without creating a job",async()=>{
+    const f=await fixture(),testSku="local-eventsub-smoke";
+    const previousTestEnabled=process.env.SLOPTOGETHER_BITS_EVENTSUB_TEST_ENABLED;
+    const previousTestChannel=process.env.SLOPTOGETHER_BITS_EVENTSUB_TEST_CHANNEL_ID;
+    const previousTestSku=process.env.SLOPTOGETHER_BITS_EVENTSUB_TEST_SKU;
+    mocks.getExtensionTransaction.mockClear();
+    vi.stubEnv("SLOPTOGETHER_BITS_EVENTSUB_TEST_ENABLED","true");
+    vi.stubEnv("SLOPTOGETHER_BITS_EVENTSUB_TEST_CHANNEL_ID",f.channel);
+    vi.stubEnv("SLOPTOGETHER_BITS_EVENTSUB_TEST_SKU",testSku);
+    mocks.listExtensionBitsProducts.mockResolvedValue([{sku:testSku,amountBits:100,displayName:"EventSub Smoke Test",inDevelopment:true}]);
+    const event={id:`mock-${randomUUID()}`,extension_client_id:extensionId,broadcaster_user_id:f.channel,user_id:f.channel,
+      product:{sku:testSku,bits:100,in_development:false}};
+    try{
+      expect((await handleEventSubWebhook(signedEvent(`local-smoke-${randomUUID()}`,event))).status).toBe(204);
+      const saved=await database.query<{state:string;settlement_state:string;is_in_development:boolean;source:string}>(
+        "select state,settlement_state,is_in_development,source from sloptogether.extension_bits_transactions where transaction_id=$1",[event.id]);
+      expect(saved.rows).toEqual([{state:"development_ignored",settlement_state:"development_ignored",is_in_development:true,source:"eventsub"}]);
+      expect(await counts(f)).toEqual({funding:"0",jobs:"0",dispatches:"0"});
+      expect(mocks.getExtensionTransaction).not.toHaveBeenCalled();
+      expect(network).not.toHaveBeenCalled();
+    }finally{
+      vi.stubEnv("SLOPTOGETHER_BITS_EVENTSUB_TEST_ENABLED",previousTestEnabled);
+      vi.stubEnv("SLOPTOGETHER_BITS_EVENTSUB_TEST_CHANNEL_ID",previousTestChannel);
+      vi.stubEnv("SLOPTOGETHER_BITS_EVENTSUB_TEST_SKU",previousTestSku);
+      mocks.listExtensionBitsProducts.mockResolvedValue([{sku,amountBits:400,displayName:"Test Turbo",inDevelopment:false},
+        {sku:promptLockSku,amountBits:400,displayName:"Test Prompt Lock",inDevelopment:false}]);
+      mocks.getExtensionTransaction.mockClear();
+    }
+  });
+
   it("keeps Turbo disabled and never sends its Bits transaction to Fal",async()=>{
     const f=await fixture(),intent=await createIntent(f),id=`local-paid-${randomUUID()}`,time=new Date();
     const body={intentId:intent.intentId,transactionReceipt:receipt(f,id,false,time)};
