@@ -192,11 +192,17 @@ function corsResponse(request:Request,response:Response){
 }
 
 async function handle(request:NextRequest,context:Context){
+  let path:string[]=[];
   try{
-    const {path}=await context.params;
+    path=(await context.params).path;
     if(request.method==="OPTIONS")return corsResponse(request,new NextResponse(null,{status:204}));
     return corsResponse(request,await dispatch(request,path));
-  }catch(error){return corsResponse(request,jsonError(error));}
+  }catch(error){
+    if(path.join("/")==="webhooks/eventsub"&&error instanceof ApiError){
+      console.warn(JSON.stringify({event:"eventsub_webhook_rejected",status:error.status,code:error.code}));
+    }
+    return corsResponse(request,jsonError(error));
+  }
 }
 
 export const runtime="nodejs";
