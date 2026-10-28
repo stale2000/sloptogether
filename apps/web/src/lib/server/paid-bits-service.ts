@@ -836,8 +836,8 @@ export async function recordVerifiedExtensionBitsEvent(messageId:string,event:Re
     // Twitch CLI sends mock transaction payloads that do not exist in Helix.
     // Accept only the exact owner/channel/SKU when Twitch still marks that SKU
     // in development, and persist it as ignored so test events can never fund work.
-    // Twitch's mock/test event amount can differ from the current catalog cost;
-    // the test SKU is non-dispatchable, so keep the event amount as received.
+    // Twitch reports zero Bits for in-development events; store the catalog price
+    // in amount_bits (which must be positive) and preserve the event value in JSON.
     const catalog=(await listExtensionBitsProducts()).find(item=>item.sku===testSku&&item.inDevelopment);
     if(!catalog)throw new ApiError(403,"extension_bits_test_product_mismatch");
     const channel=await query<{owner_twitch_user_id:string}>("SELECT owner_twitch_user_id FROM sloptogether.channels WHERE twitch_channel_id=$1 AND is_enabled=true",[broadcasterId]);
@@ -845,7 +845,7 @@ export async function recordVerifiedExtensionBitsEvent(messageId:string,event:Re
     await query(`INSERT INTO sloptogether.extension_bits_transactions(transaction_id,eventsub_message_id,extension_client_id,broadcaster_twitch_id,purchaser_twitch_user_id,
         product_sku,amount_bits,is_in_development,occurred_at,state,transaction_payload,settlement_state,source)
       VALUES($1,$2,$3,$4,$5,$6,$7,true,now(),'development_ignored',$8::jsonb,'development_ignored','eventsub') ON CONFLICT DO NOTHING`,
-      [transactionId,messageId,extensionId,broadcasterId,userId,sku,bits,JSON.stringify({sku,bits,inDevelopment:true,testEvent:true})]);
+      [transactionId,messageId,extensionId,broadcasterId,userId,sku,catalog.amountBits,JSON.stringify({sku,bits,inDevelopment:true,testEvent:true})]);
     return {state:"development_ignored",testEvent:true};
   }
   const verified=await getExtensionTransaction(transactionId);
