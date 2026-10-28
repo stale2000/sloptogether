@@ -836,7 +836,9 @@ export async function recordVerifiedExtensionBitsEvent(messageId:string,event:Re
     // Twitch CLI sends mock transaction payloads that do not exist in Helix.
     // Accept only the exact owner/channel/SKU when Twitch still marks that SKU
     // in development, and persist it as ignored so test events can never fund work.
-    const catalog=(await listExtensionBitsProducts()).find(item=>item.sku===testSku&&item.inDevelopment&&item.amountBits===bits);
+    // Twitch's mock/test event amount can differ from the current catalog cost;
+    // the test SKU is non-dispatchable, so keep the event amount as received.
+    const catalog=(await listExtensionBitsProducts()).find(item=>item.sku===testSku&&item.inDevelopment);
     if(!catalog)throw new ApiError(403,"extension_bits_test_product_mismatch");
     const channel=await query<{owner_twitch_user_id:string}>("SELECT owner_twitch_user_id FROM sloptogether.channels WHERE twitch_channel_id=$1 AND is_enabled=true",[broadcasterId]);
     if(channel.rows[0]?.owner_twitch_user_id!==userId)throw new ApiError(403,"extension_bits_test_owner_mismatch");

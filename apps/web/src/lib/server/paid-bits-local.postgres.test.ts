@@ -201,12 +201,12 @@ describe.skipIf(!run)("isolated Bits transaction pipeline",()=>{
     vi.stubEnv("SLOPTOGETHER_BITS_EVENTSUB_TEST_SKU",testSku);
     mocks.listExtensionBitsProducts.mockResolvedValue([{sku:testSku,amountBits:100,displayName:"EventSub Smoke Test",inDevelopment:true}]);
     const event={id:`mock-${randomUUID()}`,extension_client_id:extensionId,broadcaster_user_id:f.channel,user_id:f.channel,
-      product:{sku:testSku,bits:100,in_development:false}};
+      product:{sku:testSku,bits:90,in_development:false}};
     try{
       expect((await handleEventSubWebhook(signedEvent(`local-smoke-${randomUUID()}`,event))).status).toBe(204);
-      const saved=await database.query<{state:string;settlement_state:string;is_in_development:boolean;source:string}>(
-        "select state,settlement_state,is_in_development,source from sloptogether.extension_bits_transactions where transaction_id=$1",[event.id]);
-      expect(saved.rows).toEqual([{state:"development_ignored",settlement_state:"development_ignored",is_in_development:true,source:"eventsub"}]);
+      const saved=await database.query<{state:string;settlement_state:string;is_in_development:boolean;source:string;amount_bits:number}>(
+        "select state,settlement_state,is_in_development,source,amount_bits from sloptogether.extension_bits_transactions where transaction_id=$1",[event.id]);
+      expect(saved.rows).toEqual([{state:"development_ignored",settlement_state:"development_ignored",is_in_development:true,source:"eventsub",amount_bits:90}]);
       expect(await counts(f)).toEqual({funding:"0",jobs:"0",dispatches:"0"});
       expect(mocks.getExtensionTransaction).not.toHaveBeenCalled();
       expect(network).not.toHaveBeenCalled();

@@ -98,7 +98,7 @@ describe("getExtensionBitsEventSubTestState",()=>{
 
 describe("recordVerifiedExtensionBitsEvent development smoke test",()=>{
   const event={extension_client_id:"extension-client",id:"mock-transaction-1",broadcaster_user_id:"123",user_id:"456",
-    product:{sku:"prompt-lock-test-100",bits:100,in_development:false}};
+    product:{sku:"prompt-lock-test-100",bits:90,in_development:false}};
 
   beforeEach(()=>{
     vi.stubEnv("SLOPTOGETHER_BITS_EVENTSUB_TEST_ENABLED","true");
@@ -113,8 +113,8 @@ describe("recordVerifiedExtensionBitsEvent development smoke test",()=>{
     await expect(recordVerifiedExtensionBitsEvent("mock-event-1",event)).resolves.toMatchObject({state:"development_ignored",testEvent:true});
     expect(mocks.getExtensionTransaction).not.toHaveBeenCalled();
     const insert=mocks.query.mock.calls.find(([sql])=>String(sql).includes("INSERT INTO sloptogether.extension_bits_transactions"));
-    expect(insert?.[1]).toEqual(["mock-transaction-1","mock-event-1","extension-client","123","456","prompt-lock-test-100",100,
-      JSON.stringify({sku:"prompt-lock-test-100",bits:100,inDevelopment:true,testEvent:true})]);
+    expect(insert?.[1]).toEqual(["mock-transaction-1","mock-event-1","extension-client","123","456","prompt-lock-test-100",90,
+      JSON.stringify({sku:"prompt-lock-test-100",bits:90,inDevelopment:true,testEvent:true})]);
     expect(String(insert?.[0])).toContain("'development_ignored'");
     expect(String(insert?.[0])).not.toContain("INSERT INTO sloptogether.jobs");
   });
