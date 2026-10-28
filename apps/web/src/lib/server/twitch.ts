@@ -106,14 +106,14 @@ export async function appAccessToken():Promise<string>{
 
 export function twitchExtensionClientId(){
   const id=process.env.TWITCH_EXTENSION_CLIENT_ID;
-  if(!id)throw new HttpError(503,"extension_not_configured");
+  if(!id)throw new HttpError(503,"extension_not_configured","TWITCH_EXTENSION_CLIENT_ID is not configured.");
   return id;
 }
 
 export async function extensionAppAccessToken():Promise<string>{
   if(extensionAppToken&&extensionAppToken.expiresAt>Date.now()+30_000)return extensionAppToken.value;
   const clientId=twitchExtensionClientId(),clientSecret=process.env.TWITCH_EXTENSION_CLIENT_SECRET;
-  if(!clientSecret)throw new HttpError(503,"extension_bits_not_configured");
+  if(!clientSecret)throw new HttpError(503,"extension_bits_not_configured","TWITCH_EXTENSION_CLIENT_SECRET is not configured.");
   const response=await fetch("https://id.twitch.tv/oauth2/token",{
     method:"POST",cache:"no-store",signal:AbortSignal.timeout(8000),
     headers:{"Content-Type":"application/x-www-form-urlencoded"},

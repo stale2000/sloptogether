@@ -204,7 +204,7 @@ export async function handleSubscriberSettings(locator: string, request: Request
 async function ensureSubscriptionEvents(broadcasterId:string,client:PoolClient){
   const callback=process.env.TWITCH_EVENTSUB_CALLBACK_URL??`${(process.env.PUBLIC_APP_URL??"").replace(/\/$/,"")}/api/v1/webhooks/eventsub`;
   const secret=process.env.TWITCH_EVENTSUB_SECRET;
-  if(!secret||secret.length<10||secret.length>100||!callback.startsWith("https://"))throw new ApiError(503,"eventsub_not_configured");
+  if(!secret||secret.length<10||secret.length>100||!callback.startsWith("https://"))throw new ApiError(503,"eventsub_not_configured","TWITCH_EVENTSUB_SECRET or its public HTTPS callback is not configured.");
   const fingerprint=eventSubConfigFingerprint(callback,secret);
   const refresh=await registrationNeedsRefresh(client,broadcasterId,"subscriber-events",fingerprint);
   const credentials=twitchCredentials();const token=await appAccessToken();const headers={"Client-Id":credentials.clientId,Authorization:`Bearer ${token}`,"Content-Type":"application/json"};
@@ -242,7 +242,7 @@ export async function authorizeChatVoteSubscription(channel:ChannelRow,request:R
 export async function ensureChatVoteSubscription(channel:ChannelRow,session:NonNullable<Awaited<ReturnType<typeof currentSession>>>,client:PoolClient){
   const callback=process.env.TWITCH_EVENTSUB_CALLBACK_URL??`${(process.env.PUBLIC_APP_URL??"").replace(/\/$/,"")}/api/v1/webhooks/eventsub`;
   const secret=process.env.TWITCH_EVENTSUB_SECRET;
-  if(!secret||secret.length<10||secret.length>100||!callback.startsWith("https://"))throw new ApiError(503,"eventsub_not_configured");
+  if(!secret||secret.length<10||secret.length>100||!callback.startsWith("https://"))throw new ApiError(503,"eventsub_not_configured","TWITCH_EVENTSUB_SECRET or its public HTTPS callback is not configured.");
   const fingerprint=eventSubConfigFingerprint(callback,secret);
   const registrationKey="chat:"+session.twitchUserId;
   const refresh=await registrationNeedsRefresh(client,channel.twitch_channel_id,registrationKey,fingerprint);
@@ -280,7 +280,7 @@ export async function registerExtensionBitsEventSub(locator:string,request:Reque
 async function ensureExtensionBitsEventSub(extensionId:string,client:PoolClient){
   const callback=process.env.TWITCH_EVENTSUB_CALLBACK_URL??`${(process.env.PUBLIC_APP_URL??"").replace(/\/$/,"")}/api/v1/webhooks/eventsub`;
   const secret=process.env.TWITCH_EVENTSUB_SECRET;
-  if(!secret||secret.length<10||secret.length>100||!callback.startsWith("https://"))throw new ApiError(503,"eventsub_not_configured");
+  if(!secret||secret.length<10||secret.length>100||!callback.startsWith("https://"))throw new ApiError(503,"eventsub_not_configured","TWITCH_EVENTSUB_SECRET or its public HTTPS callback is not configured.");
   const fingerprint=eventSubConfigFingerprint(callback,secret);
   const headers={"Client-Id":extensionId,Authorization:`Bearer ${await extensionAppAccessToken()}`,"Content-Type":"application/json"};
   const subscriptions=await allSubscriptions(headers);
