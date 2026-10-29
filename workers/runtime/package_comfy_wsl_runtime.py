@@ -59,7 +59,10 @@ def main()->int:
     args=parser.parse_args()
     try:
         path,digest=package_runtime(args.output)
-    except (OSError,subprocess.CalledProcessError,ValueError) as error:
+    except subprocess.CalledProcessError as error:
+        details=(error.stderr or error.stdout or "").strip()
+        parser.error(details or str(error))
+    except (OSError,ValueError) as error:
         parser.error(str(error))
     print(f"ComfyStreamer WSL runtime: {path}")
     print(f"Runtime archive SHA-256: {digest}")
