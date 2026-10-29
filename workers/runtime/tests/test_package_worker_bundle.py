@@ -24,7 +24,9 @@ class WindowsBundleTest(unittest.TestCase):
 
         class CrlfWorkflow:
             def __init__(self, resource): self.resource=resource
-            def read_bytes(self): return self.resource.read_bytes().replace(b"\n",b"\r\n")
+            def read_bytes(self):
+                source=self.resource.read_bytes().replace(b"\r\n",b"\n")
+                return source.replace(b"\n",b"\r\n")
 
         class CrlfPackage:
             def joinpath(self, *parts):
