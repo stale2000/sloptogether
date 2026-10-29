@@ -154,7 +154,8 @@ def artifact_inputs(root: Path, profile: str) -> tuple[dict[Path, bytes], dict[s
         entrypoint = files[Path("deploy/fal/fasth3-b1/entrypoint.sh")].decode()
         trim = {}
         for name in ("trim_revision", "trim_sha256"):
-            match = re.search(rf'^{name}="([^"]+)"$', entrypoint, re.MULTILINE)
+            # Git's Windows checkout may convert this shell file to CRLF.
+            match = re.search(rf'^{name}="([^"]+)"\r?$', entrypoint, re.MULTILINE)
             if match is None:
                 raise ValueError(f"FastH3 entrypoint must pin {name}")
             trim[name] = match.group(1)
