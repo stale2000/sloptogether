@@ -182,7 +182,7 @@ def artifact_inputs(root: Path, profile: str) -> tuple[dict[Path, bytes], dict[s
         }
     # The environment file contains model hashes as well as runtime pins. Hash
     # runtime pins separately so a model-only manifest change is not code drift.
-    code_files = {str(path): {"sha256": digest(data), "executable": executable(path)} for path, data in files.items()
+    code_files = {path.as_posix(): {"sha256": digest(data), "executable": executable(path)} for path, data in files.items()
         if path not in {ENVIRONMENT, receipt}}
     runtime = {key: value for key, value in environment.items() if key not in assets}
     compatibility = {"comfyui_api": "prompt-history-object_info/1"}
@@ -200,7 +200,7 @@ def artifact_inputs(root: Path, profile: str) -> tuple[dict[Path, bytes], dict[s
         "assets": assets,
         "runtime": runtime,
         "compatibility": compatibility,
-        "files": {str(path): {"sha256": digest(data), "executable": executable(path)} for path, data in sorted(files.items())},
+        "files": {path.as_posix(): {"sha256": digest(data), "executable": executable(path)} for path, data in sorted(files.items())},
     }
     manifest["artifact_digest"] = digest(encoded(manifest))
     return files, manifest
@@ -208,7 +208,7 @@ def artifact_inputs(root: Path, profile: str) -> tuple[dict[Path, bytes], dict[s
 
 def expected_files(root: Path, profile: str) -> dict[Path, tuple[bytes, int]]:
     files, manifest = artifact_inputs(root, profile)
-    expected = {path: (data, 0o755 if cast("dict[str, dict[str, JsonValue]]", manifest["files"])[str(path)]["executable"] else 0o644)
+    expected = {path: (data, 0o755 if cast("dict[str, dict[str, JsonValue]]", manifest["files"])[path.as_posix()]["executable"] else 0o644)
                 for path, data in files.items()}
     expected[Path("worker-manifest.json")] = (encoded(manifest), 0o644)
     # object_info descriptions carry the compact immutable identity; file hashes

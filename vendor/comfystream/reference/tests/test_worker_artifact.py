@@ -115,6 +115,12 @@ def test_fast_h3_revision_pins_accept_windows_checkout_line_endings(source: Path
     assert value_at(manifest, "assets", "trim", "trim_sha256")
 
 
+def test_manifest_paths_use_portable_forward_slashes(source: Path) -> None:
+    _files, manifest = artifact_inputs(source, "vast")
+
+    assert all("\\" not in name for name in object_value(manifest["files"]))
+
+
 @pytest.mark.parametrize(("profile", "host_lock"), [
     ("fasth3", "deploy/fal/fasth3-b1/requirements.lock"),
     ("h3-upscaler", "deploy/fal/h3-sol-upscaler/requirements.lock"),
