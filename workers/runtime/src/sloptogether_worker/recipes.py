@@ -106,7 +106,9 @@ RECIPES: dict[str, Recipe] = {
 
 def _workflow(recipe: Recipe) -> dict[str, Any]:
     file = importlib.resources.files("sloptogether_worker").joinpath("assets", "recipes", recipe.workflow_file)
-    raw = file.read_bytes()
+    # Windows Git checkouts may normalize this tracked JSON from LF to CRLF;
+    # hash its canonical repository text so provenance remains cross-platform.
+    raw = file.read_bytes().replace(b"\r\n", b"\n")
     if len(raw) > MAX_WORKFLOW_BYTES:
         raise WorkerError("workflow_too_large", "Pinned worker workflow exceeds its size bound.")
     actual = hashlib.sha256(raw).hexdigest()

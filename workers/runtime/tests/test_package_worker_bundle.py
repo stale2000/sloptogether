@@ -6,13 +6,34 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
+sys.path.insert(0,str(ROOT/"src"))
 from package_worker_bundle import package_bundle  # noqa: E402
+from sloptogether_worker.recipes import RECIPES, TRIM_FIVE_STEP_ID, _workflow  # noqa: E402
 
 
 class WindowsBundleTest(unittest.TestCase):
+    def test_trim_recipe_accepts_windows_checkout_line_endings(self) -> None:
+        import importlib.resources
+
+        recipe=RECIPES[TRIM_FIVE_STEP_ID]
+        root=importlib.resources.files("sloptogether_worker")
+
+        class CrlfWorkflow:
+            def __init__(self, resource): self.resource=resource
+            def read_bytes(self): return self.resource.read_bytes().replace(b"\n",b"\r\n")
+
+        class CrlfPackage:
+            def joinpath(self, *parts):
+                resource=root.joinpath(*parts)
+                return CrlfWorkflow(resource) if parts and parts[-1]==recipe.workflow_file else resource
+
+        with patch("sloptogether_worker.recipes.importlib.resources.files",return_value=CrlfPackage()):
+            _workflow(recipe)
+
     def test_packages_only_the_executable_and_nonsecret_setup_files(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);dist=root/"dist";dist.mkdir()
