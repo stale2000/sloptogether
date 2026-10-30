@@ -1,4 +1,4 @@
-"""Windows console launcher; explicit arguments retain the normal worker CLI."""
+"""Windows desktop launcher; explicit arguments retain the normal worker CLI."""
 
 from __future__ import annotations
 
@@ -341,7 +341,26 @@ def interactive_menu(
 
 def main() -> int:
     if sys.platform == "win32" and getattr(sys, "frozen", False) and len(sys.argv) == 1:
-        return interactive_menu(_bundle_root())
+        from sloptogether_worker.desktop import run_desktop
+
+        root = _bundle_root()
+
+        def install_dependencies(bundle_root: Path, role: str, _unused: str) -> int:
+            _config, _distro, comfy_root = _wsl_location(bundle_root, role)
+            return _install_existing_dependencies(bundle_root, role, _comfy_python(bundle_root, role, comfy_root))
+
+        def setup(bundle_root: Path, role: str, install_comfy: bool) -> int:
+            status = _run_setup(bundle_root, role, install_comfy)
+            if status == 0 and install_comfy and role == "generation":
+                return _download_models_after_setup(bundle_root, role)
+            return status
+
+        return run_desktop(root, {
+            "setup": setup,
+            "models": _download_models_after_setup,
+            "dependencies": install_dependencies,
+            "comfy": _start_comfy,
+        })
     return worker_main()
 
 

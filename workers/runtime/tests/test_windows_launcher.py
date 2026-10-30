@@ -220,6 +220,19 @@ class WindowsLauncherTest(unittest.TestCase):
             worker.assert_called_once_with()
             menu.assert_not_called()
 
+    def test_frozen_windows_launch_opens_desktop_ui(self):
+        with patch.object(launcher.sys, "platform", "win32"), \
+             patch.object(launcher.sys, "frozen", True, create=True), \
+             patch.object(launcher.sys, "argv", ["SlopTogetherWorker.exe"]), \
+             patch.object(launcher, "_bundle_root", return_value=Path("worker-root")), \
+             patch("sloptogether_worker.desktop.run_desktop", return_value=0) as desktop, \
+             patch.object(launcher, "worker_main") as worker:
+            self.assertEqual(launcher.main(), 0)
+            desktop.assert_called_once()
+            self.assertEqual(desktop.call_args.args[0], Path("worker-root"))
+            self.assertEqual(set(desktop.call_args.args[1]), {"setup", "models", "dependencies", "comfy"})
+            worker.assert_not_called()
+
     def test_cli_arguments_are_restored_after_a_command_failure(self):
         original = ["SlopTogetherWorker.exe"]
         with patch.object(sys, "argv", original), patch.object(launcher, "worker_main", side_effect=RuntimeError("test")):

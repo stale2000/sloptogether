@@ -41,6 +41,7 @@ class WindowsBundleTest(unittest.TestCase):
             root=Path(folder);dist=root/"dist";dist.mkdir()
             files={
                 "SlopTogetherWorker.exe":dist/"SlopTogetherWorker.exe",
+                "SlopTogetherWorkerCli.exe":dist/"SlopTogetherWorkerCli.exe",
                 "worker.example.toml":dist/"worker.example.toml",
                 "worker.wsl.example.toml":dist/"worker.wsl.example.toml",
                 "Setup-SlopTogetherWorker.ps1":dist/"Setup-SlopTogetherWorker.ps1",
@@ -59,7 +60,7 @@ class WindowsBundleTest(unittest.TestCase):
     def test_rejects_missing_inputs_and_symlinked_package_sources(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);dist=root/"dist";dist.mkdir()
-            for relative in ("SlopTogetherWorker.exe","worker.example.toml","worker.wsl.example.toml","Setup-SlopTogetherWorker.ps1","Install-ComfyStreamerNodes.ps1","ComfyStreamer-Wsl-runtime.zip","README.txt"):
+            for relative in ("SlopTogetherWorker.exe","SlopTogetherWorkerCli.exe","worker.example.toml","worker.wsl.example.toml","Setup-SlopTogetherWorker.ps1","Install-ComfyStreamerNodes.ps1","ComfyStreamer-Wsl-runtime.zip","README.txt"):
                 (dist/relative).write_text("test")
             (dist/"worker.wsl.example.toml").unlink()
             with self.assertRaisesRegex(ValueError,"worker_bundle_file_missing"):

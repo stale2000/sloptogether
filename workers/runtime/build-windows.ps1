@@ -27,7 +27,11 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Build dependencies installation failed." }
     & $VenvPython -m pip install --no-deps .
     if ($LASTEXITCODE -ne 0) { throw "Worker package installation failed." }
-    & $VenvPython -m PyInstaller --clean --onefile --name SlopTogetherWorker `
+    & $VenvPython -m PyInstaller --clean --onefile --console --name SlopTogetherWorkerCli `
+        --collect-all sloptogether_worker `
+        launcher.py
+    if ($LASTEXITCODE -ne 0) { throw "Windows worker CLI packaging failed." }
+    & $VenvPython -m PyInstaller --clean --onefile --windowed --name SlopTogetherWorker `
         --collect-all sloptogether_worker `
         launcher.py
     if ($LASTEXITCODE -ne 0) { throw "Windows worker packaging failed." }
