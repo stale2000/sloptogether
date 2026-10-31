@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import unittest
+import sys
 from types import SimpleNamespace
 from unittest.mock import patch
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from sloptogether_worker.client import WorkerApi
 from sloptogether_worker.errors import WorkerError

@@ -319,9 +319,13 @@ if (Test-IdenticalTree $Source $Target) { throw 'modified source was ignored' }
 [IO.File]::WriteAllText($file, 'node source')
 if ($TestLink -eq 'yes') {
     $link = Join-Path $Target '__pycache__/link.cpython-312.pyc'
-    New-Item -ItemType SymbolicLink -Path $link -Target $file | Out-Null
-    try { $null = Test-IdenticalTree $Source $Target; throw 'reparse point was ignored' }
-    catch { if ($_.Exception.Message -eq 'reparse point was ignored') { throw } }
+    $created = $false
+    try { New-Item -ItemType SymbolicLink -Path $link -Target $file | Out-Null; $created = $true }
+    catch { if ($_.Exception.Message -notmatch 'privilege|access|denied|not supported') { throw } }
+    if ($created) {
+        try { $null = Test-IdenticalTree $Source $Target; throw 'reparse point was ignored' }
+        catch { if ($_.Exception.Message -eq 'reparse point was ignored') { throw } }
+    }
 }
 ''', encoding="utf-8")
             subprocess.run([powershell, "-NoProfile", "-File", str(harness),
