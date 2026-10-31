@@ -64,9 +64,8 @@ function Test-IdenticalTree([string]$Source, [string]$Destination) {
             }
             if ($entry.PSIsContainer) { continue }
             $relative = $entry.FullName.Substring($root.Length).TrimStart([char]92, [char]47)
-            $parts = $relative -split '[\\/]'
-            if ($parts.Count -ge 2 -and $parts[-2] -ceq '__pycache__' -and
-                $parts[-1] -cmatch '^.+\.cpython-\d+(?:\.opt-\d+)?\.pyc$') { continue }
+            $normalizedRelative = $relative.Replace('\', '/')
+            if ($normalizedRelative -cmatch '(^|/)__pycache__/[^/]+\.cpython-\d+(?:\.opt-\d+)?\.pyc$') { continue }
             $files += $entry
         }
         ,@($files | Sort-Object FullName)
