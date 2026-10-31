@@ -51,11 +51,13 @@ function Invoke-WslInteractive([string[]]$Arguments) {
 
 function Test-IdenticalTree([string]$Source, [string]$Destination) {
     if (-not (Test-Path -LiteralPath $Destination -PathType Container)) { return $false }
-    $trees = foreach ($root in @($Source, $Destination)) {
+    $sourceFiles = @{}
+    $targetFiles = @{}
+    foreach ($root in @($Source, $Destination)) {
         if (((Get-Item -LiteralPath $root -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
             throw "Refusing to compare a custom-node tree containing a reparse point."
         }
-        $files = @()
+        $files = @{}
         foreach ($entry in @(Get-ChildItem -LiteralPath $root -Recurse -Force)) {
             # Check directories as well as files before excluding generated
             # caches, so a reparse point cannot bypass tree validation.
@@ -66,19 +68,13 @@ function Test-IdenticalTree([string]$Source, [string]$Destination) {
             $relative = $entry.FullName.Substring($root.Length).TrimStart([char]92, [char]47)
             $normalizedRelative = $relative.Replace('\', '/')
             if ($normalizedRelative -cmatch '(^|/)__pycache__/[^/]+\.cpython-\d+(?:\.opt-\d+)?\.pyc$') { continue }
-            $files += $entry
+            $files[$normalizedRelative] = (Get-FileHash -LiteralPath $entry.FullName -Algorithm SHA256).Hash
         }
-        ,@($files | Sort-Object FullName)
+        if ($root -eq $Source) { $sourceFiles = $files } else { $targetFiles = $files }
     }
-    $sourceFiles = $trees[0]
-    $targetFiles = $trees[1]
     if ($sourceFiles.Count -ne $targetFiles.Count) { return $false }
-    for ($index = 0; $index -lt $sourceFiles.Count; $index++) {
-        $sourceRelative = $sourceFiles[$index].FullName.Substring($Source.Length).TrimStart([char]92, [char]47)
-        $targetRelative = $targetFiles[$index].FullName.Substring($Destination.Length).TrimStart([char]92, [char]47)
-        if ($sourceRelative -ne $targetRelative) { return $false }
-        if ((Get-FileHash -LiteralPath $sourceFiles[$index].FullName -Algorithm SHA256).Hash -ne
-            (Get-FileHash -LiteralPath $targetFiles[$index].FullName -Algorithm SHA256).Hash) { return $false }
+    foreach ($relative in $sourceFiles.Keys) {
+        if (-not $targetFiles.ContainsKey($relative) -or $sourceFiles[$relative] -ne $targetFiles[$relative]) { return $false }
     }
     return $true
 }
