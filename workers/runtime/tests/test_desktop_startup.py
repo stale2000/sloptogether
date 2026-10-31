@@ -4,10 +4,11 @@ import tempfile
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from sloptogether_worker.desktop import _comfy_health_url, ensure_comfy_ready, parse_channel_target, wait_for_comfy
+from sloptogether_worker.desktop import _comfy_health_url, ensure_comfy_ready, parse_channel_target, select_channel_target, wait_for_comfy
 
 
 class DesktopStartupTest(unittest.TestCase):
@@ -24,6 +25,20 @@ class DesktopStartupTest(unittest.TestCase):
                 parse_channel_target(value)
         with self.assertRaisesRegex(ValueError, "invalid stream"):
             parse_channel_target("https://www.clips.gg/sloptogether/channels/stale2000/streams/bad%2Fslug/output")
+
+    def test_channel_selection_works_before_worker_setup_and_uses_default_stream(self) -> None:
+        with patch("sloptogether_worker.desktop.WorkerApi") as api_factory:
+            api = api_factory.return_value
+            api.public_channel.return_value = {"twitchChannelId": "31825889", "twitchLogin": "stale2000", "displayName": "Stale"}
+            api.public_streams.return_value = [
+                {"slug": "archive", "isDefault": False},
+                {"slug": "main", "isDefault": True},
+            ]
+            target = select_channel_target("https://www.clips.gg/sloptogether/channels/stale2000/output")
+        self.assertEqual(target["twitchChannelId"], "31825889")
+        self.assertEqual(target["streamSlug"], "main")
+        self.assertEqual(target["url"], "https://www.clips.gg/sloptogether/channels/stale2000/streams/main/output")
+        api.exchange_session.assert_not_called()
 
     def test_health_url_uses_configured_local_comfy_endpoint(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -13,10 +13,14 @@ param(
     [switch]$InstallComfyUI,
     [switch]$InstallDependencies,
     [switch]$DownloadModels,
+    [switch]$CheckOnly,
+    [switch]$CheckModels,
     [string]$FastVideoRevision
 )
 
 $ErrorActionPreference = "Stop"
+if ($CheckModels) { $CheckOnly = $true }
+if ($CheckOnly -and -not $ComfyPython) { $ComfyPython = "$ComfyRoot/.venv/bin/python" }
 if ($DownloadModels) {
     if ($Role -ne "generation") { throw "FastH3 generator models are only used by the generation role." }
     $InstallDependencies = $true
@@ -32,7 +36,7 @@ $RuntimeArchive = Join-Path $PSScriptRoot "ComfyStreamer-Wsl-runtime.zip"
 if (-not (Test-Path -LiteralPath $RuntimeArchive -PathType Leaf)) { throw "ComfyStreamer-Wsl-runtime.zip is missing from this bundle." }
 if (-not (Test-Path -LiteralPath $Wsl -PathType Leaf)) { throw "wsl.exe is missing." }
 if ($ComfyRoot.Contains("..")) { throw "ComfyRoot may not contain parent-directory components." }
-if ($InstallDependencies) {
+if ($InstallDependencies -or $CheckOnly) {
     if (-not $ComfyPython -or $ComfyPython -notmatch "^$([regex]::Escape($ComfyRoot))/[A-Za-z0-9._/-]+$" -or $ComfyPython.Contains("..")) {
         throw "Pass -ComfyPython as the Linux Python executable ComfyUI uses, under ComfyRoot."
     }
@@ -106,6 +110,20 @@ try {
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw "Runtime archive manifest is missing." }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($manifest.schema -ne "comfystream-worker-artifact/1" -or $manifest.profile -ne "vast") { throw "Runtime archive profile is unsupported." }
+    if ($CheckModels -and $Role -eq "generation") {
+        try {
+            $runtimeExtractWsl = Invoke-Wsl @("--distribution", $Distro, "--exec", "wslpath", "--unix", $runtimeExtract)
+            $modelPython = $ComfyPython
+            $pythonPresent = Invoke-Wsl @("--distribution", $Distro, "--exec", "bash", "-lc", "test -x '$modelPython' && echo yes || echo no")
+            if ($pythonPresent -ne "yes") { $modelPython = "python3.12" }
+            $modelVerifier = "$runtimeExtractWsl/scripts/verify_fasth3_models.py"
+            $modelManifest = "$runtimeExtractWsl/deploy/vast/fasth3-environment.json"
+            $null = Invoke-Wsl @("--distribution", $Distro, "--exec", $modelPython, $modelVerifier, $modelManifest, "$ComfyRoot/models", "1")
+            Write-Output "FASTH3_MODELS_OK"
+        } catch { Write-Output "FASTH3_MODELS_NEEDED" }
+    } elseif ($CheckModels) {
+        Write-Output "FASTH3_MODELS_NOT_REQUIRED"
+    }
     $comfyRef = [string]$manifest.runtime.comfyui_ref
     if ($comfyRef -notmatch "^[0-9a-f]{40}$") { throw "Runtime manifest has an invalid ComfyUI pin." }
     if ($InstallComfyUI) {
@@ -123,6 +141,7 @@ try {
     $comfyState = Invoke-Wsl @("--distribution", $Distro, "--exec", "bash", "-lc",
         "if test -f '$ComfyRoot/main.py' && test -d '$ComfyRoot/.git'; then git -C '$ComfyRoot' rev-parse HEAD; elif test -e '$ComfyRoot'; then echo conflict; else echo missing; fi")
     if ($comfyState -eq "missing") {
+        if ($CheckOnly) { throw "ComfyUI installation is missing." }
         if (-not $InstallComfyUI) { throw "ComfyUI is missing. Use -InstallComfyUI to install the pinned source and Python environment." }
         $null = Invoke-Wsl @("--distribution", $Distro, "--exec", "git", "--version")
         $temporaryComfy = "$ComfyRoot.sloptogether-$([Guid]::NewGuid().ToString('N'))"
@@ -142,12 +161,17 @@ try {
     }
     if ($comfyState -eq "conflict") { throw "ComfyRoot exists but is not a Git checkout of ComfyUI; setup will not overwrite it." }
     if ($comfyState -ne $comfyRef) { throw "ComfyUI must be checked out at pinned commit $comfyRef." }
-    $null = Invoke-Wsl @("--distribution", $Distro, "--exec", "mkdir", "-p", "$ComfyRoot/custom_nodes", "$ComfyRoot/input", "$ComfyRoot/output")
-    if ($InstallDependencies) {
+    if ($CheckOnly) {
+        $null = Invoke-Wsl @("--distribution", $Distro, "--exec", "bash", "-lc", "test -d '$ComfyRoot/custom_nodes' && test -d '$ComfyRoot/input' && test -d '$ComfyRoot/output'")
+    } else {
+        $null = Invoke-Wsl @("--distribution", $Distro, "--exec", "mkdir", "-p", "$ComfyRoot/custom_nodes", "$ComfyRoot/input", "$ComfyRoot/output")
+    }
+    if ($InstallDependencies -or $CheckOnly) {
         $venvState = Invoke-Wsl @("--distribution", $Distro, "--exec", "bash", "-lc",
             "if test -x '$ComfyPython'; then echo ready; elif test -e '$ComfyPython'; then echo conflict; else echo missing; fi")
         if ($venvState -eq "conflict") { throw "ComfyPython exists but is not executable; setup will not replace it." }
         if ($venvState -eq "missing") {
+            if ($CheckOnly) { throw "ComfyUI Python environment is missing." }
             if (-not $InstallComfyUI) { throw "ComfyPython is missing. Use the Python 3.12 virtual environment that launches this ComfyUI." }
             $venvDirectoryState = Invoke-Wsl @("--distribution", $Distro, "--exec", "bash", "-lc",
                 "if test -e '$ComfyRoot/.venv'; then echo present; else echo missing; fi")
@@ -199,17 +223,27 @@ try {
         $source = Join-Path $sourceNodeRoot $name
         if (-not (Test-Path -LiteralPath $source -PathType Container)) { throw "Pinned node source is missing: $name" }
         $target = Join-Path $customNodesWindows $name
+        if ($CheckOnly -and -not (Test-Path -LiteralPath $target -PathType Container)) { throw "Pinned ComfyUI custom node is missing: $name" }
         if ((Test-Path -LiteralPath $target) -and -not (Test-IdenticalTree $source $target)) {
             throw "ComfyUI custom node $name already exists with different files; back it up and resolve it manually."
         }
     }
 
     $runtimeTargetWindows = Join-Path $comfyRootWindows ".sloptogether-runtime"
+    if ($CheckOnly -and -not (Test-Path -LiteralPath $runtimeTargetWindows -PathType Container)) { throw "Pinned ComfyStreamer runtime is missing." }
     if ((Test-Path -LiteralPath $runtimeTargetWindows) -and -not (Test-IdenticalTree $runtimeExtract $runtimeTargetWindows)) {
         throw "Existing .sloptogether-runtime differs from this bundle; setup will not overwrite it."
     }
     $clipTargetHead = if ($Role -ne "generation" -or $clipProjState -eq "missing") { $null } else { $clipProjState }
     if ($Role -eq "generation" -and $clipTargetHead -and $clipTargetHead -ne $clipProjRef) { throw "Existing ComfyUI-ClipProj checkout is not the pinned commit $clipProjRef." }
+    if ($CheckOnly) {
+        if ($Role -eq "generation" -and -not $clipTargetHead) { throw "Pinned ComfyUI-ClipProj checkout is missing." }
+        $lockPath = "$ComfyRoot/.sloptogether-runtime/deploy/vast/requirements.lock"
+        $pipCheck = Invoke-Wsl @("--distribution", $Distro, "--exec", $ComfyPython, "-m", "pip", "install", "--dry-run", "--no-index", "--require-hashes", "-r", $lockPath)
+        if ($pipCheck -match "(?m)^Would install\b") { throw "Pinned ComfyUI dependencies are missing or out of date." }
+        Write-Output "SLOPTOGETHER_INSTALL_OK"
+        return
+    }
     if ($Role -eq "generation" -and -not $clipTargetHead) {
         $temporaryClone = "$ComfyRoot/custom_nodes/.ComfyUI-ClipProj-$([Guid]::NewGuid().ToString('N'))"
         try {

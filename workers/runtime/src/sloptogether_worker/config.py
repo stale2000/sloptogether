@@ -135,7 +135,8 @@ class WorkerConfig:
     claim_stream_slug: str | None = None
 
     @classmethod
-    def from_sources(cls, *, config_path: Path | None, role_override: str | None, platform_override: str | None = None) -> WorkerConfig:
+    def from_sources(cls, *, config_path: Path | None, role_override: str | None, platform_override: str | None = None,
+                     check_runtime: bool = True) -> WorkerConfig:
         worker = load_config(config_path)
         role_value = role_override or os.environ.get("SLOPTOGETHER_WORKER_ROLE") or worker.get("role", "generation")
         if role_value not in {"generation", "upscale", "story-producer"}:
@@ -195,12 +196,13 @@ class WorkerConfig:
         if platform=="wsl":
             if not _is_wsl_unc_path(output_dir_value) or _wsl_distro_from_unc_path(input_dir_value)!=_wsl_distro_from_unc_path(output_dir_value):
                 raise ValueError("wsl_comfy_output_dir_must_match_input_distro")
-            _require_wsl2_backend(input_dir_value)
+            if check_runtime:
+                _require_wsl2_backend(input_dir_value)
         input_dir=Path(input_dir_value).expanduser()
         output_dir=Path(output_dir_value).expanduser()
-        if platform=="wsl" and not input_dir.is_dir():
+        if check_runtime and platform=="wsl" and not input_dir.is_dir():
             raise ValueError("wsl_comfy_input_dir_unavailable")
-        if platform=="wsl" and not output_dir.is_dir():
+        if check_runtime and platform=="wsl" and not output_dir.is_dir():
             raise ValueError("wsl_comfy_output_dir_unavailable")
         return cls(
             api_base_url=worker_api,

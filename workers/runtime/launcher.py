@@ -244,6 +244,49 @@ def _download_models_after_setup(root: Path, role: str) -> int:
     return _generation_models(root, role, login=False)
 
 
+def _check_setup_status(root: Path, role: str) -> dict[str, bool]:
+    if role not in {"generation", "upscale"}:
+        return {"installed": False, "models": False}
+    try:
+        system_root = os.environ.get("SystemRoot")
+        if not system_root:
+            return {"installed": False, "models": False}
+        wsl = Path(system_root) / "System32" / "wsl.exe"
+        config_path = root / f"worker.{role}.toml"
+        if config_path.is_file():
+            _config, distro, comfy_root = _wsl_location(root, role)
+        else:
+            distro = os.environ.get("SLOPTOGETHER_WSL_DISTRO", "Ubuntu-24.04")
+            if not re.fullmatch(r"[A-Za-z0-9._-]+", distro) or not wsl.is_file():
+                return {"installed": False, "models": False}
+            user = subprocess.run([str(wsl), "--distribution", distro, "--exec", "id", "-un"],
+                                  check=False, capture_output=True, text=True, timeout=8)
+            linux_user = user.stdout.strip()
+            if user.returncode != 0 or not re.fullmatch(r"[a-z_][a-z0-9_-]*", linux_user):
+                return {"installed": False, "models": False}
+            comfy_root = os.environ.get("SLOPTOGETHER_COMFY_ROOT", f"/home/{linux_user}/ComfyUI")
+            if not re.fullmatch(r"/home/[A-Za-z0-9._/-]+", comfy_root) or ".." in comfy_root:
+                return {"installed": False, "models": False}
+        comfy_python = _comfy_python(root, role, comfy_root)
+        powershell = Path(system_root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+        installer = root / "Install-ComfyStreamerNodes.ps1"
+        if not powershell.is_file() or not installer.is_file():
+            return {"installed": False, "models": False}
+        result = subprocess.run(
+            [str(powershell), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(installer),
+             "-Distro", distro, "-ComfyRoot", comfy_root, "-ComfyPython", comfy_python,
+             "-Role", role, "-CheckOnly", "-CheckModels"],
+            check=False, capture_output=True, text=True,
+        )
+        output = (result.stdout or "") + "\n" + (result.stderr or "")
+        return {
+            "installed": "SLOPTOGETHER_INSTALL_OK" in output,
+            "models": "FASTH3_MODELS_OK" in output or "FASTH3_MODELS_NOT_REQUIRED" in output,
+        }
+    except (KeyError, OSError, subprocess.SubprocessError, TypeError, ValueError, tomllib.TOMLDecodeError):
+        return {"installed": False, "models": False}
+
+
 def _roles_share_state(root: Path) -> bool:
     configs = [root / "worker.generation.toml", root / "worker.upscale.toml"]
     if not all(path.is_file() for path in configs):
@@ -362,6 +405,7 @@ def main() -> int:
             "models": _download_models_after_setup,
             "dependencies": install_dependencies,
             "comfy": _start_comfy,
+            "status": _check_setup_status,
         })
     return worker_main()
 

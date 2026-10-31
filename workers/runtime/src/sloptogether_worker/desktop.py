@@ -13,6 +13,7 @@ import tempfile
 import threading
 import time
 import tomllib
+from types import SimpleNamespace
 import urllib.error
 import urllib.request
 import webbrowser
@@ -52,26 +53,55 @@ def parse_channel_target(value: str, default_stream: str = "main") -> tuple[str,
     return locator, stream
 
 
-def resolve_channel_target(config_path: Path, role: str, value: str) -> dict[str, object]:
-    worker_config = WorkerConfig.from_sources(config_path=config_path, role_override=role)
-    locator, stream_slug = parse_channel_target(value, worker_config.stream_slug)
+def _public_api() -> WorkerApi:
+    api_base = os.environ.get("SLOPTOGETHER_API_BASE_URL", "https://www.clips.gg/sloptogether/api/v1").rstrip("/")
+    parsed = urlsplit(api_base)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("Worker API must use a trusted HTTPS URL.")
+    return WorkerApi(SimpleNamespace(api_base_url=api_base, worker_key=None, allowed_upload_hosts=(), request_timeout_seconds=10))
+
+
+def select_channel_target(value: str) -> dict[str, object]:
+    locator, requested_stream = parse_channel_target(value)
+    api = _public_api()
+    channel = api.public_channel(locator)
+    streams = api.public_streams(locator)
+    explicit_stream = "/streams/" in urlsplit(value).path
+    if explicit_stream:
+        selected_stream = next((item for item in streams if item.get("slug") == requested_stream), None)
+    else:
+        selected_stream = next((item for item in streams if item.get("isDefault") is True), None)
+        if selected_stream is None:
+            selected_stream = next((item for item in streams if item.get("slug") == "main"), None)
+        if selected_stream is None and streams:
+            selected_stream = streams[0]
+    if not selected_stream or not isinstance(selected_stream.get("slug"), str):
+        raise ValueError("That channel does not have the selected stream.")
+    stream_slug = str(selected_stream["slug"])
+    channel_id = channel.get("twitchChannelId")
+    if not isinstance(channel_id, str):
+        raise WorkerError("channel_response_invalid", "SlopTogether returned an invalid channel.")
+    login = str(channel.get("twitchLogin", locator))
+    return {"twitchChannelId": channel_id, "twitchLogin": login,
+            "displayName": channel.get("displayName", login), "streamSlug": stream_slug,
+            "url": f"https://www.clips.gg/sloptogether/channels/{login}/streams/{stream_slug}/output"}
+
+
+def authorize_channel_target(config_path: Path, role: str, target: dict[str, object]) -> dict[str, object]:
+    worker_config = WorkerConfig.from_sources(config_path=config_path, role_override=role, check_runtime=False)
     api = WorkerApi(worker_config)
     paired = api.exchange_session(role)
-    channel = api.public_channel(locator)
-    channel_id = channel.get("twitchChannelId")
+    channel_id = target.get("twitchChannelId")
     if not isinstance(channel_id, str) or channel_id != paired.get("channelId"):
         raise ValueError("This Twitch worker is paired to a different channel. Connect it to this channel first.")
-    stats = api.worker_stats(role, stream_slug)
-    normalized_url = f"https://www.clips.gg/sloptogether/channels/{channel.get('twitchLogin', locator)}/streams/{stream_slug}/output"
-    return {"twitchChannelId": channel_id, "twitchLogin": channel.get("twitchLogin", locator),
-            "displayName": channel.get("displayName", locator), "streamSlug": stream_slug,
-            "url": normalized_url, "availableJobs": stats.get("availableJobs", 0),
+    stats = api.worker_stats(role, str(target.get("streamSlug", "main")))
+    return {**target, "availableJobs": stats.get("availableJobs", 0),
             "completedJobs": stats.get("completedJobs", 0),
             "autoApprovedOwnerOutput": bool(stats.get("autoApprovedOwnerOutput"))}
 
 
 def refresh_channel_stats(config_path: Path, role: str, target: dict[str, object]) -> dict[str, object]:
-    worker_config = WorkerConfig.from_sources(config_path=config_path, role_override=role)
+    worker_config = WorkerConfig.from_sources(config_path=config_path, role_override=role, check_runtime=False)
     api = WorkerApi(worker_config)
     paired = api.exchange_session(role)
     if paired.get("channelId") != target.get("twitchChannelId"):
@@ -187,7 +217,8 @@ def run_desktop(root: Path, helpers: dict[str, Callable[..., int]]) -> int:
             self.process: subprocess.Popen[str] | None = None
             self.busy = False
             self.target = _read_local_json(root / "worker.target.json")
-            self.setup_state = _read_local_json(root / "worker.setup-state.json")
+            self.setup_state: dict[str, object] = {}
+            self.setup_check_pending: set[str] = set()
             self.stats_refresh_pending = False
             self._styles(ttk)
             self._build(tk, ttk)
@@ -341,7 +372,7 @@ def run_desktop(root: Path, helpers: dict[str, Callable[..., int]]) -> int:
             role = self.role.get()
             self.role_title.configure(text="Generation" if role == "generation" else "Upscale")
             self._write(f"Selected {role} worker.")
-            self._refresh_setup_controls()
+            self._refresh_install_state()
             self._refresh_stats()
 
         def _write(self, text: str) -> None:
@@ -414,7 +445,8 @@ def run_desktop(root: Path, helpers: dict[str, Callable[..., int]]) -> int:
 
             def execute() -> None:
                 try:
-                    target = resolve_channel_target(config_path, role, target_url)
+                    target = select_channel_target(target_url)
+                    target = authorize_channel_target(config_path, role, target)
                     self.queue.put(("target", target))
                     self.queue.put(("log", f"Using {target['displayName']} / {target['streamSlug']}."))
                     self.queue.put(("log", "Starting ComfyUI before the worker…"))
@@ -485,51 +517,54 @@ def run_desktop(root: Path, helpers: dict[str, Callable[..., int]]) -> int:
                 role_state = {}
             install_done = role_state.get("installed") is True
             models_done = role_state.get("models") is True
-            self.install_check.set(install_done)
-            self.install_check_button.configure(text="Ready" if install_done else "Needed",
-                                                style="Ready.TCheckbutton" if install_done else "Needed.TCheckbutton")
-            self.install_button.configure(style="Ready.TButton" if install_done else "Needed.TButton")
-            self.models_check.set(models_done)
-            self.models_check_button.configure(text="Ready" if models_done else "Needed",
-                                               style="Ready.TCheckbutton" if models_done else "Needed.TCheckbutton")
+            checking = self.role.get() in self.setup_check_pending
+            install_text = "Checking" if checking else "Ready" if install_done else "Needed"
+            install_style = "Ready.TCheckbutton" if install_done and not checking else "Needed.TCheckbutton"
+            self.install_check.set(install_done and not checking)
+            self.install_check_button.configure(text=install_text, style=install_style)
+            self.install_button.configure(style="Ready.TButton" if install_done else "Needed.TButton",
+                                          state="disabled" if checking or self.busy else "normal")
+            self.models_check.set(models_done and not checking)
+            self.models_check_button.configure(text=install_text if checking else "Ready" if models_done else "Needed",
+                                               style=install_style if checking else "Ready.TCheckbutton" if models_done else "Needed.TCheckbutton")
             if self.role.get() == "upscale":
                 self.models_check_button.configure(text="ComfyUI", style="Ready.TCheckbutton")
                 self.models_button.configure(text="Generation models only", state="disabled", style="Worker.TButton")
             else:
-                self.models_button.configure(text="Download models", state="normal",
+                self.models_button.configure(text="Download models", state="disabled" if checking or self.busy else "normal",
                                              style="Ready.TButton" if models_done else "Needed.TButton")
+
+        def _refresh_install_state(self) -> None:
+            role = self.role.get()
+            if role in self.setup_check_pending:
+                return
+            self.setup_check_pending.add(role)
+            self._refresh_setup_controls()
+
+            def execute() -> None:
+                try:
+                    status = helpers["status"](root, role)
+                    if not isinstance(status, dict):
+                        status = {"installed": False, "models": False}
+                except Exception:
+                    status = {"installed": False, "models": False}
+                self.queue.put(("setup_status", {"role": role, "status": status}))
+
+            threading.Thread(target=execute, daemon=True).start()
 
         def _record_setup_done(self, result: dict[str, object]) -> None:
             role, stage = result.get("role"), result.get("stage")
-            if result.get("status") == 0 and role in {"generation", "upscale"} and stage in {"installed", "models"}:
-                state = dict(self.setup_state)
-                role_state = state.get(str(role))
-                if not isinstance(role_state, dict):
-                    role_state = {}
-                role_state = dict(role_state)
-                role_state[str(stage)] = True
-                state[str(role)] = role_state
-                try:
-                    _write_local_json(root / "worker.setup-state.json", state)
-                except (OSError, ValueError):
-                    self._write("Setup completed, but its local checkmark could not be saved.")
-                self.setup_state = state
             label = str(result.get("label", "Setup"))
             status = int(result.get("status", 1))
             self._write(f"{label} {'completed' if status == 0 else 'needs attention'}.")
             self.busy = False
             self.status.set("Running" if self.process is not None else "Offline")
             self._set_controls()
-            self._refresh_setup_controls()
+            self._refresh_install_state()
 
         def _select_channel(self) -> None:
             if self.busy or self.process is not None:
                 return
-            if not self.config_path.is_file():
-                self._write("Install everything before choosing a channel.")
-                return
-            role = self.role.get()
-            config_path = self.config_path
             value = self.channel_url.get()
             self.busy = True
             self.status.set("Checking channel…")
@@ -538,10 +573,10 @@ def run_desktop(root: Path, helpers: dict[str, Callable[..., int]]) -> int:
 
             def execute() -> None:
                 try:
-                    target = resolve_channel_target(config_path, role, value)
+                    target = select_channel_target(value)
                     _write_local_json(root / "worker.target.json", target)
                     self.queue.put(("target", target))
-                    self.queue.put(("target_done", f"Selected {target['displayName']} / {target['streamSlug']}."))
+                    self.queue.put(("target_done", f"Selected {target['displayName']} / {target['streamSlug']}. Connect Twitch before starting the worker."))
                 except Exception as error:
                     detail = error.message if isinstance(error, WorkerError) else type(error).__name__
                     self.queue.put(("target_error", f"Channel not selected: {detail}."))
@@ -650,6 +685,15 @@ def run_desktop(root: Path, helpers: dict[str, Callable[..., int]]) -> int:
                     elif kind == "stats_error":
                         self.stats_refresh_pending = False
                         self._write(f"Queue refresh failed: {message}.")
+                    elif kind == "setup_status":
+                        result = message if isinstance(message, dict) else {}
+                        role = result.get("role")
+                        status = result.get("status")
+                        if role in {"generation", "upscale"} and isinstance(status, dict):
+                            self.setup_state[str(role)] = status
+                            self.setup_check_pending.discard(str(role))
+                            if role == self.role.get():
+                                self._refresh_setup_controls()
                     elif kind == "setup_log":
                         self._write(str(message))
                     elif kind == "setup_done":

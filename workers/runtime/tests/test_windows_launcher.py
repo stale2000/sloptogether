@@ -239,8 +239,53 @@ class WindowsLauncherTest(unittest.TestCase):
             self.assertEqual(launcher.main(), 0)
             desktop.assert_called_once()
             self.assertEqual(desktop.call_args.args[0], Path("worker-root"))
-            self.assertEqual(set(desktop.call_args.args[1]), {"setup", "models", "dependencies", "comfy"})
+            self.assertEqual(set(desktop.call_args.args[1]), {"setup", "models", "dependencies", "comfy", "status"})
             worker.assert_not_called()
+
+    def test_setup_status_uses_installed_nodes_and_pinned_model_verifier(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "worker.generation.toml"
+            config.write_text(
+                "[worker]\nplatform='wsl'\nrole='generation'\n"
+                "comfy_input_dir='\\\\wsl.localhost\\Ubuntu\\home\\alice\\ComfyUI\\input'\n"
+                "comfy_output_dir='\\\\wsl.localhost\\Ubuntu\\home\\alice\\ComfyUI\\output'\n",
+                encoding="utf-8",
+            )
+            (root / "Install-ComfyStreamerNodes.ps1").touch()
+            powershell = root / "System32/WindowsPowerShell/v1.0/powershell.exe"
+            powershell.parent.mkdir(parents=True)
+            powershell.touch()
+            with patch.dict(launcher.os.environ, {"SystemRoot": str(root)}), patch.object(
+                launcher.subprocess, "run", return_value=Mock(returncode=1, stdout="SLOPTOGETHER_INSTALL_OK\nFASTH3_MODELS_NEEDED\n", stderr="")
+            ) as run:
+                self.assertEqual(launcher._check_setup_status(root, "generation"), {"installed": True, "models": False})
+            args = run.call_args.args[0]
+            self.assertIn("-CheckOnly", args)
+            self.assertIn("-CheckModels", args)
+
+    def test_setup_status_detects_default_existing_install_without_worker_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "Install-ComfyStreamerNodes.ps1").touch()
+            system = root / "System32"
+            (system / "wsl.exe").parent.mkdir(parents=True)
+            (system / "wsl.exe").touch()
+            powershell = system / "WindowsPowerShell/v1.0/powershell.exe"
+            powershell.parent.mkdir(parents=True)
+            powershell.touch()
+            results = [
+                Mock(returncode=0, stdout="alice\n", stderr=""),
+                Mock(returncode=0, stdout="SLOPTOGETHER_INSTALL_OK\nFASTH3_MODELS_OK\n", stderr=""),
+            ]
+            with patch.dict(launcher.os.environ, {"SystemRoot": str(root)}, clear=True), patch.object(
+                launcher.subprocess, "run", side_effect=results
+            ) as run:
+                self.assertEqual(launcher._check_setup_status(root, "generation"), {"installed": True, "models": True})
+            self.assertEqual(run.call_args.args[0][1:5], ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+            powershell_args = run.call_args.args[0]
+            self.assertIn("Ubuntu-24.04", powershell_args)
+            self.assertIn("/home/alice/ComfyUI", powershell_args)
 
     def test_cli_arguments_are_restored_after_a_command_failure(self):
         original = ["SlopTogetherWorker.exe"]

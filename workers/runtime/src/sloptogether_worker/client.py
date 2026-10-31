@@ -184,6 +184,15 @@ class WorkerApi:
             raise WorkerError("channel_response_invalid", "SlopTogether returned an invalid channel.")
         return channel
 
+    def public_streams(self, locator: str) -> list[dict[str, Any]]:
+        if not re.fullmatch(r"[A-Za-z0-9_]{1,25}", locator):
+            raise WorkerError("channel_locator_invalid", "Channel link is invalid.")
+        result, _ = self._request("GET", f"/channels/{urllib.parse.quote(locator, safe='')}/streams", authorized=False)
+        streams = result.get("streams")
+        if not isinstance(streams, list) or any(not isinstance(stream, dict) for stream in streams):
+            raise WorkerError("stream_response_invalid", "SlopTogether returned an invalid stream list.")
+        return streams
+
     def worker_stats(self, role: str, stream_slug: str) -> dict[str, Any]:
         if role not in {"generation", "upscale"}:
             raise WorkerError("worker_role_unsupported", "Worker role is not supported.")
