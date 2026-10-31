@@ -206,6 +206,22 @@ try {
             throw "Runtime source digest mismatch: $($entry.Name)"
         }
     }
+    if ($CheckModels -and $Role -eq "generation") {
+        try {
+            $runtimeExtractWsl = Invoke-Wsl @("--distribution", $Distro, "--exec", "wslpath", "--unix", $runtimeExtract)
+            $modelPython = "python3.12"
+            if ($ComfyPython) {
+                $pythonPresent = Invoke-Wsl @("--distribution", $Distro, "--exec", "bash", "-lc", "test -x '$ComfyPython' && echo yes || echo no")
+                if ($pythonPresent -eq "yes") { $modelPython = $ComfyPython }
+            }
+            $modelVerifier = "$runtimeExtractWsl/scripts/verify_fasth3_models.py"
+            $modelManifest = "$runtimeExtractWsl/deploy/vast/fasth3-environment.json"
+            $null = Invoke-Wsl @("--distribution", $Distro, "--exec", $modelPython, $modelVerifier, $modelManifest, "$ComfyRoot/models", "1")
+            Write-Output "FASTH3_MODELS_OK"
+        } catch { Write-Output "FASTH3_MODELS_NEEDED" }
+    } elseif ($CheckModels) {
+        Write-Output "FASTH3_MODELS_NOT_REQUIRED"
+    }
     $clipProjRef = [string]$manifest.runtime.clipproj_node_ref
     if ($Role -eq "generation" -and $clipProjRef -notmatch "^[0-9a-f]{40}$") { throw "Runtime manifest has an invalid ClipProj pin." }
 
@@ -241,6 +257,10 @@ try {
         $lockPath = "$ComfyRoot/.sloptogether-runtime/deploy/vast/requirements.lock"
         $pipCheck = Invoke-Wsl @("--distribution", $Distro, "--exec", $ComfyPython, "-m", "pip", "install", "--dry-run", "--no-index", "--require-hashes", "-r", $lockPath)
         if ($pipCheck -match "(?m)^Would install\b") { throw "Pinned ComfyUI dependencies are missing or out of date." }
+        if ($Role -eq "upscale") {
+            $solInstaller = "$ComfyRoot/custom_nodes/comfystream_sol_refiner_h3/install_runtime.sh"
+            $null = Invoke-Wsl @("--distribution", $Distro, "--exec", "env", "PYTHON_BIN=$ComfyPython", "bash", $solInstaller, "--check-only")
+        }
         Write-Output "SLOPTOGETHER_INSTALL_OK"
         return
     }

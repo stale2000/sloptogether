@@ -94,7 +94,12 @@ class WindowsBundleTest(unittest.TestCase):
         self.assertIn("[switch]$CheckOnly",installer)
         self.assertIn("[switch]$CheckModels",installer)
         self.assertIn("SLOPTOGETHER_INSTALL_OK",installer)
+        self.assertIn("FASTH3_MODELS_OK",installer)
+        self.assertIn("FASTH3_MODELS_NEEDED",installer)
         self.assertIn("verify_fasth3_models.py",installer)
+        sol_runtime=(ROOT.parent.parent/"vendor/comfystream/runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/install_runtime.sh").read_text(encoding="utf-8")
+        self.assertIn("--check-only",sol_runtime)
+        self.assertIn('if [[ "$check_only" != 1 ]]',sol_runtime)
         self.assertNotRegex(script,r"(?m)^\s*&\s*\$Executable.*\b(pair|run)\b")
         self.assertNotIn("WORKER_KEY",script)
 

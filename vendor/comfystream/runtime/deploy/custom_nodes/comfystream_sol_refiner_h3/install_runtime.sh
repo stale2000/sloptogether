@@ -5,15 +5,17 @@ node_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 runtime_python="${PYTHON_BIN:-python3}"
 worker_dir="$node_dir/.worker"
 build_only=0
+check_only=0
 prepare_shared_vae_conditioning=0
 for argument in "$@"; do
   case "$argument" in
     --build-only) build_only=1 ;;
+    --check-only) check_only=1 ;;
     --prepare-shared-vae-conditioning) prepare_shared_vae_conditioning=1 ;;
     # Backward-compatible alias; the TorchAO FP4/FP8 runtime is installed by default.
     --with-fp8-experiment) ;;
     *)
-      echo "Usage: install_runtime.sh [--build-only|--prepare-shared-vae-conditioning]" >&2
+      echo "Usage: install_runtime.sh [--build-only|--check-only|--prepare-shared-vae-conditioning]" >&2
       exit 2
       ;;
   esac
@@ -55,7 +57,12 @@ PY
 # The ComfyUI host's dependencies are provisioned by its profile's hash-locked
 # environment. Do not run a second resolver here; only the isolated worker has
 # a separate requirements lock to install.
-if [[ "$build_only" == 1 ]]; then
+if [[ "$check_only" == 1 ]]; then
+  [[ -x "$worker_dir/bin/python" ]] || {
+    echo "Missing SoL worker runtime: $worker_dir/bin/python" >&2
+    exit 1
+  }
+elif [[ "$build_only" == 1 ]]; then
   "$runtime_python" "$node_dir/install.py" --prepare-worker "$worker_dir"
 elif [[ ! -x "$worker_dir/bin/python" ]]; then
   "$runtime_python" -m venv "$worker_dir"
@@ -67,19 +74,23 @@ worker_run() {
   env -u PIP_CONSTRAINT -u UV_CONSTRAINT -u UV_PYTHON -u VIRTUAL_ENV \
     -u PYTHONPATH -u PYTHONHOME "$worker_python" "$@"
 }
-worker_run -m ensurepip --upgrade
-[[ -f "$node_dir/requirements-worker.lock" ]] || {
-  echo "Missing hash-locked SoL worker requirements: $node_dir/requirements-worker.lock" >&2
-  exit 1
-}
-worker_run -m pip install --require-hashes --only-binary=:all: \
-  -r "$node_dir/requirements-worker.lock"
-# The resolver lock carries dependencies, while the existing immutable Git ref
-# supplies the pure-Python Diffusers source. Install it without resolving again.
-worker_run -m pip install --no-deps --no-build-isolation \
-  "diffusers @ git+https://github.com/huggingface/diffusers.git@e0abab83b5df05de9e7abd788643c1a7c1e42e28"
+if [[ "$check_only" != 1 ]]; then
+  worker_run -m ensurepip --upgrade
+  [[ -f "$node_dir/requirements-worker.lock" ]] || {
+    echo "Missing hash-locked SoL worker requirements: $node_dir/requirements-worker.lock" >&2
+    exit 1
+  }
+  worker_run -m pip install --require-hashes --only-binary=:all: \
+    -r "$node_dir/requirements-worker.lock"
+  # The resolver lock carries dependencies, while the existing immutable Git ref
+  # supplies the pure-Python Diffusers source. Install it without resolving again.
+  worker_run -m pip install --no-deps --no-build-isolation \
+    "diffusers @ git+https://github.com/huggingface/diffusers.git@e0abab83b5df05de9e7abd788643c1a7c1e42e28"
+fi
 
-worker_run - "$build_only" <<'PY'
+verify_cuda=0
+if [[ "$build_only" == 1 || "$check_only" == 1 ]]; then verify_cuda=1; fi
+worker_run - "$verify_cuda" <<'PY'
 import sys
 from importlib.metadata import version
 
