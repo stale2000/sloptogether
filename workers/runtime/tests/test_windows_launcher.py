@@ -328,9 +328,10 @@ if ($TestLink -eq 'yes') {
     }
 }
 ''', encoding="utf-8")
-            subprocess.run([powershell, "-NoProfile", "-File", str(harness),
-                            str(ROOT / "Install-ComfyStreamerNodes.ps1"), str(source), str(target),
-                            "yes" if has_link else "no"], capture_output=True, text=True, check=True)
+            result = subprocess.run([powershell, "-NoProfile", "-File", str(harness),
+                                     str(ROOT / "Install-ComfyStreamerNodes.ps1"), str(source), str(target),
+                                     "yes" if has_link else "no"], capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":
