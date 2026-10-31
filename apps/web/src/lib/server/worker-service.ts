@@ -279,8 +279,41 @@ async function resolveExpiredElections(client:import("pg").PoolClient,channelId:
 }
 
 export async function exchangeWorkerSession(request:Request){
-  const worker=await requireWorker(request,"worker:generation");
+  const url=new URL(request.url);const role=url.searchParams.get("role")??"generation";
+  if(role!=="generation"&&role!=="upscale")throw new ApiError(400,"worker_role_invalid");
+  const worker=await requireWorker(request,`worker:${role}`);
   return {channelId:worker.channelId,issuingTwitchUserId:worker.issuingTwitchUserId,scopes:worker.scopes,roles:worker.roles};
+}
+
+export async function getWorkerStats(request:Request){
+  const url=new URL(request.url);const role=url.searchParams.get("role")??"generation";
+  if(role!=="generation"&&role!=="upscale")throw new ApiError(400,"worker_role_invalid");
+  const grant=await requireWorker(request,`worker:${role}`);
+  const streamSlug=url.searchParams.get("streamSlug")??"main";
+  if(!/^[a-z0-9][a-z0-9-]{0,47}$/.test(streamSlug))throw new ApiError(400,"worker_stream_slug_invalid");
+  const [channel,stream]=await Promise.all([findChannel(grant.channelId),getStream(grant.channelId,streamSlug)]);
+  if(await isBanned(grant.channelId,grant.issuingTwitchUserId)
+    ||(grant.paired&&!await canContribute(channel,{kind:"worker-key",worker:grant})))throw new ApiError(403,"contribution_not_allowed");
+  const stage=role==="generation"?"video_base":"video_upscale";
+  const ready=await query<{count:string}>(`SELECT count(DISTINCT j.id)::text AS count
+    FROM sloptogether.jobs j JOIN sloptogether.job_attempts a ON a.job_id=j.id AND a.state='ready'
+    JOIN sloptogether.trusted_executions te ON te.twitch_channel_id=j.twitch_channel_id AND te.key_id=$4
+      AND te.execution_role=$5 AND te.revoked_at IS NULL AND (cardinality(te.recipe_ids)=0 OR j.recipe_id=ANY(te.recipe_ids))
+    WHERE j.twitch_channel_id=$1 AND j.stream_id=$2 AND j.stage=$3 AND j.state='ready' AND j.execution_mode='pull_worker'
+      AND (a.execution_binding_id IS NULL OR a.execution_binding_id=te.id)
+      AND (j.result_deadline_at IS NULL OR j.result_deadline_at>now())
+      AND NOT EXISTS(SELECT 1 FROM sloptogether.bans b WHERE b.twitch_user_id=$6 AND b.revoked_at IS NULL
+        AND (b.expires_at IS NULL OR b.expires_at>now()) AND (b.scope='global' OR b.twitch_channel_id=$1))
+      AND NOT EXISTS(SELECT 1 FROM sloptogether.paid_action_intents i WHERE i.segment_revision_id=j.segment_revision_id
+        AND i.state IN ('intent_open','receipt_seen') AND i.expires_at>now())`,[grant.channelId,stream.id,stage,grant.keyId,role,grant.issuingTwitchUserId]);
+  const completed=await query<{count:string}>(`SELECT count(DISTINCT j.id)::text AS count
+    FROM sloptogether.jobs j JOIN sloptogether.job_attempts a ON a.job_id=j.id AND a.output_asset_id IS NOT NULL
+    JOIN sloptogether.trusted_executions te ON te.id=a.execution_binding_id AND te.key_id=$4
+    WHERE j.twitch_channel_id=$1 AND j.stream_id=$2 AND j.stage=$3 AND j.execution_mode='pull_worker'`,
+    [grant.channelId,stream.id,stage,grant.keyId]);
+  return {channel:{twitchChannelId:channel.twitch_channel_id,twitchLogin:channel.twitch_login,displayName:channel.display_name},
+    stream:{slug:stream.slug,displayName:stream.display_name},role,availableJobs:Number(ready.rows[0]?.count??0),
+    completedJobs:Number(completed.rows[0]?.count??0),autoApprovedOwnerOutput:grant.issuingTwitchUserId===channel.owner_twitch_user_id||grant.scopes.includes("artifact:system_approve")};
 }
 
 export async function claimWorkerLease(request:Request){

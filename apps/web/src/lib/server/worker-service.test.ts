@@ -15,7 +15,7 @@ vi.mock("./storage",()=>({signedPrivateReadUrl:mocks.signedPrivateReadUrl}));
 vi.mock("./preflight",()=>({screenPromptAndImages:mocks.screenPromptAndImages}));
 vi.mock("./proxy-client-ip",()=>({trustedProxyClientIp:vi.fn()}));
 
-import { claimStoryProducer,claimWorkerLease,createPairing,downloadWorkerAsset,requestClipUpscale,submitStoryProposal } from "./worker-service";
+import { claimStoryProducer,claimWorkerLease,createPairing,downloadWorkerAsset,getWorkerStats,requestClipUpscale,submitStoryProposal } from "./worker-service";
 
 const channel={twitch_channel_id:"123",owner_twitch_user_id:"42",policy_revision:7,owner_budget_cap_usd:"0.0000"};
 const grant={keyId:"producer-key",issuingTwitchUserId:"42",channelId:"123",scopes:["story:write_future"],roles:["story-producer"],recipes:[],paired:false,platform:null};
@@ -42,6 +42,25 @@ function claimClient(activeClaim:boolean,ownerBudgetCapUsd="1.0000",reservedUsd=
 }
 
 function leaseRequest(){return new Request("https://clips.gg/sloptogether/api/v1/channels/channel/story-producer/leases",{method:"POST"})}
+
+describe("worker queue status",()=>{
+  it("returns channel/stream scoped ready and completed counts for the paired worker key",async()=>{
+    mocks.requestPrincipal.mockResolvedValue({kind:"worker-key",worker:{keyId:"worker-key",channelId:"123",issuingTwitchUserId:"42",
+      scopes:["worker:generation"],roles:["generation"],recipes:[],paired:true,platform:"wsl"}});
+    mocks.canContribute.mockResolvedValue(true);
+    mocks.findChannel.mockResolvedValue({...channel,twitch_login:"owner",display_name:"Owner"});
+    mocks.getStream.mockResolvedValue({id:"stream-id",slug:"cartoon-demo",display_name:"Cartoon Demo"});
+    mocks.query.mockImplementation(async(sql:string)=>sql.includes("count(DISTINCT j.id)")
+      ?{rows:[{count:sql.includes("output_asset_id IS NOT NULL")?"3":"2"}],rowCount:1}:{rows:[],rowCount:0});
+    const result=await getWorkerStats(new Request("https://clips.gg/sloptogether/api/v1/workers/stats?role=generation&streamSlug=cartoon-demo"));
+    expect(result).toMatchObject({channel:{twitchChannelId:"123",twitchLogin:"owner"},stream:{slug:"cartoon-demo"},
+      role:"generation",availableJobs:2,completedJobs:3,autoApprovedOwnerOutput:true});
+    expect(mocks.query.mock.calls.map(([sql,values])=>[String(sql).includes("FROM sloptogether.jobs"),values])).toEqual([
+      [true,["123","stream-id","video_base","worker-key","generation","42"]],
+      [true,["123","stream-id","video_base","worker-key"]],
+    ]);
+  });
+});
 
 describe("worker render lease claims",()=>{
   it("stores the low-resolution output profile when an election schedules a new base render",async()=>{

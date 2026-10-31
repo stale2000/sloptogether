@@ -48,6 +48,7 @@ async function dispatch(request:NextRequest,path:string[]){
   if(p.join("/")==="worker/releases/windows"&&method==="GET"){
     return jsonOk(await listWindowsWorkerRelease());
   }
+  if(p.join("/")==="workers/stats"&&method==="GET")return jsonOk(await import("@/lib/server/worker-service").then(m=>m.getWorkerStats(request)));
 
   if(p[0]==="channels"&&p.length>=2){
     const locator=p[1]!;

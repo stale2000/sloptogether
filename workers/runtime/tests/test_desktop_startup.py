@@ -1,13 +1,30 @@
 from __future__ import annotations
 
 import tempfile
+import sys
 import unittest
 from pathlib import Path
 
-from sloptogether_worker.desktop import _comfy_health_url, ensure_comfy_ready, wait_for_comfy
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from sloptogether_worker.desktop import _comfy_health_url, ensure_comfy_ready, parse_channel_target, wait_for_comfy
 
 
 class DesktopStartupTest(unittest.TestCase):
+    def test_channel_and_stream_links_resolve_to_channel_login_and_stream_slug(self) -> None:
+        self.assertEqual(parse_channel_target(
+            "https://www.clips.gg/sloptogether/channels/stale2000/streams/cartoon-demo/output", "main"
+        ), ("stale2000", "cartoon-demo"))
+        self.assertEqual(parse_channel_target("https://clips.gg/sloptogether/channels/stale2000/output", "test-stream"),
+                         ("stale2000", "test-stream"))
+
+    def test_channel_link_parser_rejects_other_origins_and_invalid_streams(self) -> None:
+        for value in ("https://evil.example/sloptogether/channels/stale2000", "http://www.clips.gg/sloptogether/channels/stale2000"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                parse_channel_target(value)
+        with self.assertRaisesRegex(ValueError, "invalid stream"):
+            parse_channel_target("https://www.clips.gg/sloptogether/channels/stale2000/streams/bad%2Fslug/output")
+
     def test_health_url_uses_configured_local_comfy_endpoint(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "worker.generation.toml"

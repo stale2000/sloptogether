@@ -63,6 +63,22 @@ function Set-RoleStateDirectory([string]$Config, [ValidateSet("generation", "ups
     return [regex]::Replace($Config, $pattern, "state_dir = `"~/.sloptogether/$WorkerRole`"")
 }
 
+function Set-WorkerComfyPaths([string]$Config, [ValidateSet("generation", "upscale")][string]$WorkerRole,
+    [string]$InputPath, [string]$OutputPath) {
+    if ([regex]::Matches($Config, '(?m)^\[worker\]\r?$').Count -ne 1 -or
+        [regex]::Matches($Config, ('(?m)^role\s*=\s*"' + [regex]::Escape($WorkerRole) + '"\r?$')).Count -ne 1 -or
+        [regex]::Matches($Config, '(?m)^platform\s*=\s*(?:"wsl"|''wsl'')\r?$').Count -ne 1) {
+        throw "Existing worker settings do not match the selected WSL role; they were left unchanged. Use -Force only to replace them."
+    }
+    $settings = @{comfy_input_dir = $InputPath; comfy_output_dir = $OutputPath}
+    foreach ($key in $settings.Keys) {
+        $pattern = "(?m)^$key\s*=\s*.+\r?$"
+        if ([regex]::Matches($Config, $pattern).Count -ne 1) { throw "Existing worker setting $key is missing or ambiguous." }
+        $Config = [regex]::Replace($Config, $pattern, "$key = '$($settings[$key])'")
+    }
+    return $Config
+}
+
 $kernel = Invoke-Wsl @("--distribution", $Distro, "--exec", "uname", "-r")
 if ($kernel -notmatch "WSL2") { throw "The selected distribution is not running a WSL2 kernel. Run: wsl --set-version $Distro 2" }
 $linuxUser = Invoke-Wsl @("--distribution", $Distro, "--exec", "bash", "-lc", "id -un")
@@ -111,16 +127,21 @@ if (-not (Test-Path -LiteralPath $inputPath -PathType Container) -or -not (Test-
 if (-not (Test-Path -LiteralPath $inputPath -PathType Container) -or -not (Test-Path -LiteralPath $outputPath -PathType Container)) {
     throw "Windows cannot access the ComfyUI input/output folders in WSL. Verify the distro is running and the paths exist."
 }
+$configPath = Join-Path $PSScriptRoot "worker.$Role.toml"
 $config = Get-Content -LiteralPath $Template -Raw -Encoding UTF8
-$config = [regex]::Replace($config, '(?m)^role = "generation"$', "role = `"$Role`"")
-$config = Set-RoleStateDirectory $config $Role
-$config = [regex]::Replace($config, '(?m)^comfy_input_dir = .+$', "comfy_input_dir = '$inputPath'")
-$config = [regex]::Replace($config, '(?m)^comfy_output_dir = .+$', "comfy_output_dir = '$outputPath'")
+$existingConfig = Test-Path -LiteralPath $configPath -PathType Leaf
+if ($existingConfig -and -not $Force) {
+    $config = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8
+    $config = Set-WorkerComfyPaths $config $Role $inputPath $outputPath
+} else {
+    $config = [regex]::Replace($config, '(?m)^role = "generation"$', "role = `"$Role`"")
+    $config = Set-RoleStateDirectory $config $Role
+    $config = [regex]::Replace($config, '(?m)^comfy_input_dir = .+$', "comfy_input_dir = '$inputPath'")
+    $config = [regex]::Replace($config, '(?m)^comfy_output_dir = .+$', "comfy_output_dir = '$outputPath'")
+}
 if ($config -notmatch 'platform = "wsl"' -or $config -notmatch "role = `"$Role`"" -or $config -match "YOUR_USER") {
     throw "The WSL worker template could not be configured safely."
 }
-$configPath = Join-Path $PSScriptRoot "worker.$Role.toml"
-if ((Test-Path -LiteralPath $configPath) -and -not $Force) { throw "$([IO.Path]::GetFileName($configPath)) already exists; use -Force to replace this nonsecret configuration." }
 [IO.File]::WriteAllText($configPath, $config, [System.Text.UTF8Encoding]::new($false))
 
 Write-Host "WSL2 GPU detected: $($qualifiedGpu[0])"

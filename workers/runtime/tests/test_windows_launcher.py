@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 spec = importlib.util.spec_from_file_location("windows_worker_launcher", ROOT / "launcher.py")
 launcher = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(launcher)
@@ -97,7 +98,7 @@ class WindowsLauncherTest(unittest.TestCase):
                                                   run_command=commands, run_setup=Mock())
                     commands.assert_not_called()
 
-    def test_existing_comfy_setup_installs_nodes_without_overwriting_config(self):
+    def test_existing_comfy_setup_reuses_configured_wsl_location_and_preserves_settings(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             setup = root / "Setup-SlopTogetherWorker.ps1"
@@ -110,11 +111,19 @@ class WindowsLauncherTest(unittest.TestCase):
                 self.assertEqual(launcher._run_setup(root, "generation", False), 0)
                 self.assertIn("-InstallNodes", run.call_args.args[0])
                 config = root / "worker.generation.toml"
-                config.write_text("existing settings")
+                config.write_text(
+                    "[worker]\nrole='generation'\nplatform='wsl'\n"
+                    "comfy_input_dir='\\\\wsl.localhost\\Ubuntu-24.04\\home\\alice\\ComfyUI\\input'\n"
+                    "comfy_output_dir='\\\\wsl.localhost\\Ubuntu-24.04\\home\\alice\\ComfyUI\\output'\n"
+                    "stream_slug='main'\nchannel_id='123'\n"
+                )
+                original = config.read_text()
                 run.reset_mock()
-                self.assertEqual(launcher._run_setup(root, "generation", False), 1)
-                run.assert_not_called()
-                self.assertEqual(config.read_text(), "existing settings")
+                self.assertEqual(launcher._run_setup(root, "generation", False), 0)
+                args = run.call_args.args[0]
+                self.assertIn("Ubuntu-24.04", args)
+                self.assertIn("/home/alice/ComfyUI", args)
+                self.assertEqual(config.read_text(), original)
 
     def test_model_actions_use_existing_wsl_config_without_a_revision_or_secret(self):
         with tempfile.TemporaryDirectory() as directory:

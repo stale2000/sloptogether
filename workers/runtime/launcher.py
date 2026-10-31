@@ -47,10 +47,15 @@ def _run_setup(root: Path, role: str, install_comfy: bool) -> int:
     if not powershell.is_file():
         print("Windows PowerShell is unavailable.")
         return 1
-    if (root / f"worker.{role}.toml").exists():
-        print("This role is already configured. Existing settings were not changed.")
-        return 1
     arguments = [str(powershell), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-Role", role]
+    config_path = root / f"worker.{role}.toml"
+    if config_path.exists():
+        try:
+            _config, distro, comfy_root = _wsl_location(root, role)
+        except (KeyError, OSError, TypeError, ValueError, tomllib.TOMLDecodeError):
+            print("Existing worker settings are not a valid WSL configuration; they were left unchanged.")
+            return 1
+        arguments.extend(["-Distro", distro, "-ComfyRoot", comfy_root])
     if install_comfy:
         print("Installing ComfyUI and dependencies. Generation model weights download automatically after setup.")
         arguments.append("-InstallComfyUI")
@@ -350,10 +355,7 @@ def main() -> int:
             return _install_existing_dependencies(bundle_root, role, _comfy_python(bundle_root, role, comfy_root))
 
         def setup(bundle_root: Path, role: str, install_comfy: bool) -> int:
-            status = _run_setup(bundle_root, role, install_comfy)
-            if status == 0 and install_comfy and role == "generation":
-                return _download_models_after_setup(bundle_root, role)
-            return status
+            return _run_setup(bundle_root, role, install_comfy)
 
         return run_desktop(root, {
             "setup": setup,

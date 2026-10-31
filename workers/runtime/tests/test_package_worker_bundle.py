@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -103,6 +105,42 @@ class WindowsBundleTest(unittest.TestCase):
         self.assertIn("--require-hashes",installer)
         self.assertIn('if ($Role -eq "generation")',installer)
         self.assertNotIn("HF_TOKEN",installer)
+
+    @unittest.skipUnless(shutil.which("pwsh") or shutil.which("powershell.exe"), "PowerShell unavailable")
+    def test_rerun_updates_only_wsl_paths_and_preserves_target_settings(self) -> None:
+        powershell = shutil.which("pwsh") or shutil.which("powershell.exe")
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Path(directory) / "verify.ps1"
+            harness.write_text(r'''
+param([string]$Setup)
+$tokens = $null; $parseErrors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($Setup, [ref]$tokens, [ref]$parseErrors)
+if ($parseErrors.Count) { throw "setup does not parse" }
+$node = $ast.Find({ param($item) $item -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $item.Name -eq 'Set-WorkerComfyPaths' }, $true)
+if (-not $node) { throw "path update function missing" }
+. ([scriptblock]::Create($node.Extent.Text))
+$config = @'
+[worker]
+platform = "wsl"
+role = "generation"
+channel_id = "31825889"
+stream_slug = "cartoon-demo"
+state_dir = "~/.sloptogether/generation"
+comfy_url = "http://127.0.0.1:8188"
+comfy_input_dir = 'old-input'
+comfy_output_dir = 'old-output'
+'@
+$updated = Set-WorkerComfyPaths $config 'generation' 'new-input' 'new-output'
+foreach ($required in @('channel_id = "31825889"','stream_slug = "cartoon-demo"','state_dir = "~/.sloptogether/generation"','comfy_url = "http://127.0.0.1:8188"')) {
+  if ($updated -notlike "*$required*") { throw "setting was lost: $required" }
+}
+if ($updated -notlike "*comfy_input_dir = 'new-input'*") { throw "input path was not refreshed" }
+if ($updated -notlike "*comfy_output_dir = 'new-output'*") { throw "output path was not refreshed" }
+try { $null = Set-WorkerComfyPaths $config 'upscale' 'input' 'output'; throw 'role mismatch accepted' }
+catch { if ($_.Exception.Message -eq 'role mismatch accepted') { throw } }
+''' .strip(), encoding="utf-8")
+            subprocess.run([powershell, "-NoProfile", "-File", str(harness), str(ROOT / "Setup-SlopTogetherWorker.ps1")],
+                           capture_output=True, text=True, check=True)
 
 
 if __name__=="__main__":
