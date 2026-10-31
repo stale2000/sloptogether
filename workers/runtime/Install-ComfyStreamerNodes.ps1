@@ -54,9 +54,11 @@ function Test-IdenticalTree([string]$Source, [string]$Destination) {
     $sourceFiles = @{}
     $targetFiles = @{}
     foreach ($root in @($Source, $Destination)) {
-        if (((Get-Item -LiteralPath $root -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        $rootItem = Get-Item -LiteralPath $root -Force
+        if (($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
             throw "Refusing to compare a custom-node tree containing a reparse point."
         }
+        $canonicalRoot = $rootItem.FullName
         $files = @{}
         foreach ($entry in @(Get-ChildItem -LiteralPath $root -Recurse -Force)) {
             # Check directories as well as files before excluding generated
@@ -65,7 +67,7 @@ function Test-IdenticalTree([string]$Source, [string]$Destination) {
                 throw "Refusing to compare a custom-node tree containing a reparse point."
             }
             if ($entry.PSIsContainer) { continue }
-            $relative = $entry.FullName.Substring($root.Length).TrimStart([char]92, [char]47)
+            $relative = $entry.FullName.Substring($canonicalRoot.Length).TrimStart([char]92, [char]47)
             $normalizedRelative = $relative.Replace('\', '/')
             if ($normalizedRelative -cmatch '(^|/)__pycache__/[^/]+\.cpython-\d+(?:\.opt-\d+)?\.pyc$') { continue }
             $files[$normalizedRelative] = (Get-FileHash -LiteralPath $entry.FullName -Algorithm SHA256).Hash
