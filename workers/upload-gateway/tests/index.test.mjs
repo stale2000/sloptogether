@@ -85,7 +85,9 @@ test("worker media reads reject expired, altered and cross-channel tickets befor
     storageKey:"private/123/images/asset/frame.png",contentType:"image/png",byteSize:4,expiresAt:new Date(Date.now()+60000).toISOString()};
   const expired=await gateway.fetch(new Request("https://uploads.clips.gg/worker-media",{headers:{"X-Worker-Artifact-Ticket":signedTicket({...base,expiresAt:new Date(Date.now()-1000).toISOString()})}}),env);
   const crossChannel=await gateway.fetch(new Request("https://uploads.clips.gg/worker-media",{headers:{"X-Worker-Artifact-Ticket":signedTicket({...base,storageKey:"private/456/images/asset/frame.png"})}}),env);
-  const tampered=signedTicket(base).replace(/.$/,"x");
+  const [encoded,signature]=signedTicket(base).split(".");
+  const tamperedSignature=(signature[0]==="A"?"B":"A")+signature.slice(1);
+  const tampered=`${encoded}.${tamperedSignature}`;
   const altered=await gateway.fetch(new Request("https://uploads.clips.gg/worker-media",{headers:{"X-Worker-Artifact-Ticket":tampered}}),env);
   assert.deepEqual([expired.status,crossChannel.status,altered.status],[403,403,403]);
   assert.equal(reads,0);
