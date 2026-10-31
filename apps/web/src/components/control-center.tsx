@@ -8,7 +8,7 @@ import type { FormEvent } from "react";
 import { type InterruptSettings, type WorkerKeyScope, workerKeyScopes } from "@sloptogether/contracts";
 import { ApiError, apiFetch, displayProblem, type SessionSummary } from "./api";
 import { Breadcrumbs, PageTitle, SectionLabel } from "./site-shell";
-import { StoryBatchControl } from "./story-batch-control";
+import { StoryBatchControl, StreamUpscaleControl } from "./story-batch-control";
 
 interface ChannelLink { twitchChannelId: string; login: string; displayName: string; role: "broadcaster" | "moderator"; contributionMode?: string }
 interface SessionResponse extends SessionSummary { channels?: ChannelLink[] }
@@ -244,6 +244,7 @@ export function ChannelModerationQueue({ channel,streamSlug="main" }: { channel:
   };
 
   return <>
+    <StreamUpscaleControl channel={channel} stream={streamSlug}/>
     <StoryBatchControl channel={channel} stream={streamSlug}/>
     {error ? <div role="alert" className="alert error">{error} <button className="button ghost small" onClick={() => void load()}>Retry</button></div> : null}
     {note ? <div role="status" className="alert success">{note}</div> : null}

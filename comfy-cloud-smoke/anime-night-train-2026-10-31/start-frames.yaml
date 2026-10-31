@@ -1,0 +1,37 @@
+output_prefix: "outputs/anime-night-train/keyframe"
+foreach:
+  - id: "s01-platform"
+    prompt: "One consistent adult anime courier, early 20s, short black hair with a single teal streak, amber eyes, deep indigo raincoat with a silver star clasp, red scarf; slim practical silhouette. Flat 2D anime cel art, clean decisive ink contours, controlled two-tone cel shading, refined manga background painting, dramatic framing, limited midnight-indigo, cyan and warm amber palette, no photorealism, no 3D, no chibi, no childlike proportions, no text, no lettering, no logos. At a rain-soaked lunar railway platform at midnight, the courier kneels beside a small fallen star glowing in a puddle; a silent empty train platform recedes behind her, reflective rails, medium-wide establishing composition."
+    seed: 31825920
+  - id: "s02-map"
+    prompt: "One consistent adult anime courier, early 20s, short black hair with a single teal streak, amber eyes, deep indigo raincoat with a silver star clasp, red scarf; slim practical silhouette. Flat 2D anime cel art, clean decisive ink contours, controlled two-tone cel shading, refined manga background painting, dramatic framing, limited midnight-indigo, cyan and warm amber palette, no photorealism, no 3D, no chibi, no childlike proportions, no text, no lettering, no logos. The courier raises the fallen star, which casts a luminous map along the wet rails toward a dark tunnel; over-the-shoulder composition with her gloved hand and clear light path."
+    seed: 31825951
+  - id: "s03-tunnel"
+    prompt: "One consistent adult anime courier, early 20s, short black hair with a single teal streak, amber eyes, deep indigo raincoat with a silver star clasp, red scarf; slim practical silhouette. Flat 2D anime cel art, clean decisive ink contours, controlled two-tone cel shading, refined manga background painting, dramatic framing, limited midnight-indigo, cyan and warm amber palette, no photorealism, no 3D, no chibi, no childlike proportions, no text, no lettering, no logos. The courier follows the star-lit map into a long underground rail tunnel, red scarf trailing in a light breeze, blue signal lamps receding in perspective; centered wide composition."
+    seed: 31825982
+  - id: "s04-signal"
+    prompt: "One consistent adult anime courier, early 20s, short black hair with a single teal streak, amber eyes, deep indigo raincoat with a silver star clasp, red scarf; slim practical silhouette. Flat 2D anime cel art, clean decisive ink contours, controlled two-tone cel shading, refined manga background painting, dramatic framing, limited midnight-indigo, cyan and warm amber palette, no photorealism, no 3D, no chibi, no childlike proportions, no text, no lettering, no logos. The courier reaches an abandoned signal bridge above the tracks and finds its central lantern dark and broken; she holds the star close to the empty mechanism, deep tunnel behind."
+    seed: 31826013
+  - id: "s05-ignition"
+    prompt: "One consistent adult anime courier, early 20s, short black hair with a single teal streak, amber eyes, deep indigo raincoat with a silver star clasp, red scarf; slim practical silhouette. Flat 2D anime cel art, clean decisive ink contours, controlled two-tone cel shading, refined manga background painting, dramatic framing, limited midnight-indigo, cyan and warm amber palette, no photorealism, no 3D, no chibi, no childlike proportions, no text, no lettering, no logos. The courier seats the star inside the old signal lantern; a clean ribbon of amber light races down the rails and awakens a row of blue signal lamps, dynamic side view."
+    seed: 31826044
+  - id: "s06-arrival"
+    prompt: "One consistent adult anime courier, early 20s, short black hair with a single teal streak, amber eyes, deep indigo raincoat with a silver star clasp, red scarf; slim practical silhouette. Flat 2D anime cel art, clean decisive ink contours, controlled two-tone cel shading, refined manga background painting, dramatic framing, limited midnight-indigo, cyan and warm amber palette, no photorealism, no 3D, no chibi, no childlike proportions, no text, no lettering, no logos. A sleek moon train emerges from silver mist beyond the revived signal bridge, its windows lighting one by one; the courier stands at the platform edge holding the glowing lantern."
+    seed: 31826075
+  - id: "s07-departure"
+    prompt: "One consistent adult anime courier, early 20s, short black hair with a single teal streak, amber eyes, deep indigo raincoat with a silver star clasp, red scarf; slim practical silhouette. Flat 2D anime cel art, clean decisive ink contours, controlled two-tone cel shading, refined manga background painting, dramatic framing, limited midnight-indigo, cyan and warm amber palette, no photorealism, no 3D, no chibi, no childlike proportions, no text, no lettering, no logos. The moon train glides past the courier and begins its departure, warm windows streaking through the cool night; sparks rise from the lantern into the sky, low tracking angle."
+    seed: 31826106
+  - id: "s08-dawn"
+    prompt: "One consistent adult anime courier, early 20s, short black hair with a single teal streak, amber eyes, deep indigo raincoat with a silver star clasp, red scarf; slim practical silhouette. Flat 2D anime cel art, clean decisive ink contours, controlled two-tone cel shading, refined manga background painting, dramatic framing, limited midnight-indigo, cyan and warm amber palette, no photorealism, no 3D, no chibi, no childlike proportions, no text, no lettering, no logos. At first dawn the courier watches the train recede along the horizon; the sparks have become a new constellation above the rails, calm wide final composition."
+    seed: 31826137
+  - id: "s09-join"
+    prompt: "One consistent adult anime courier, early 20s, short black hair with a single teal streak, amber eyes, deep indigo raincoat with a silver star clasp, red scarf; slim practical silhouette. Flat 2D anime cel art, clean decisive ink contours, controlled two-tone cel shading, refined manga background painting, dramatic framing, limited midnight-indigo, cyan and warm amber palette, no photorealism, no 3D, no chibi, no childlike proportions, no text, no lettering, no logos. Wide dawn view of the railway and distant departing moon train, the new amber constellation above the horizon; the same courier is a small recognizable silhouette on the near platform, still and resolved."
+    seed: 31826168
+pipeline:
+  - fragment: z-image-turbo-start-frame
+    alias: frame
+    params:
+      clip_text_encode_prompt_text: $item.prompt
+      emptysd3latentimage_width: 448
+      emptysd3latentimage_height: 256
+      ksampler_seed: $item.seed

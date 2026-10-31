@@ -93,19 +93,26 @@ function StoryBatchControlInner({ channel, stream }: { channel: string; stream: 
     {error ? <span role="alert" className="inline-error">{error}</span> : null}
     {queueError ? <span role="alert">Queue unavailable <button type="button" className="button secondary small" onClick={() => void refresh.current?.()}>Retry</button></span> : null}
   </div>
-  {authorized ? <StreamUpscaleControl channel={channel} stream={stream}/> : null}
   <StoryBatchList batches={batches} channel={channel} stream={stream} owner={authorized} onChanged={() => void refresh.current?.()}/>
   </>;
 }
 
-function StreamUpscaleControl({channel,stream}:{channel:string;stream:string}) {
+export function StreamUpscaleControl({channel,stream}:{channel:string;stream:string}) {
   const timeline=useChannelTimeline(channel,stream);
+  const [authorized,setAuthorized]=useState(false);
   const [selected,setSelected]=useState("");
   const [busy,setBusy]=useState(false);
   const [note,setNote]=useState<string|null>(null);
+  useEffect(()=>{
+    let active=true;
+    void apiFetch<SessionSummary>("/auth/session").then(session=>{
+      if(active)setAuthorized(session.authenticated&&session.channels?.some(item=>item.login.toLowerCase()===channel.toLowerCase()&&item.role==="broadcaster")===true);
+    }).catch(()=>{if(active)setAuthorized(false)});
+    return()=>{active=false};
+  },[channel]);
   const clips=timeline.state==="ready"?timeline.value.segments.filter(segment=>segment.programItemId):[];
   const target=clips.find(clip=>clip.id===selected)??clips[0];
-  if(!clips.length)return null;
+  if(!authorized||!clips.length)return null;
   const queue=async()=>{
     if(!target?.programItemId)return;
     setBusy(true);setNote(null);
