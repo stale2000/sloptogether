@@ -51,6 +51,7 @@ jobs:
           ./workers/runtime/dist/SlopTogetherWorkerCli.exe --help
           python -c "import zipfile; p='workers/runtime/dist/SlopTogetherWorker-windows-x64.zip'; z=zipfile.ZipFile(p); expected={'SlopTogetherWorker.exe','SlopTogetherWorkerCli.exe','worker.example.toml','worker.wsl.example.toml','Setup-SlopTogetherWorker.ps1','Install-ComfyStreamerNodes.ps1','ComfyStreamer-Wsl-runtime.zip','README.txt'}; actual=set(z.namelist()); assert actual==expected, f'unexpected bundle files: {sorted(actual)}'"
           python -m unittest discover -s workers/runtime/tests -p "test_package_*.py"
+          python -m unittest discover -s workers/runtime/tests -p "test_desktop_startup.py"
 
       - uses: actions/upload-artifact@v7
         with:

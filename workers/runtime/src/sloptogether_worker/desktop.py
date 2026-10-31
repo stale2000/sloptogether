@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import ipaddress
+import os
 import queue
 import subprocess
 import sys
 import threading
+import time
+import tomllib
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlsplit
 
 
 PURPLE = "#9147ff"
@@ -16,6 +23,69 @@ PANEL = "#18181b"
 PANEL_HI = "#252529"
 TEXT = "#efeff1"
 MUTED = "#adadb8"
+
+
+def _comfy_health_url(config_path: Path) -> str:
+    worker = tomllib.loads(config_path.read_text(encoding="utf-8"))["worker"]
+    if not isinstance(worker, dict):
+        raise ValueError("invalid worker configuration")
+    value = os.environ.get("SLOPTOGETHER_COMFY_URL", worker.get("comfy_url", "http://127.0.0.1:8188"))
+    if not isinstance(value, str):
+        raise ValueError("invalid ComfyUI address")
+    parsed = urlsplit(value)
+    host = parsed.hostname or ""
+    try:
+        loopback = host.lower() == "localhost" or ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        loopback = host.lower() == "localhost"
+    if (parsed.scheme != "http" or not loopback or parsed.username or parsed.password
+            or parsed.path not in {"", "/"} or parsed.query or parsed.fragment):
+        raise ValueError("ComfyUI must use a loopback HTTP address")
+    return value.rstrip("/") + "/system_stats"
+
+
+def _probe_comfy(endpoint: str) -> bool:
+    try:
+        with urllib.request.urlopen(endpoint, timeout=2) as response:
+            return 200 <= response.status < 300
+    except (OSError, urllib.error.URLError, TimeoutError):
+        return False
+
+
+def wait_for_comfy(
+    endpoint: str,
+    *,
+    timeout: float = 180,
+    probe: Callable[[str], bool] = _probe_comfy,
+    sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+) -> bool:
+    """Wait for the local ComfyUI API, not just an open TCP port."""
+    deadline = monotonic() + timeout
+    while monotonic() < deadline:
+        if probe(endpoint):
+            return True
+        sleep(min(2, max(0, deadline - monotonic())))
+    return False
+
+
+def ensure_comfy_ready(
+    root: Path,
+    role: str,
+    config_path: Path,
+    start_comfy: Callable[[Path, str], int],
+    *,
+    wait: Callable[[str], bool] = wait_for_comfy,
+    on_wait: Callable[[], None] = lambda: None,
+) -> tuple[bool, str]:
+    """Start or reuse local ComfyUI and require its API before worker launch."""
+    if start_comfy(root, role) != 0:
+        return False, "ComfyUI did not start; worker was not started."
+    endpoint = _comfy_health_url(config_path)
+    on_wait()
+    if not wait(endpoint):
+        return False, "ComfyUI did not become ready within 3 minutes; worker was not started."
+    return True, "ComfyUI is ready. Starting worker…"
 
 
 def run_desktop(root: Path, helpers: dict[str, Callable[..., int]]) -> int:
@@ -191,9 +261,41 @@ def run_desktop(root: Path, helpers: dict[str, Callable[..., int]]) -> int:
             if not self.config_path.is_file():
                 self._write("Run setup for this role first.")
                 return
-            self._launch(self._command("run"), "Worker")
-            self.status.set("Starting worker…")
-            self.stop_button.configure(state="normal")
+            config_path = self.config_path
+            role = self.role.get()
+            self.busy = True
+            self.status.set("Starting ComfyUI…")
+            self._set_controls()
+            self._write("Starting ComfyUI before the worker…")
+
+            def execute() -> None:
+                try:
+                    ready, message = ensure_comfy_ready(
+                        root,
+                        role,
+                        config_path,
+                        helpers["comfy"],
+                        on_wait=lambda: self.queue.put(("log", "Waiting for the ComfyUI API…")),
+                    )
+                    if not ready:
+                        self.queue.put(("done", message))
+                        return
+                    self.queue.put(("log", message))
+                    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                    process = subprocess.Popen(self._command("run"), cwd=root, stdout=subprocess.PIPE,
+                                               stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                                               errors="replace", bufsize=1, creationflags=flags)
+                    self.process = process
+                    self.queue.put(("worker_started", "Worker is running."))
+                    if process.stdout:
+                        for line in process.stdout:
+                            self.queue.put(("log", line.rstrip()))
+                    status = process.wait()
+                    self.queue.put(("done", f"Worker finished ({status})."))
+                except (OSError, KeyError, TypeError, ValueError, tomllib.TOMLDecodeError) as error:
+                    self.queue.put(("done", f"Could not start worker: {type(error).__name__}."))
+
+            threading.Thread(target=execute, daemon=True).start()
 
         def _stop_worker(self) -> None:
             if self.process is None:
@@ -277,6 +379,12 @@ def run_desktop(root: Path, helpers: dict[str, Callable[..., int]]) -> int:
                     kind, message = self.queue.get_nowait()
                     if kind == "log":
                         self._write(message)
+                    elif kind == "worker_started":
+                        self._write(message)
+                        self.busy = False
+                        self.status.set("Running")
+                        self.stop_button.configure(state="normal")
+                        self._set_controls()
                     else:
                         self._write(message)
                         self.busy = False
