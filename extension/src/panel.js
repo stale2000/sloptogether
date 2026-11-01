@@ -138,7 +138,7 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
     nodes.bitsEventSubTestStatus.hidden=!bitsEventSubTestStatusText;
     message(nodes.bitsEventSubTestStatus,bitsEventSubTestStatusText);
     nodes.bitsEventSubTestRun.disabled=!bitsEventSubTestState?.productAvailable||!linkedIdentity(authorization)||bitsEventSubTestPending;
-    nodes.bitsEventSubTestRun.textContent=bitsEventSubTestPending?"Waiting for Twitch…":"Run Bits test";
+    nodes.bitsEventSubTestRun.textContent=bitsEventSubTestPending?"Waiting for Twitch…":"Buy Segment with Bits";
   }
 
   async function loadBitsEventSubTest(){
