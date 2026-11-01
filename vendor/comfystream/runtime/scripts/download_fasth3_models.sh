@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 models_root="${COMFYUI_ROOT:-/workspace/ComfyUI}/models"
 manifest="${COMFYSTREAM_MANIFEST:-${COMFYSTREAM_ROOT:-/workspace/comfystream}/deploy/vast/fasth3-environment.json}"
 download_root="${HF_ENDPOINT:-https://huggingface.co}"
@@ -18,13 +19,21 @@ print(manifest["model_revisions"][sys.argv[2]])
 PY
 }
 
-fastvideo_revision="${HF_REVISION_FASTVIDEO:?HF_REVISION_FASTVIDEO must be a reviewed Hugging Face commit SHA}"
+fastvideo_revision="${HF_REVISION_FASTVIDEO:-}"
+trim_revision="$(manifest_revision fastvideo_fasth3_trim_8step_int8_convrot.safetensors)"
 qwen_revision="${HF_REVISION_QWEN3_VL:-$(manifest_revision qwen3vl_4b_fp8_scaled.safetensors)}"
 clipproj_revision="${HF_REVISION_CLIPPROJ:-$(manifest_revision mmh3-4b-ClipProj-v3.1-mlp.safetensors)}"
 audio_vae_revision="${HF_REVISION_AUDIO_VAE:-$(manifest_revision minimax_h3_audio_vae_fp32.safetensors)}"
 kijai_revision="${HF_REVISION_KIJAI:-$(manifest_revision minimax_h3_video_vae_int8_convrot.safetensors)}"
-for revision in "$fastvideo_revision" "$qwen_revision" "$clipproj_revision" \
-  "$audio_vae_revision" "$kijai_revision"; do
+if [[ "${FASTH3_TRIM_ONLY:-0}" != "1" && -z "$fastvideo_revision" ]]; then
+  echo "HF_REVISION_FASTVIDEO must be a reviewed Hugging Face commit SHA for the alternate model" >&2
+  exit 1
+fi
+revisions=("$trim_revision" "$qwen_revision" "$clipproj_revision" "$audio_vae_revision" "$kijai_revision")
+if [[ "${FASTH3_TRIM_ONLY:-0}" != "1" ]]; then
+  revisions+=("$fastvideo_revision")
+fi
+for revision in "${revisions[@]}"; do
   if [[ ! "$revision" =~ ^[0-9a-fA-F]{40}$ ]]; then
     echo "model revisions must be 40-character commit SHAs: $revision" >&2
     exit 1
@@ -199,6 +208,9 @@ else
     "FastVideo/FastVideo-FastH3-Comfy" \
     "diffusion_models/fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors" "$fastvideo_revision"
 fi
+download_model "diffusion_models/fastvideo_fasth3_trim_8step_int8_convrot.safetensors" \
+  "FastVideo/FastVideo-FastH3-Trim-Comfy" \
+  "diffusion_models/fastvideo_fasth3_trim_8step_int8_convrot.safetensors" "$trim_revision"
 download_model "text_encoders/qwen3vl_4b_fp8_scaled.safetensors" \
   "Comfy-Org/Qwen3-VL" \
   "text_encoders/qwen3vl_4b_fp8_scaled.safetensors" "$qwen_revision"

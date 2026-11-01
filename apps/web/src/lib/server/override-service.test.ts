@@ -49,4 +49,16 @@ describe("streamer override candidates",()=>{
     const values=(insert as unknown as [string,unknown[]])[1];
     expect(JSON.parse(String(values[9]))).toMatchObject({inputScreenId:"screen",outputWidth:512,outputHeight:288});
   });
+
+  it("does not schedule an unmanaged render for a story candidate segment",async()=>{
+    const client={query:vi.fn(async(sql:string)=>{
+      if(sql.includes("SELECT segment_id,planning_mode,provider_recipe_id"))return {rows:[{segment_id:"segment",planning_mode:"continuation",provider_recipe_id:"fast-h3-trim-5step-vsa20-b1",input_sha256:Buffer.alloc(32),start_boundary_revision_id:"boundary",requested_end_boundary_revision_id:null}],rowCount:1};
+      if(sql.includes("FROM sloptogether.story_batch_items"))return {rows:[{id:"candidate"}],rowCount:1};
+      return {rows:[],rowCount:0};
+    })};
+    await expect(schedulePulledGeneration(client as unknown as PoolClient,"123","revision","42","screen",true))
+      .rejects.toMatchObject({status:409,code:"story_candidate_managed"});
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.funding_authorizations"))).toBe(false);
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.jobs"))).toBe(false);
+  });
 });

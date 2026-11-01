@@ -34,6 +34,8 @@ export async function schedulePulledGeneration(client:PoolClient,channelId:strin
   const revision=await client.query<{segment_id:string;planning_mode:string;provider_recipe_id:string;input_sha256:Buffer;start_boundary_revision_id:string;requested_end_boundary_revision_id:string|null}>(
     "SELECT segment_id,planning_mode,provider_recipe_id,input_sha256,start_boundary_revision_id,requested_end_boundary_revision_id FROM sloptogether.segment_revisions WHERE id=$1 FOR UPDATE",[revisionId]);
   const row=revision.rows[0];if(!row)throw new ApiError(404,"generation_revision_not_found");
+  const managed=await client.query("SELECT 1 FROM sloptogether.story_batch_items i JOIN sloptogether.story_batches b ON b.id=i.batch_id WHERE i.segment_id=$1 AND b.twitch_channel_id=$2 LIMIT 1",[row.segment_id,channelId]);
+  if(managed.rows.length)throw new ApiError(409,"story_candidate_managed","Review and schedule this story candidate with its next approved frame.");
   if(row.planning_mode==="planned_anchors"&&!row.requested_end_boundary_revision_id)throw new ApiError(409,"end_boundary_required");
   const screen=await client.query("SELECT 1 FROM sloptogether.input_screens WHERE id=$1 AND twitch_channel_id=$2 AND effective_state='clear' AND (expires_at IS NULL OR expires_at>now())",[inputScreenId,channelId]);
   if(!screen.rowCount)throw new ApiError(409,"generation_input_not_clear");

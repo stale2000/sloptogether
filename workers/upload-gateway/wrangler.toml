@@ -15,4 +15,5 @@ bucket_name = "sloptogether-media"
 APP_ORIGIN = "https://sloptogether.vercel.app"
 
 # Configure UPLOAD_GATEWAY_SECRET and UPLOAD_TICKET_KEY with `wrangler secret put`.
+# PUBLISHER_UPLOAD_TICKET_KEY is optional and dedicated to the media publisher.
 # Keep the bucket private and scope the deployment to the SlopTogether media bucket.

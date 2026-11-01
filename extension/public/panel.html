@@ -27,42 +27,38 @@
         <button id="turbo-link" class="secondary" type="button" hidden>Link account to use Bits</button>
         <button id="turbo-reconcile" class="secondary" type="button" hidden>Retry transaction check</button>
       </section>
-      <nav class="panel-tabs" role="tablist" aria-label="Community">
-        <button id="vote-tab" class="panel-tab" role="tab" type="button" aria-selected="true" aria-controls="vote-panel">Vote</button>
-        <button id="suggest-tab" class="panel-tab" role="tab" type="button" aria-selected="false" aria-controls="suggest-panel">Suggest</button>
-      </nav>
-      <section id="vote-panel" role="tabpanel" aria-labelledby="vote-tab">
-        <section id="ballot" class="ballot" aria-label="Current scene vote" hidden>
-          <div class="section-row"><h2 id="question">What happens next?</h2><span id="countdown" class="countdown"></span></div>
-          <p id="helper" class="helper">Choose one scene.</p>
-          <div id="choices" class="choices"></div>
-          <button id="submit-vote" class="primary" type="button" disabled>Cast vote</button>
-        </section>
-        <section id="empty" class="empty" hidden><span aria-hidden="true">✦</span><p>Nothing to vote on yet.</p></section>
-        <button id="link-account" class="secondary" type="button" hidden>Link account to vote</button>
+      <section id="ballot" class="ballot" aria-label="Current scene vote" hidden>
+        <div class="section-row"><h2 id="question">What happens next?</h2><span id="countdown" class="countdown"></span></div>
+        <p id="helper" class="helper">Choose one scene.</p>
+        <div id="choices" class="choices"></div>
+        <button id="submit-vote" class="primary" type="button" disabled>Cast vote</button>
       </section>
-      <section id="suggest-panel" role="tabpanel" aria-labelledby="suggest-tab" hidden>
-        <section id="live-ideas" class="live-ideas" aria-label="Ideas in the current vote" hidden>
-          <h2>Ideas in the current vote</h2>
-          <p class="helper">These are live ideas from this stream. Choose one to prefill your prompt.</p>
-          <div id="live-ideas-list" class="choices"></div>
-        </section>
-        <section id="prompt-section" class="prompt-section" aria-label="Suggest a scene" hidden>
-          <button id="prompt-toggle" class="prompt-toggle" type="button" aria-expanded="false" aria-controls="prompt-form">Suggest a scene</button>
-          <p id="suggest-status" class="note suggest-status" role="status" aria-live="polite" hidden></p>
-          <div id="prompt-form" class="prompt-form" hidden>
-            <label for="prompt-input">Prompt idea</label>
-            <textarea id="prompt-input" maxlength="1000" rows="3" placeholder="Scene prompt" aria-label="Scene prompt"></textarea>
-            <button id="submit-prompt" class="primary" type="button" disabled>Submit prompt</button>
-            <section id="prompt-bits" class="prompt-bits" aria-label="Queue prompt with Bits" hidden>
-              <p>Or queue this prompt with Bits</p>
-              <div id="prompt-bits-products" class="turbo-products"></div>
-              <p id="prompt-bits-status" class="note" role="status" aria-live="polite" hidden></p>
-            </section>
-          </div>
-        </section>
+      <section id="upcoming-scenes" class="upcoming-scenes" aria-label="Upcoming clips" hidden>
+        <div class="upcoming-heading"><h2>Up next</h2><span id="upcoming-status" class="upcoming-status"></span></div>
+        <div id="upcoming-list" class="upcoming-list"></div>
+      </section>
+      <section id="prompt-lock" class="prompt-lock" aria-label="Prompt Lock" hidden>
+        <h2>Prompt Lock</h2>
+        <div id="prompt-lock-products" class="prompt-lock-products"></div>
+        <p id="prompt-lock-status" class="note" role="status" aria-live="polite" hidden></p>
+        <button id="prompt-lock-link" class="secondary" type="button" hidden>Link account</button>
+        <button id="prompt-lock-reconcile" class="secondary" type="button" hidden>Retry transaction check</button>
+      </section>
+      <section id="bits-eventsub-test" class="bits-eventsub-test" aria-label="Bits EventSub test" hidden>
+        <button id="bits-eventsub-test-run" class="secondary" type="button" disabled>Run Bits test</button>
+        <p id="bits-eventsub-test-status" class="note" role="status" aria-live="polite" hidden></p>
+      </section>
+      <section id="prompt-section" class="prompt-section" aria-label="Suggest a scene" hidden>
+        <button id="prompt-toggle" class="prompt-toggle" type="button" aria-expanded="false" aria-controls="prompt-form">Suggest a scene</button>
+        <div id="prompt-form" class="prompt-form" hidden>
+          <label for="prompt-input">Prompt idea</label>
+          <textarea id="prompt-input" maxlength="1000" rows="3" placeholder="Scene prompt" aria-label="Scene prompt"></textarea>
+          <button id="submit-prompt" class="primary" type="button" disabled>Submit prompt</button>
+        </div>
       </section>
       <section id="subscriber-card" class="subscriber-card" aria-label="Subscriber scene update" hidden></section>
+      <section id="empty" class="empty" hidden><span aria-hidden="true">✦</span><p>Nothing to vote on yet.</p></section>
+      <button id="link-account" class="secondary" type="button" hidden>Link account to vote</button>
       <p id="error" class="error" role="alert" hidden></p>
     </main>
   </body>

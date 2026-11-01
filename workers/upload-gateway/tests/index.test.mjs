@@ -22,9 +22,9 @@ globalThis.FixedLengthStream ??= class extends TransformStream {
 const secret="upload-ticket-secret-longer-than-32-characters";
 const uploadId="123e4567-e89b-42d3-a456-426614174000";
 
-function signedTicket(payload){
+function signedTicket(payload,key=secret){
   const encoded=Buffer.from(JSON.stringify(payload)).toString("base64url");
-  return encoded+"."+createHmac("sha256",secret).update(encoded).digest("base64url");
+  return encoded+"."+createHmac("sha256",key).update(encoded).digest("base64url");
 }
 
 test("native uploads need a valid ticket and accept a missing Content-Length",async()=>{
@@ -67,7 +67,8 @@ test("worker media tickets stream only the exact channel-scoped R2 object",async
   const payload={version:1,purpose:"worker_asset_read",channelId:"123",leaseId:uploadId,assetId:"423e4567-e89b-42d3-a456-426614174000",fence:7,
     storageKey:"private/123/images/asset/frame.png",contentType:"image/png",byteSize:bytes.length,expiresAt:new Date(Date.now()+60000).toISOString()};
   let requestedKey="";
-  const env={UPLOAD_TICKET_KEY:secret,MEDIA_BUCKET:{get:async key=>{requestedKey=key;return {body:new Response(bytes).body,size:bytes.length,etag:"frame-etag"}}}};
+  const env={UPLOAD_TICKET_KEY:secret,PUBLISHER_UPLOAD_TICKET_KEY:"publisher-only-ticket-secret-longer-than-32-characters",
+    MEDIA_BUCKET:{get:async key=>{requestedKey=key;return {body:new Response(bytes).body,size:bytes.length,etag:"frame-etag"}}}};
   const response=await gateway.fetch(new Request("https://uploads.clips.gg/worker-media",{headers:{"X-Worker-Artifact-Ticket":signedTicket(payload)}}),env);
   assert.equal(response.status,200);
   assert.equal(requestedKey,payload.storageKey);
@@ -84,7 +85,9 @@ test("worker media reads reject expired, altered and cross-channel tickets befor
     storageKey:"private/123/images/asset/frame.png",contentType:"image/png",byteSize:4,expiresAt:new Date(Date.now()+60000).toISOString()};
   const expired=await gateway.fetch(new Request("https://uploads.clips.gg/worker-media",{headers:{"X-Worker-Artifact-Ticket":signedTicket({...base,expiresAt:new Date(Date.now()-1000).toISOString()})}}),env);
   const crossChannel=await gateway.fetch(new Request("https://uploads.clips.gg/worker-media",{headers:{"X-Worker-Artifact-Ticket":signedTicket({...base,storageKey:"private/456/images/asset/frame.png"})}}),env);
-  const tampered=signedTicket(base).replace(/.$/,"x");
+  const [encoded,signature]=signedTicket(base).split(".");
+  const tamperedSignature=(signature[0]==="A"?"B":"A")+signature.slice(1);
+  const tampered=`${encoded}.${tamperedSignature}`;
   const altered=await gateway.fetch(new Request("https://uploads.clips.gg/worker-media",{headers:{"X-Worker-Artifact-Ticket":tampered}}),env);
   assert.deepEqual([expired.status,crossChannel.status,altered.status],[403,403,403]);
   assert.equal(reads,0);
@@ -97,4 +100,17 @@ test("worker media reads fail closed when the stored object size changed",async(
   const response=await gateway.fetch(new Request("https://uploads.clips.gg/worker-media",{headers:{"X-Worker-Artifact-Ticket":signedTicket(payload)}}),env);
   assert.equal(response.status,409);
   assert.deepEqual(await response.json(),{error:"worker_media_size_changed"});
+});
+
+test("publisher tickets use a dedicated key when configured",async()=>{
+  const publisherSecret="publisher-only-ticket-secret-longer-than-32-characters";
+  const payload={version:1,purpose:"media_publisher",operation:"delete",channelId:"123",storageKey:"incoming/123/attempt/output.mp4",
+    contentType:"video/mp4",byteSize:0,expiresAt:new Date(Date.now()+60000).toISOString()};
+  let deleted="";
+  const env={UPLOAD_TICKET_KEY:secret,PUBLISHER_UPLOAD_TICKET_KEY:publisherSecret,MEDIA_BUCKET:{delete:async key=>{deleted=key}}};
+  const valid=await gateway.fetch(new Request("https://uploads.clips.gg/worker-media",{method:"DELETE",headers:{"X-Worker-Artifact-Ticket":signedTicket(payload,publisherSecret)}}),env);
+  const oldKey=await gateway.fetch(new Request("https://uploads.clips.gg/worker-media",{method:"DELETE",headers:{"X-Worker-Artifact-Ticket":signedTicket(payload)}}),env);
+  assert.equal(valid.status,204);
+  assert.equal(deleted,payload.storageKey);
+  assert.equal(oldKey.status,403);
 });

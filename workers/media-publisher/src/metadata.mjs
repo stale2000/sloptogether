@@ -113,8 +113,8 @@ export function trustedSystemApprovalCandidate(current,now=Date.now()){
 export function trustedUploaderApprovalPath(current){
   if(!current||current.upload_policy_revision!==current.channel_policy_revision||typeof current.uploaded_by_twitch_user_id!=="string")return null;
   const uploader=current.uploaded_by_twitch_user_id;
+  if(uploader===current.owner_twitch_user_id)return "trusted_uploader_policy";
   if(Array.isArray(current.upload_approval_bypass_ids)&&current.upload_approval_bypass_ids.includes(uploader))return "trusted_uploader_policy";
-  if(uploader===current.owner_twitch_user_id&&Array.isArray(current.role_based_upload_bypass)&&current.role_based_upload_bypass.includes("broadcaster"))return "trusted_uploader_policy";
   if(current.uploader_is_recent_moderator===true&&Array.isArray(current.role_based_upload_bypass)&&current.role_based_upload_bypass.includes("moderator"))return "trusted_uploader_policy";
   return null;
 }

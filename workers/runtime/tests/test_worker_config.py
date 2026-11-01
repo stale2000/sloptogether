@@ -10,6 +10,14 @@ from sloptogether_worker.config import WorkerConfig, _https_service_url, _is_wsl
 
 
 class WorkerConfigurationTest(unittest.TestCase):
+    def test_optional_claim_stream_is_validated(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.dict(os.environ,{"SLOPTOGETHER_WORKER_HOME":folder,"SLOPTOGETHER_CLAIM_STREAM_SLUG":"cartoon-demo"},clear=True):
+                config=WorkerConfig.from_sources(config_path=None,role_override="generation")
+            self.assertEqual(config.claim_stream_slug,"cartoon-demo")
+            with patch.dict(os.environ,{"SLOPTOGETHER_WORKER_HOME":folder,"SLOPTOGETHER_CLAIM_STREAM_SLUG":"bad/stream"},clear=True):
+                with self.assertRaisesRegex(ValueError,"worker_claim_stream_slug_invalid"):
+                    WorkerConfig.from_sources(config_path=None,role_override="generation")
     def test_worker_api_is_https_except_literal_loopback(self) -> None:
         self.assertEqual(_https_service_url("https://www.clips.gg/sloptogether/api/v1", "api"), "https://www.clips.gg/sloptogether/api/v1")
         self.assertEqual(_https_service_url("http://127.0.0.1:8188", "comfy", allow_loopback_http=True), "http://127.0.0.1:8188")

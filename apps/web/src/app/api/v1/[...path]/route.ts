@@ -9,14 +9,16 @@ import { getProgramManifest, getProgramPlaylist, heartbeatPlayback,claimPlayback
 import { submitProposal } from "@/lib/server/proposal-service";
 import { applyStreamerOverride,listOverrideCandidates,listActiveBans,createChannelBan,revokeChannelBan } from "@/lib/server/override-service";
 import { issueAssetUpload,completeAssetUpload,getApprovedMediaAsset,authorizeUploadGateway } from "@/lib/server/upload-service";
-import { handleSubscriberSettings,getExtensionState } from "@/lib/server/subscriber-service";
-import { handleEventSubWebhook } from "@/lib/server/eventsub-webhook";
-import { getExtensionBitsState,getExtensionPromptBitsState,createExtensionBitsIntent,createExtensionBitsPromptIntent,recordExtensionBitsReceipt,cancelExtensionBitsIntent,getExtensionBitsIntentStatus,requestBitsReceiptReconciliation,reconcilePaidBitsReceipt } from "@/lib/server/paid-bits-service";
+import { handleSubscriberSettings,getExtensionState,handleEventSubWebhook,registerExtensionBitsEventSub } from "@/lib/server/subscriber-service";
+import { getExtensionBitsState,createExtensionBitsIntent,getExtensionPromptLockState,getExtensionBitsEventSubTestState,createExtensionPromptLockIntent,recordExtensionBitsReceipt,cancelExtensionBitsIntent,getExtensionBitsIntentStatus,requestBitsReceiptReconciliation,reconcilePaidBitsReceipt } from "@/lib/server/paid-bits-service";
 import { cancelComfyGeneration,createComfyFrameGeneration,createComfyPromptGeneration,getComfyFrameGenerationImage,getComfyGeneration,getComfyPromptGenerationText,listComfyGenerations } from "@/lib/server/comfy-frame-service";
-import { listWindowsWorkerRelease,recordWorkerProviderRequest,downloadWorkerAsset,failWorkerLease,requestClipUpscale } from "@/lib/server/worker-service";
-import { claimStoryProducer,submitStoryProposal } from "@/lib/server/story-producer-service";
+import { listWindowsWorkerRelease,recordWorkerProviderRequest,claimStoryProducer,submitStoryProposal,downloadWorkerAsset,failWorkerLease,requestClipUpscale } from "@/lib/server/worker-service";
 import { jsonError,jsonOk } from "@/lib/server/http";
 import { createStream,getStream,listStreams } from "@/lib/server/stream-service";
+import { createStoryBatch,listStoryBatches } from "@/lib/server/story-batch-service";
+import { approveStoryCandidate,listStoryCandidateFrames,rejectStoryCandidate,replanStoryCandidate,retryStoryCandidateScreen } from "@/lib/server/story-candidate-service";
+import { addStreamSeedFrame } from "@/lib/server/stream-seed-frame-service";
+import { submitOwnerCandidate } from "@/lib/server/owner-candidate-service";
 
 type Context={params:Promise<{path:string[]}>};
 
@@ -35,9 +37,10 @@ async function dispatch(request:NextRequest,path:string[]){
   if(p.join("/")==="channels"&&method==="POST")return jsonOk(await createOwnedChannel(request),{status:201});
   if(p.join("/")==="extension/state"&&method==="GET")return jsonOk(await getExtensionState(request));
   if(p.join("/")==="extension/bits/state"&&method==="GET")return jsonOk(await getExtensionBitsState(request));
-  if(p.join("/")==="extension/bits/prompt-queue"&&method==="GET")return jsonOk(await getExtensionPromptBitsState(request));
-  if(p.join("/")==="extension/bits/prompt-intents"&&method==="POST")return jsonOk(await createExtensionBitsPromptIntent(request),{status:201});
   if(p.join("/")==="extension/bits/intents"&&method==="POST")return jsonOk(await createExtensionBitsIntent(request),{status:201});
+  if(p.join("/")==="extension/bits/prompt-lock/state"&&method==="GET")return jsonOk(await getExtensionPromptLockState(request));
+  if(p.join("/")==="extension/bits/eventsub-test/state"&&method==="GET")return jsonOk(await getExtensionBitsEventSubTestState(request));
+  if(p.join("/")==="extension/bits/prompt-lock/intents"&&method==="POST")return jsonOk(await createExtensionPromptLockIntent(request),{status:201});
   if(p.join("/")==="extension/bits/receipt"&&method==="POST")return jsonOk(await recordExtensionBitsReceipt(request));
   if(p[0]==="extension"&&p[1]==="bits"&&p[2]==="intents"&&p[3]&&p.length===4&&method==="GET")return jsonOk(await getExtensionBitsIntentStatus(p[3]!,request));
   if(p[0]==="extension"&&p[1]==="bits"&&p[2]==="intents"&&p[3]&&p[4]==="reconcile"&&p.length===5&&method==="POST")return jsonOk(await requestBitsReceiptReconciliation(p[3]!,request));
@@ -45,6 +48,7 @@ async function dispatch(request:NextRequest,path:string[]){
   if(p.join("/")==="worker/releases/windows"&&method==="GET"){
     return jsonOk(await listWindowsWorkerRelease());
   }
+  if(p.join("/")==="workers/stats"&&method==="GET")return jsonOk(await import("@/lib/server/worker-service").then(m=>m.getWorkerStats(request)));
 
   if(p[0]==="channels"&&p.length>=2){
     const locator=p[1]!;
@@ -66,6 +70,16 @@ async function dispatch(request:NextRequest,path:string[]){
       }
       if(p[4]==="proposals"&&p.length===5&&method==="POST")return jsonOk(await submitProposal(locator,request,stream.id),{status:201});
       if(p[4]==="story-proposals"&&p.length===5&&method==="POST")return jsonOk(await submitStoryProposal(locator,request,stream.slug),{status:201});
+      if(p[4]==="story-batches"&&p.length===5&&method==="POST")return jsonOk(await createStoryBatch(locator,request,stream.slug),{status:201});
+      if(p[4]==="story-batches"&&p.length===5&&method==="GET")return jsonOk(await listStoryBatches(locator,request,stream.slug));
+      if(p[4]==="upscale"&&p.length===5&&method==="POST")return jsonOk(await requestClipUpscale(locator,request,stream.slug),{status:202});
+      if(p[4]==="story-candidates"&&p[5]==="frames"&&p.length===6&&method==="GET")return jsonOk(await listStoryCandidateFrames(locator,request,stream.slug));
+      if(p[4]==="story-candidates"&&p[5]==="frames"&&p.length===6&&method==="POST")return jsonOk(await addStreamSeedFrame(locator,request,stream.slug),{status:201});
+      if(p[4]==="story-candidates"&&p[5]&&p[6]==="approve"&&p.length===7&&method==="POST")return jsonOk(await approveStoryCandidate(locator,p[5]!,request,stream.slug));
+      if(p[4]==="story-candidates"&&p[5]&&p[6]==="owner-submit"&&p.length===7&&method==="POST")return jsonOk(await submitOwnerCandidate(locator,p[5]!,request,stream.slug));
+      if(p[4]==="story-candidates"&&p[5]&&p[6]==="reject"&&p.length===7&&method==="POST")return jsonOk(await rejectStoryCandidate(locator,p[5]!,request,stream.slug));
+      if(p[4]==="story-candidates"&&p[5]&&p[6]==="replan"&&p.length===7&&method==="POST")return jsonOk(await replanStoryCandidate(locator,p[5]!,request,stream.slug));
+      if(p[4]==="story-candidates"&&p[5]&&p[6]==="retry-screen"&&p.length===7&&method==="POST")return jsonOk(await retryStoryCandidateScreen(locator,p[5]!,request,stream.slug));
       if(p[4]==="elections"&&p[5]&&p[6]==="ballots"&&p.length===7&&method==="POST"){
         const principal=await requestPrincipal(request);if(!principal)throw new ApiError(401,"login_required");
         const parsed=await readJson(request,await import("@sloptogether/contracts").then(x=>x.voteRequestSchema));
@@ -90,6 +104,7 @@ async function dispatch(request:NextRequest,path:string[]){
     }
     if(p[2]==="settings"&&p.length===3&&method==="GET")return jsonOk(await readChannelSettings(locator,request));
     if(p[2]==="settings"&&p.length===3&&method==="PATCH")return jsonOk(await updateChannelSettings(locator,request));
+    if(p[2]==="bits-eventsub"&&p.length===3&&method==="POST")return jsonOk(await registerExtensionBitsEventSub(locator,request));
     if(p[2]==="worker-keys"&&p.length===3&&method==="POST")return jsonOk(await issueWorkerKey(locator,request),{status:201});
     if(p[2]==="worker-keys"&&p.length===3&&method==="GET")return jsonOk(await listWorkerKeys(locator,request));
     if(p[2]==="worker-keys"&&p[3]&&p[4]==="revoke"&&p.length===5&&method==="POST")return jsonOk(await revokeWorkerKey(locator,p[3]!,request));
@@ -178,11 +193,17 @@ function corsResponse(request:Request,response:Response){
 }
 
 async function handle(request:NextRequest,context:Context){
+  let path:string[]=[];
   try{
-    const {path}=await context.params;
+    path=(await context.params).path;
     if(request.method==="OPTIONS")return corsResponse(request,new NextResponse(null,{status:204}));
     return corsResponse(request,await dispatch(request,path));
-  }catch(error){return corsResponse(request,jsonError(error));}
+  }catch(error){
+    if(path.join("/")==="webhooks/eventsub"&&error instanceof ApiError){
+      console.warn(JSON.stringify({event:"eventsub_webhook_rejected",status:error.status,code:error.code}));
+    }
+    return corsResponse(request,jsonError(error));
+  }
 }
 
 export const runtime="nodejs";

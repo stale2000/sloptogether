@@ -26,3 +26,53 @@ body { font-family: var(--sans); line-height: 1.55; background: var(--bg); }
 .field input:focus,.field textarea:focus,.field select:focus,.search-box:focus,.prompt-input:focus,.select-input:focus,.text-input:focus { border-color: #9147ff; box-shadow: 0 0 0 2px rgb(145 71 255 / 18%); }
 .vote-window,.free-pill { border-radius: 4px; }
 .support-orbit { display: none; }
+
+/* Moderation is a working queue: readable prompts, clear previews, few labels. */
+.moderation-view { --sans: "Helvetica Neue", Helvetica, Arial, sans-serif; font-family: var(--sans); font-size: 16px; }
+.moderation-view .page-top { padding-top: 26px; }
+.moderation-view .breadcrumbs { font-size: 13px; }
+.moderation-view .page-title-row { margin: 14px 0 24px; align-items: center; }
+.moderation-view .page-title-row h1 { margin: 0; font-size: 30px; line-height: 1.2; letter-spacing: 0; }
+.moderation-view .button.small { font-size: 14px; padding: 9px 13px; }
+.moderation-view .review-list { gap: 10px; margin-top: 12px; }
+.moderation-view .review-card { grid-template-columns: minmax(160px, 220px) minmax(0, 1fr) auto; gap: 20px; padding: 16px; }
+.moderation-view .review-preview { width: 100%; height: auto; aspect-ratio: 16 / 9; }
+.moderation-view .review-detail .review-prompt { margin: 0; font-size: 16px; line-height: 1.5; }
+.moderation-view .review-detail .inline-error, .moderation-view .review-note { margin: 8px 0 0; font-size: 13px; }
+.moderation-view .review-details { margin-top: 8px; color: var(--soft); font-size: 13px; }
+.moderation-view .review-details summary { width: fit-content; cursor: pointer; }
+.moderation-view .review-meta { gap: 6px 14px; margin-top: 8px; font-size: 12px; overflow-wrap: anywhere; }
+.moderation-view .review-actions { flex-wrap: wrap; }
+@media (max-width: 900px) {
+  .moderation-view .review-card { grid-template-columns: minmax(120px, 180px) minmax(0, 1fr); }
+  .moderation-view .review-actions { grid-column: 2; justify-content: flex-start; }
+}
+@media (max-width: 560px) {
+  .moderation-view .page-title-row { align-items: flex-start; }
+  .moderation-view .review-card { grid-template-columns: 1fr; gap: 12px; }
+  .moderation-view .review-actions { grid-column: auto; }
+}
+
+.moderation-view .story-batches { margin: 24px 0; }
+.moderation-view .story-batches h2 { margin: 0 0 12px; font-size: 20px; font-weight: 700; }
+.moderation-view .story-batch + .story-batch { margin-top: 20px; }
+.moderation-view .story-batch-heading { margin-bottom: 8px; color: var(--soft); font-size: 13px; font-weight: 600; }
+.moderation-view .story-batch-items { display: grid; gap: 8px; }
+.moderation-view .story-batch-item { display: grid; grid-template-columns: minmax(120px, 180px) minmax(0, 1fr); gap: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.moderation-view .story-batch-frames { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); align-content: start; gap: 4px; }
+.moderation-view .story-batch-frame { width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 5px; background: #201c2b; }
+.moderation-view .story-batch-frame img { width: 100%; height: 100%; object-fit: cover; }
+.moderation-view .story-batch-copy { min-width: 0; }
+.moderation-view .story-batch-meta { color: var(--soft); font-size: 13px; font-weight: 600; }
+.moderation-view .story-batch-copy p { margin: 6px 0 0; font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.moderation-view .story-batch-copy .story-batch-dialogue, .moderation-view .story-batch-wait { color: var(--soft); font-size: 14px; }
+.moderation-view .story-batch-wait { display: inline-block; margin-top: 6px; }
+@media (max-width: 560px) {
+  .moderation-view .story-batch-item { grid-template-columns: 1fr; gap: 10px; }
+  .moderation-view .story-batch-frame { max-width: 300px; }
+}
+.moderation-view .story-candidate-approval { display: grid; gap: 8px; margin-top: 12px; max-width: 360px; }
+.moderation-view .story-candidate-approval label { display: grid; gap: 5px; color: var(--soft); font-size: 13px; }
+.moderation-view .story-candidate-approval .select-input { font-size: 14px; }
+.moderation-view .story-candidate-approval img { width: min(100%, 200px); height: auto; border-radius: 5px; }
+.moderation-view .story-candidate-buttons { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }

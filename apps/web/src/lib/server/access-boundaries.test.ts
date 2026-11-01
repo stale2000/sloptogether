@@ -186,4 +186,45 @@ describe("channel access boundaries",()=>{
     expect(client.query.mock.calls.find(([sql])=>String(sql).includes("UPDATE sloptogether.job_attempts SET state=$2"))?.[1]).toEqual(["attempt","succeeded",null]);
     expect(client.query.mock.calls.some(([sql])=>String(sql).includes("segment_revisions SET state='ready'")&&String(sql).includes("'selected'"))).toBe(true);
   });
+
+  function subscriberReviewClient(interruptState="rendering",enabled=true,expiresAt=new Date(Date.now()+60_000),interruptId:string|null="interrupt"){
+    const asset={id:"subscriber-video",sha256:Buffer.alloc(32,5),status:"validated",uploaded_by_twitch_user_id:"3",
+      input_screen_id:"screen",effective_state:"clear",stage:"video_base",job_id:"job",attempt_id:"attempt",
+      segment_revision_id:null,segment_id:null,interrupt_id:interruptId,funding_id:null};
+    return {query:vi.fn(async(sql:string)=>{
+      if(sql.includes("FOR UPDATE OF s"))return {rows:[],rowCount:0};
+      if(sql.includes("FROM sloptogether.assets a JOIN sloptogether.job_attempts"))return {rows:[asset],rowCount:1};
+      if(sql.includes("FROM sloptogether.interrupt_requests ir JOIN"))return {rows:[{program_state:interruptState,enabled,expires_at:expiresAt}],rowCount:1};
+      return {rows:[],rowCount:1};
+    })};
+  }
+
+  it.each(["approve","reject"])("allows a reviewer to %s a subscriber clip without a story segment",async decision=>{
+    const client=subscriberReviewClient();
+    mocks.transaction.mockImplementation(async(callback:(value:typeof client)=>Promise<unknown>)=>callback(client));
+    await expect(decideArtifactReview("channel","subscriber-video",request({decision,reason:"Reviewed subscriber clip"})))
+      .resolves.toMatchObject({state:decision==="approve"?"approved":"rejected",publicationPending:decision==="approve"});
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.artifact_approvals"))).toBe(true);
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("UPDATE sloptogether.segment_revisions"))).toBe(false);
+  });
+
+  it.each([
+    {state:"cancelled",enabled:true,expiresAt:new Date(Date.now()+60_000)},
+    {state:"rendering",enabled:false,expiresAt:new Date(Date.now()+60_000)},
+    {state:"rendering",enabled:true,expiresAt:new Date(0)},
+  ])("keeps subscriber eligibility checks when no story segment exists: %j",async({state,enabled,expiresAt})=>{
+    const client=subscriberReviewClient(state,enabled,expiresAt);
+    mocks.transaction.mockImplementation(async(callback:(value:typeof client)=>Promise<unknown>)=>callback(client));
+    await expect(decideArtifactReview("channel","subscriber-video",request({decision:"approve",reason:""})))
+      .rejects.toMatchObject({status:409,code:"subscriber_interrupt_no_longer_eligible"});
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.artifact_approvals"))).toBe(false);
+  });
+
+  it("still rejects an orphaned story artifact without a selected segment",async()=>{
+    const client=subscriberReviewClient("rendering",true,new Date(Date.now()+60_000),null);
+    mocks.transaction.mockImplementation(async(callback:(value:typeof client)=>Promise<unknown>)=>callback(client));
+    await expect(decideArtifactReview("channel","subscriber-video",request({decision:"approve",reason:""})))
+      .rejects.toMatchObject({status:409,code:"artifact_segment_missing"});
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.artifact_approvals"))).toBe(false);
+  });
 });

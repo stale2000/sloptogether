@@ -107,7 +107,7 @@
         {
           "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/README.md",
           "upstream_sha256": "60fbdaf628fef447b32ac095565d8d66eb8d4e3678cec511105a24d81e68ac7d",
-          "patched_sha256": "f12e0e037db46c8c504bf65dc3daae751df5e223fe373861d8be2c8cec6f0859"
+          "patched_sha256": "c5beec262fcd22ef270421bee1aa7e90de69b4d261d5a77ae03d30f884d33bc9"
         },
         {
           "path": "runtime/scripts/assemble_worker_artifact.py",
@@ -165,6 +165,52 @@
       ],
       "qualification": {
         "fal_generation": "not-retested-after-patch"
+      }
+    },
+    {
+      "id": "sloptogether-sol-load-time-fp8-memory-v1",
+      "purpose": "Load Ada FP8 transformer weights through the pinned meta/shard quantizer without a full BF16 transformer first; skip unused checkpoint prefetch and record host memory for qualification without weakening admission.",
+      "files": [
+        {
+          "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/model_runtime.py",
+          "upstream_sha256": "cec9f0e06b9d9db20ea81c81a3a239e5e07a36968d44335bf9473b00241987d3",
+          "patched_sha256": "df4eb5a9b36b0c8e117155715578abc5c4b375078ae06925a5ba5540870e6304"
+        },
+        {
+          "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/worker.py",
+          "upstream_sha256": "5ad6d538617c3b036fcac544d731e2426e5986b8075967f5138deafaefefda9d",
+          "patched_sha256": "6722e9169b604693d6ac3fd42965383c9f3deafff8d1ce07e33372fcf0e91789"
+        },
+        {
+          "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/README.md",
+          "upstream_sha256": "c5beec262fcd22ef270421bee1aa7e90de69b4d261d5a77ae03d30f884d33bc9",
+          "patched_sha256": "0547a4bc0afefedfb73775d534cf1e936cffb06146c6a969150bc6baedfbae1f"
+        },
+        {
+          "path": "runtime/deploy/custom_nodes/comfystream_sol_refiner_h3/fp8_loading.py",
+          "upstream_sha256": null,
+          "patched_sha256": "f818dbd907822c353d71779b360bb2e007ead4368e6b86c096b84202638f02d3"
+        }
+      ],
+      "qualification": {
+        "rtx4090_windows": "not-run",
+        "load_time_fp8": "CPU regression verified; GPU inference and actual RAM reduction not measured",
+        "memory_peak": "sampling-added; no GPU trace collected"
+      }
+    },
+    {
+      "id": "sloptogether-fasth3-trim-download-v1",
+      "purpose": "Download and verify the manifest-pinned Trim checkpoint for both model sets without requiring an unrelated alternate revision for Trim-only workers.",
+      "files": [
+        {
+          "path": "runtime/scripts/download_fasth3_models.sh",
+          "upstream_sha256": "de69921ae7ad0ab5f39c4c8711c13250a05fcb70f2e6fff772e3cc011ff0178b",
+          "patched_sha256": "2f072cd481523208440304425d1e4da030cd9ec3bc7c618fbda15971d8b29bff"
+        }
+      ],
+      "qualification": {
+        "windows": "installer not run on Windows",
+        "download": "offline fake-curl fixtures; no model weights downloaded"
       }
     }
   ]

@@ -11,11 +11,11 @@ import {pool} from "./db";
 import {castBallot} from "./voting-service";
 import {submitProposal} from "./proposal-service";
 import {claimWorkerLease} from "./worker-service";
-import {claimStoryProducer,submitStoryProposal} from "./story-producer-service";
+import {claimStoryProducer,submitStoryProposal} from "./worker-service";
 import {requestPrincipal} from "./principals";
 import * as principalModule from "./principals";
 import {hashWorkerSecret} from "./crypto";
-import {handleEventSubWebhook} from "./eventsub-webhook";
+import {handleEventSubWebhook} from "./subscriber-service";
 import {heartbeatPlayback} from "./program-service";
 import {createComfyFrameGeneration} from "./comfy-frame-service";
 
@@ -82,6 +82,21 @@ integration("Twitch Extension prompt to pull-worker PostgreSQL flow",()=>{
     endAssetId=randomUUID();
     await database.query(`INSERT INTO sloptogether.assets(id,twitch_channel_id,storage_key,sha256,media_kind,content_type,byte_size,status,uploaded_by_twitch_user_id)
       VALUES($1,$2,$3,$4,'image','image/png',$5,'approved',$6)`,[endAssetId,channelId,`private/${channelId}/end.png`,createHash("sha256").update(endImage).digest(),endImage.length,authorId]);
+    const stream=(await database.query<{id:string}>("SELECT id FROM sloptogether.streams WHERE twitch_channel_id=$1 AND is_default",[channelId])).rows[0]!;
+    const branchId=(await database.query<{id:string}>(`SELECT id FROM sloptogether.branches
+      WHERE twitch_channel_id=$1 AND stream_id=$2 AND is_selected AND archived_at IS NULL`,[channelId,stream.id])).rows[0]!.id;
+    const initialBoundaryId=(await database.query<{id:string}>(`INSERT INTO sloptogether.boundary_revisions(twitch_channel_id,asset_id,created_by)
+      VALUES($1,$2,$3) RETURNING id`,[channelId,startAssetId,authorId])).rows[0]!.id;
+    const initialSegmentId=(await database.query<{id:string}>(`SELECT id FROM sloptogether.segments
+      WHERE twitch_channel_id=$1 AND branch_id=$2 AND ordinal=0`,[channelId,branchId])).rows[0]!.id;
+    const initialRevisionId=randomUUID();
+    await database.query(`INSERT INTO sloptogether.segment_revisions(id,segment_id,revision,prompt,start_boundary_revision_id,
+      requested_end_boundary_revision_id,planning_mode,provider_recipe_id,input_sha256,requested_by,state)
+      VALUES($1,$2,1,'Local fixture boundary',$3,$3,'planned_anchors','fast-h3-trim-5step-vsa20-b1',$4,$5,'ready')`,
+      [initialRevisionId,initialSegmentId,initialBoundaryId,Buffer.alloc(32,1),authorId]);
+    await database.query("UPDATE sloptogether.segments SET selected_revision_id=$2 WHERE id=$1",[initialSegmentId,initialRevisionId]);
+    await database.query("UPDATE sloptogether.segments SET state='played' WHERE id=$1",[initialSegmentId]);
+    await database.query("INSERT INTO sloptogether.segments(twitch_channel_id,branch_id,ordinal,state) VALUES($1,$2,1,'open')",[channelId,branchId]);
     preflight.inputAsset.mockImplementation(async(_channel:string,asset:string)=>({assetId:asset,bytes:asset===endAssetId?endImage:startImage,contentType:"image/png"}));
     vi.stubGlobal("fetch",async(input:RequestInfo|URL)=>{
       const url=new URL(String(input));
@@ -139,6 +154,7 @@ integration("Twitch Extension prompt to pull-worker PostgreSQL flow",()=>{
       await database.query("DELETE FROM sloptogether.input_screens WHERE twitch_channel_id=$1",[channelId]);
       await database.query("DELETE FROM sloptogether.comfy_frame_generations WHERE twitch_channel_id=$1",[channelId]);
       await database.query("DELETE FROM sloptogether.funding_authorizations WHERE twitch_channel_id=$1",[channelId]);
+      await database.query("DELETE FROM sloptogether.eventsub_config_fingerprints WHERE twitch_channel_id=$1",[channelId]);
       await database.query("DELETE FROM sloptogether.channels WHERE twitch_channel_id=$1",[channelId]);
     }
     await database?.end();
@@ -151,7 +167,7 @@ integration("Twitch Extension prompt to pull-worker PostgreSQL flow",()=>{
     const voterId=(BigInt(channelId)+2n).toString();
     const prompt="A tiny cartoon astronaut rides a toast slice past the moon and waves.";
     const submission=await submitProposal(channelId,extensionRequest("channels/flow/proposals",authorId,{
-      prompt,imageAssetId:startAssetId,endFrameAssetId:endAssetId,planningMode:"planned_anchors",
+      prompt,endFrameAssetId:endAssetId,planningMode:"planned_anchors",
     }));
     expect(submission).toMatchObject({state:"eligible",screen:"clear",awaitingUpstreamBoundary:false});
     const principal=await requestPrincipal(extensionRequest("channels/flow/elections",voterId,{}));
@@ -159,9 +175,11 @@ integration("Twitch Extension prompt to pull-worker PostgreSQL flow",()=>{
     const ballot=await castBallot(submission.electionId,submission.proposalId,principal!,"extension",undefined,undefined);
     expect(ballot).toMatchObject({state:"recorded",choiceId:submission.proposalId});
     await database!.query("UPDATE sloptogether.channels SET chat_voting_enabled=true WHERE twitch_channel_id=$1",[channelId]);
+    await database!.query(`INSERT INTO sloptogether.eventsub_config_fingerprints(twitch_channel_id,registration_key,config_fingerprint,subscription_ids)
+      VALUES($1,$2,$3,ARRAY['local-chat-subscription'])`,[channelId,`chat:${channelId}`,Buffer.alloc(32,3)]);
     const chatMessageId=`local-chat-vote-${randomUUID()}`;const chatTimestamp=new Date().toISOString();
     const chatBody=Buffer.from(JSON.stringify({subscription:{id:"local-chat-subscription",type:"channel.chat.message",version:"1",
-      condition:{broadcaster_user_id:channelId,user_id:channelId},transport:{method:"webhook"}},event:{broadcaster_user_id:channelId,
+      condition:{broadcaster_user_id:channelId,user_id:channelId},transport:{method:"webhook",callback:"http://localhost:3000/sloptogether/api/v1/webhooks/eventsub"}},event:{broadcaster_user_id:channelId,
       broadcaster_user_login:`flow_${channelId}`,chatter_user_id:(BigInt(channelId)+3n).toString(),chatter_user_login:"chat_voter",
       message_id:chatMessageId,message:{text:"!slop vote 1"}}}));
     const chatSignature=createHmac("sha256",eventSubSecret).update(Buffer.concat([Buffer.from(chatMessageId+chatTimestamp),chatBody])).digest("hex");
@@ -198,8 +216,10 @@ integration("Twitch Extension prompt to pull-worker PostgreSQL flow",()=>{
       granted_scopes,token_expires_at,expires_at) VALUES($1,$2,'local_owner','Local Owner',$3,ARRAY['channel:read:subscriptions'],now()+interval '1 hour',now()+interval '1 hour')`,
       [randomBytes(32),channelId,Buffer.from("local-only-token")]);
     const messageId=`local-sub-${randomUUID()}`;const timestamp=new Date().toISOString();
+    await database!.query(`INSERT INTO sloptogether.eventsub_config_fingerprints(twitch_channel_id,registration_key,config_fingerprint,subscription_ids)
+      VALUES($1,'subscriber-events',$2,ARRAY['local-subscription-flow'])`,[channelId,Buffer.alloc(32,4)]);
     const body=Buffer.from(JSON.stringify({subscription:{id:"local-subscription-flow",type:"channel.subscribe",version:"1",
-      condition:{broadcaster_user_id:channelId},transport:{method:"webhook"}},event:{broadcaster_user_id:channelId,user_id:"987654321",
+      condition:{broadcaster_user_id:channelId},transport:{method:"webhook",callback:"http://localhost:3000/sloptogether/api/v1/webhooks/eventsub"}},event:{broadcaster_user_id:channelId,user_id:"987654321",
       user_login:"local_subscriber",user_name:"Local Subscriber",is_anonymous:false,is_gift:false}}));
     const signature=createHmac("sha256",eventSubSecret).update(Buffer.concat([Buffer.from(messageId+timestamp),body])).digest("hex");
     const eventRequest=new Request("http://127.0.0.1:3000/sloptogether/api/v1/webhooks/eventsub",{method:"POST",body,headers:{

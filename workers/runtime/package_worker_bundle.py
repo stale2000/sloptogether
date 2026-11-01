@@ -9,6 +9,7 @@ from pathlib import Path
 
 FILES = {
     "SlopTogetherWorker.exe": Path("dist/SlopTogetherWorker.exe"),
+    "SlopTogetherWorkerCli.exe": Path("dist/SlopTogetherWorkerCli.exe"),
     "worker.example.toml": Path("dist/worker.example.toml"),
     "worker.wsl.example.toml": Path("dist/worker.wsl.example.toml"),
     "Setup-SlopTogetherWorker.ps1": Path("dist/Setup-SlopTogetherWorker.ps1"),

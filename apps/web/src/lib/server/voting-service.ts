@@ -18,7 +18,9 @@ export async function castBallot(electionId:string,choiceId:string,principal:Req
     if(await isBanned(election.twitch_channel_id,userId,client))throw new ApiError(403,"channel_ban_active");
     const choice=await client.query(
       `SELECT 1 FROM sloptogether.proposals p JOIN sloptogether.input_screens s ON s.id=p.input_screen_id
-       WHERE p.id=$1 AND p.election_id=$2 AND p.state='eligible' AND p.segment_revision_id IS NOT NULL
+       WHERE p.id=$1 AND p.election_id=$2 AND p.state='eligible' AND (p.segment_revision_id IS NOT NULL OR EXISTS(
+         SELECT 1 FROM sloptogether.elections ce JOIN sloptogether.story_batch_items ci ON ci.segment_id=ce.segment_id
+         WHERE ce.id=p.election_id AND ci.state='planned' AND ci.approved_at IS NULL AND ci.rejected_at IS NULL))
          AND s.effective_state='clear' AND (s.expires_at IS NULL OR s.expires_at>now())
        AND NOT EXISTS(SELECT 1 FROM sloptogether.bans b WHERE b.twitch_user_id=p.author_twitch_user_id AND b.revoked_at IS NULL
          AND (b.expires_at IS NULL OR b.expires_at>now()) AND (b.scope='global' OR b.twitch_channel_id=$3))`,[choiceId,electionId,election.twitch_channel_id]);

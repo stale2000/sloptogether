@@ -80,6 +80,7 @@ test("recognizes only current channel upload-bypass grants",()=>{
   const current={uploaded_by_twitch_user_id:"42",owner_twitch_user_id:"1",upload_policy_revision:5,channel_policy_revision:5,
     upload_approval_bypass_ids:["42"],role_based_upload_bypass:[],uploader_is_recent_moderator:false};
   assert.equal(trustedUploaderApprovalPath(current),"trusted_uploader_policy");
+  assert.equal(trustedUploaderApprovalPath({...current,upload_approval_bypass_ids:[],uploaded_by_twitch_user_id:"1"}),"trusted_uploader_policy");
   assert.equal(trustedUploaderApprovalPath({...current,upload_approval_bypass_ids:[],role_based_upload_bypass:["broadcaster"],uploaded_by_twitch_user_id:"1"}),"trusted_uploader_policy");
   assert.equal(trustedUploaderApprovalPath({...current,upload_approval_bypass_ids:[],role_based_upload_bypass:["moderator"],uploader_is_recent_moderator:true}),"trusted_uploader_policy");
   assert.equal(trustedUploaderApprovalPath({...current,channel_policy_revision:6}),null);

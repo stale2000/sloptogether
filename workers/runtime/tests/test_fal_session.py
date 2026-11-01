@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from queue import SimpleQueue
 from unittest import skipIf
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from sloptogether_worker.fal_session import FalSessionError, _STOP, _heartbeat, run_session
 from threading import Event, Thread
@@ -17,6 +17,9 @@ from threading import Event, Thread
 
 @skipIf(os.name == "nt", "Fal CLI session controller targets Linux/macOS operator hosts")
 class FalSessionTests(unittest.TestCase):
+    def tearDown(self):
+        _STOP.clear()
+
     def _fake_fal(self, root: Path) -> tuple[Path, Path, Path]:
         state = root / "state.json"
         calls = root / "calls.jsonl"
@@ -84,6 +87,41 @@ class FalSessionTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2)
 
+    def test_generation_only_session_does_not_start_or_ping_upscale_app(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            fal,state,calls=self._fake_fal(root)
+            authorization_headers=[]
+
+            class Handler(BaseHTTPRequestHandler):
+                def do_GET(self):
+                    authorization_headers.append(self.headers.get("authorization"))
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"{}")
+
+                def log_message(self,*_args):
+                    pass
+
+            server=ThreadingHTTPServer(("127.0.0.1",0),Handler)
+            thread=threading.Thread(target=server.serve_forever,daemon=True)
+            thread.start()
+            try:
+                generation_url=f"http://127.0.0.1:{server.server_port}/generation"
+                with patch.dict(os.environ,{"FAL_TEST_STATE":str(state),"FAL_TEST_CALLS":str(calls)}):
+                    run_session("slop-generation",None,generation_url=generation_url,upscale_url=None,
+                        fal_key="dummy-fal-key-for-test",fal_cli=str(fal),runtime_seconds=1)
+                self.assertEqual(json.loads(state.read_text()),{"slop-generation":[]})
+                self.assertEqual(authorization_headers,["Key dummy-fal-key-for-test"])
+                commands=[json.loads(line) for line in calls.read_text().splitlines()]
+                apps={args[2] for args in commands if args[:2]==["apps","scale"]}
+                self.assertEqual(apps,{"slop-generation"})
+                self.assertIn(["runners","stop","runner-slop-generation"],commands)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
     def test_failed_second_start_scales_the_first_role_back_down(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -135,6 +173,118 @@ class FalSessionTests(unittest.TestCase):
         with self.assertRaisesRegex(FalSessionError, "2_hours"):
             run_session("generation", "upscale", generation_url="https://fal.run/test/gen",
                         upscale_url="https://fal.run/test/up", fal_key="dummy-key", runtime_seconds=7201)
+
+    def test_backwards_wall_clock_change_cannot_extend_session(self):
+        # A clock correction must not turn a one-second session into an
+        # indefinitely billed session. Always release the thread on failure.
+        _STOP.clear()
+        failures: list[BaseException] = []
+        def execute():
+            try:
+                run_session("generation", None, generation_url="https://fal.run/test/generation",
+                            upscale_url=None, fal_key="dummy-key", runtime_seconds=1)
+            except BaseException as error:
+                failures.append(error)
+        with patch("sloptogether_worker.fal_session.time.time", side_effect=[100.0] + [-10000.0] * 10000), \
+                patch("sloptogether_worker.fal_session._command", return_value=""), \
+                patch("sloptogether_worker.fal_session._scale_down") as shutdown, \
+                patch("sloptogether_worker.fal_session._ping_endpoint"):
+            thread = Thread(target=execute, daemon=True)
+            thread.start()
+            thread.join(timeout=2.5)
+            still_running = thread.is_alive()
+            if still_running:
+                _STOP.set()
+                thread.join(timeout=2)
+            self.assertFalse(still_running, "wall-clock correction extended the active session")
+            self.assertEqual(failures, [])
+            shutdown.assert_called_once_with(("generation",), "fal")
+        _STOP.clear()
+
+    def test_expired_startup_does_not_scale_or_wake_the_second_app(self):
+        calls: list[list[str]] = []
+        def slow_scale(args: list[str], **_kwargs):
+            calls.append(args)
+            threading.Event().wait(1.1)
+            return ""
+        with patch("sloptogether_worker.fal_session._command", side_effect=slow_scale), \
+                patch("sloptogether_worker.fal_session._scale_down") as shutdown, \
+                patch("sloptogether_worker.fal_session._ping_endpoint") as ping:
+            with self.assertRaisesRegex(FalSessionError, "wake_deadline_exceeded"):
+                run_session("generation", "upscale", generation_url="https://fal.run/test/generation",
+                            upscale_url="https://fal.run/test/upscale", fal_key="dummy-key", runtime_seconds=1)
+        self.assertEqual([call[3] for call in calls], ["generation"])
+        ping.assert_not_called()
+        shutdown.assert_called_once_with(("generation",), "fal")
+
+    def test_wall_clock_deadline_stops_after_a_suspended_operator_host(self):
+        # Some monotonic clocks do not advance while a machine is asleep. A
+        # wall-clock deadline provides a second, conservative cutoff.
+        with patch("sloptogether_worker.fal_session.time.time", side_effect=[1000.0, 1002.0]), \
+                patch("sloptogether_worker.fal_session._command") as command, \
+                patch("sloptogether_worker.fal_session._scale_down") as shutdown, \
+                patch("sloptogether_worker.fal_session._ping_endpoint") as ping:
+            with self.assertRaisesRegex(FalSessionError, "wake_deadline_exceeded"):
+                run_session("generation", None, generation_url="https://fal.run/test/generation",
+                            upscale_url=None, fal_key="dummy-key", runtime_seconds=1)
+        command.assert_not_called()
+        ping.assert_not_called()
+        shutdown.assert_called_once_with((), "fal")
+
+    def test_two_hour_session_reserves_five_minutes_for_shutdown(self):
+        monotonic_values = iter([0.0, 6900.0])
+        with patch("sloptogether_worker.fal_session.time.monotonic", side_effect=lambda: next(monotonic_values)), \
+                patch("sloptogether_worker.fal_session.time.time", return_value=1000.0), \
+                patch("sloptogether_worker.fal_session._command", side_effect=AssertionError("unexpected scale")), \
+                patch("sloptogether_worker.fal_session._scale_down") as shutdown:
+            with self.assertRaisesRegex(FalSessionError, "wake_deadline_exceeded"):
+                run_session("generation", None, generation_url="https://fal.run/test/generation",
+                            upscale_url=None, fal_key="dummy-key", runtime_seconds=7200)
+        shutdown.assert_called_once_with((), "fal")
+
+    def test_stop_during_first_scale_does_not_start_second_app(self):
+        calls: list[list[str]] = []
+        _STOP.clear()
+        def stop_on_scale(args: list[str], **_kwargs):
+            calls.append(args)
+            _STOP.set()
+            return ""
+        try:
+            with patch("sloptogether_worker.fal_session._command", side_effect=stop_on_scale), \
+                    patch("sloptogether_worker.fal_session._scale_down") as shutdown, \
+                    patch("sloptogether_worker.fal_session._ping_endpoint") as ping:
+                with self.assertRaisesRegex(FalSessionError, "stopped_during_startup"):
+                    run_session("generation", "upscale", generation_url="https://fal.run/test/generation",
+                                upscale_url="https://fal.run/test/upscale", fal_key="dummy-key", runtime_seconds=30)
+            self.assertEqual([call[3] for call in calls], ["generation"])
+            ping.assert_not_called()
+            shutdown.assert_called_once_with(("generation",), "fal")
+        finally:
+            _STOP.clear()
+
+    def test_stop_between_heartbeat_starts_does_not_wake_second_app(self):
+        _STOP.clear()
+        def first_thread_start():
+            _STOP.set()
+        thread = Mock()
+        thread.start.side_effect = first_thread_start
+        try:
+            with patch("sloptogether_worker.fal_session._command", return_value=""), \
+                    patch("sloptogether_worker.fal_session._scale_down") as shutdown, \
+                    patch("sloptogether_worker.fal_session.Thread", return_value=thread) as create_thread:
+                with self.assertRaisesRegex(FalSessionError, "stopped_during_startup"):
+                    run_session("generation", "upscale", generation_url="https://fal.run/test/generation",
+                                upscale_url="https://fal.run/test/upscale", fal_key="dummy-key", runtime_seconds=30)
+            self.assertEqual(create_thread.call_count, 1)
+            shutdown.assert_called_once_with(("generation", "upscale"), "fal")
+        finally:
+            _STOP.clear()
+
+    def test_scale_command_is_bounded_by_time_remaining(self):
+        with patch("sloptogether_worker.fal_session.subprocess.run", return_value=Mock(stdout="")) as run:
+            from sloptogether_worker.fal_session import _command
+            _command(["fal", "apps", "scale", "generation"], timeout_seconds=0.5)
+        self.assertEqual(run.call_args.kwargs["timeout"], 0.5)
 
     def test_controller_repeats_wake_ping_while_session_is_alive(self):
         stop = Event()

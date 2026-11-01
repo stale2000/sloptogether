@@ -17,11 +17,18 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 MAX_SESSION_SECONDS = 2 * 60 * 60
+MAX_SHUTDOWN_RESERVE_SECONDS = 5 * 60
 _STOP = Event()
 
 
 class FalSessionError(RuntimeError):
     pass
+
+
+def _session_time_remaining(monotonic_deadline: float, wall_deadline: float) -> float:
+    # Monotonic time resists wall-clock rollback; wall time covers systems
+    # whose monotonic clock pauses while the operator host is suspended.
+    return min(monotonic_deadline - time.monotonic(), wall_deadline - time.time())
 
 
 def _endpoint_url(value: str) -> str:
@@ -68,9 +75,9 @@ def _heartbeat(app: str, url: str, fal_key: str, interval: float, stop: Event, f
             return
 
 
-def _command(args: list[str]) -> str:
+def _command(args: list[str], *, timeout_seconds: float = 60) -> str:
     try:
-        result = subprocess.run(args, check=True, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(args, check=True, capture_output=True, text=True, timeout=timeout_seconds)
     except (OSError, subprocess.SubprocessError) as error:
         raise FalSessionError(f"fal_command_failed:{args[1] if len(args) > 1 else 'unknown'}") from error
     return result.stdout
@@ -138,16 +145,20 @@ def _scale_down(apps: tuple[str, ...], fal_cli: str) -> None:
 
 def run_session(
     generation_app: str,
-    upscale_app: str,
+    upscale_app: str | None,
     *,
     generation_url: str,
-    upscale_url: str,
+    upscale_url: str | None,
     fal_key: str,
     fal_cli: str = "fal",
     runtime_seconds: int = MAX_SESSION_SECONDS,
     heartbeat_seconds: int = 20,
 ) -> None:
-    if not generation_app or not upscale_app or generation_app == upscale_app:
+    if not generation_app:
+        raise FalSessionError("fal_generation_app_required")
+    if (upscale_app is None) != (upscale_url is None):
+        raise FalSessionError("fal_upscale_app_url_pair_required")
+    if upscale_app and generation_app == upscale_app:
         raise FalSessionError("fal_apps_must_be_distinct")
     if type(runtime_seconds) is not int or not 1 <= runtime_seconds <= MAX_SESSION_SECONDS:
         raise FalSessionError("fal_session_runtime_must_be_between_1_second_and_2_hours")
@@ -155,8 +166,8 @@ def run_session(
         raise FalSessionError("fal_heartbeat_must_be_between_5_and_45_seconds")
     if not fal_key or len(fal_key) > 8192 or any(character.isspace() for character in fal_key):
         raise FalSessionError("fal_key_required")
-    urls = (_endpoint_url(generation_url), _endpoint_url(upscale_url))
-    apps = (generation_app, upscale_app)
+    apps = (generation_app, upscale_app) if upscale_app else (generation_app,)
+    urls = (_endpoint_url(generation_url), _endpoint_url(upscale_url)) if upscale_url else (_endpoint_url(generation_url),)
     for app, url in zip(apps, urls, strict=True):
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", app):
             raise FalSessionError("fal_app_name_invalid")
@@ -164,7 +175,13 @@ def run_session(
         if parsed.hostname == "fal.run" and parsed.path.split("/")[-1] != app:
             raise FalSessionError("fal_app_url_mismatch")
     started: list[str] = []
-    deadline = time.time() + runtime_seconds
+    # Begin provider teardown before the absolute limit. Short smoke tests
+    # retain at least 90% of their requested time; long sessions reserve at most
+    # five minutes. Provider/network failure can still delay physical shutdown.
+    shutdown_reserve = min(MAX_SHUTDOWN_RESERVE_SECONDS, runtime_seconds // 10)
+    active_seconds = runtime_seconds - shutdown_reserve
+    deadline = time.monotonic() + active_seconds
+    displayed_deadline = time.time() + active_seconds
     primary_error: BaseException | None = None
     heartbeat_stop = Event()
     heartbeat_failures: SimpleQueue[str] = SimpleQueue()
@@ -172,13 +189,28 @@ def run_session(
     ready_events = {app: Event() for app in apps}
     try:
         for app in apps:
+            if _STOP.is_set():
+                raise FalSessionError("fal_session_stopped_during_startup")
+            remaining = _session_time_remaining(deadline, displayed_deadline)
+            if remaining <= 0:
+                raise FalSessionError("fal_worker_wake_deadline_exceeded")
             started.append(app)
-            _command([fal_cli, "apps", "scale", app, "--min-concurrency", "0", "--max-concurrency", "1", "--keep-alive", "60"])
+            _command([fal_cli, "apps", "scale", app, "--min-concurrency", "0", "--max-concurrency", "1", "--keep-alive", "60"],
+                     timeout_seconds=min(60, remaining))
+        if _STOP.is_set():
+            raise FalSessionError("fal_session_stopped_during_startup")
+        if _session_time_remaining(deadline, displayed_deadline) <= 0:
+            raise FalSessionError("fal_worker_wake_deadline_exceeded")
         for app, url in zip(apps, urls, strict=True):
+            if _STOP.is_set():
+                raise FalSessionError("fal_session_stopped_during_startup")
+            if _session_time_remaining(deadline, displayed_deadline) <= 0:
+                raise FalSessionError("fal_worker_wake_deadline_exceeded")
             thread = Thread(target=_heartbeat, args=(app, url, fal_key, heartbeat_seconds, heartbeat_stop, heartbeat_failures, ready_events[app]), daemon=True)
             heartbeat_threads.append(thread)
             thread.start()
-        print("Fal apps launched; waiting for generation and upscale to wake.", flush=True)
+        roles = "generation and upscale" if upscale_app else "generation"
+        print(f"Fal app launched; waiting for {roles} worker to wake.", flush=True)
         while not all(event.is_set() for event in ready_events.values()):
             if _STOP.is_set():
                 raise FalSessionError("fal_session_stopped_during_startup")
@@ -188,15 +220,15 @@ def run_session(
                 failed_app=None
             if failed_app:
                 raise FalSessionError(f"fal_worker_wake_failed:{failed_app}")
-            remaining=deadline-time.time()
+            remaining=_session_time_remaining(deadline, displayed_deadline)
             if remaining<=0:
                 raise FalSessionError("fal_worker_wake_deadline_exceeded")
             for event in ready_events.values():
                 if not event.is_set():
                     event.wait(min(0.1,remaining))
-        print(f"Both Fal workers are awake until {datetime.fromtimestamp(deadline, timezone.utc).isoformat()} or session stop.", flush=True)
+        print(f"Selected Fal worker(s) are awake until {datetime.fromtimestamp(displayed_deadline, timezone.utc).isoformat()} or session stop.", flush=True)
         while not _STOP.is_set():
-            remaining = deadline - time.time()
+            remaining = _session_time_remaining(deadline, displayed_deadline)
             if remaining <= 0:
                 break
             _STOP.wait(min(1, remaining))
@@ -222,12 +254,17 @@ def run_session(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run two private SlopTogether Fal workers for at most two hours.")
     parser.add_argument("generation_app", help="Isolated generation app alias")
-    parser.add_argument("upscale_app", help="Isolated upscale app alias")
+    parser.add_argument("upscale_app", nargs="?", help="Optional isolated upscale app alias")
     parser.add_argument("--generation-url", required=True, help="Private generation endpoint URL")
-    parser.add_argument("--upscale-url", required=True, help="Private upscale endpoint URL")
+    parser.add_argument("--upscale-url", help="Private upscale endpoint URL; requires upscale_app")
+    parser.add_argument("--generation-only", action="store_true", help="Start only the generation app for tests that do not need upscale")
     parser.add_argument("--runtime-seconds", type=int, default=MAX_SESSION_SECONDS, help="Maximum active GPU session, up to 7200 seconds")
     parser.add_argument("--fal-cli", default="fal", help="Fal CLI executable")
     args = parser.parse_args(argv)
+    if args.generation_only and (args.upscale_app or args.upscale_url):
+        parser.error("--generation-only cannot be combined with upscale_app or --upscale-url")
+    if not args.generation_only and (not args.upscale_app or not args.upscale_url):
+        parser.error("upscale_app and --upscale-url are required unless --generation-only is used")
     fal_key = os.environ.get("FAL_KEY", "")
     _STOP.clear()
     handlers: dict[int, signal.Handlers] = {}
@@ -235,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
         if number not in handlers:
             handlers[number] = signal.signal(number, lambda _number, _frame: _STOP.set())
     try:
-        run_session(args.generation_app, args.upscale_app, generation_url=args.generation_url,
+        run_session(args.generation_app, None if args.generation_only else args.upscale_app, generation_url=args.generation_url,
                     upscale_url=args.upscale_url, fal_key=fal_key, fal_cli=args.fal_cli,
                     runtime_seconds=args.runtime_seconds)
         return 0

@@ -1,8 +1,11 @@
 import { createHmac,randomBytes,randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { createServer } from "node:http";
+import { promisify } from "node:util";
 import { afterAll,beforeAll,describe,expect,it,vi } from "vitest";
 import { lifecyclePool,pool,transaction } from "./db";
 import { persistSubscriberSettings } from "./subscriber-service";
-import { handleEventSubWebhook } from "./eventsub-webhook";
+import { handleEventSubWebhook } from "./subscriber-service";
 import { isSafeTrustedPolicyAudit } from "./trusted-policy";
 
 vi.mock("server-only",()=>({}));
@@ -13,13 +16,14 @@ const channelId=String(800000000000000n+BigInt(`0x${randomBytes(4).toString("hex
 const ownerId=channelId;
 const secret="local-policy-eventsub-test-secret";
 const keyId=randomUUID();
-const settings={enabled:true,newSubscriptions:true,resubscriptionMessages:false,giftMode:"off",minimumGapSeconds:60,eventMaxAgeSeconds:180,hourlySpendCapUsd:1,fallback:"skip"} as const;
+const settings={enabled:true,eventSubListening:false,newSubscriptions:true,resubscriptionMessages:false,giftMode:"off",minimumGapSeconds:60,eventMaxAgeSeconds:180,hourlySpendCapUsd:1,fallback:"skip"} as const;
+const runCli=promisify(execFile);
 let created=false;
 
 function revocation(messageId:string,type:"channel.subscribe"|"channel.chat.message",subscriptionId:string){
   const timestamp=new Date().toISOString();
   const condition=type==="channel.chat.message"?{broadcaster_user_id:channelId,user_id:ownerId}:{broadcaster_user_id:channelId};
-  const body=JSON.stringify({subscription:{id:subscriptionId,type,version:"1",status:"authorization_revoked",condition,transport:{method:"webhook"}}});
+  const body=JSON.stringify({subscription:{id:subscriptionId,type,version:"1",status:"authorization_revoked",condition,transport:{method:"webhook",callback:"http://127.0.0.1:3000/sloptogether/api/v1/webhooks/eventsub"}}});
   const signature=createHmac("sha256",secret).update(messageId+timestamp).update(body).digest("hex");
   return new Request("http://127.0.0.1:3000/sloptogether/api/v1/webhooks/eventsub",{method:"POST",headers:{
     "Content-Type":"application/json","Twitch-Eventsub-Message-Id":messageId,"Twitch-Eventsub-Message-Timestamp":timestamp,
@@ -30,7 +34,7 @@ function revocation(messageId:string,type:"channel.subscribe"|"channel.chat.mess
 function signedSubscribe(messageId:string){
   const timestamp=new Date().toISOString();
   const event={broadcaster_user_id:channelId,user_id:"9001",user_login:"viewer_9001",user_name:"Local Viewer",is_anonymous:false,is_gift:false};
-  const body=Buffer.from(JSON.stringify({subscription:{id:"local-subscription",type:"channel.subscribe",version:"1",condition:{broadcaster_user_id:channelId},transport:{method:"webhook"}},event}));
+  const body=Buffer.from(JSON.stringify({subscription:{id:"local-subscription",type:"channel.subscribe",version:"1",condition:{broadcaster_user_id:channelId},transport:{method:"webhook",callback:"http://127.0.0.1:3000/sloptogether/api/v1/webhooks/eventsub"}},event}));
   const signature=createHmac("sha256",secret).update(Buffer.concat([Buffer.from(messageId+timestamp),body])).digest("hex");
   return new Request("http://127.0.0.1:3000/sloptogether/api/v1/webhooks/eventsub",{method:"POST",body,headers:{
     "Content-Type":"application/json","Twitch-Eventsub-Message-Id":messageId,"Twitch-Eventsub-Message-Timestamp":timestamp,
@@ -43,7 +47,7 @@ testDatabase("subscriber trust policy PostgreSQL integration",()=>{
     const parsed=new URL(url!);
     if(!["localhost","127.0.0.1","::1"].includes(parsed.hostname)||!parsed.pathname.startsWith("/sloptogether_preair_test_"))
       throw new Error("policy_test_requires_isolated_loopback_database");
-    vi.stubEnv("DATABASE_URL",url!);vi.stubEnv("SLOPTOGETHER_DATABASE_SSL_CA","");vi.stubEnv("TWITCH_EVENTSUB_SECRET",secret);
+    vi.stubEnv("DATABASE_URL",url!);vi.stubEnv("SLOPTOGETHER_DATABASE_SSL_CA","");vi.stubEnv("TWITCH_EVENTSUB_SECRET",secret);vi.stubEnv("PUBLIC_APP_URL","http://127.0.0.1:3000/sloptogether");
     vi.stubEnv("SLOPTOGETHER_SUBSCRIBER_ATTEMPT_RESERVATION_USD","0.25");
     await pool().query("INSERT INTO sloptogether.channels(twitch_channel_id,owner_twitch_user_id,twitch_login,display_name,chat_voting_enabled,owner_budget_cap_usd) VALUES($1,$1,$2,'Policy integration',true,10)",[channelId,`policy_${channelId}`]);
     created=true;
@@ -123,6 +127,8 @@ testDatabase("subscriber trust policy PostgreSQL integration",()=>{
 
   it("admits one signed subscription into the durable 10-second interrupt queue",async()=>{
     vi.stubEnv("SLOPTOGETHER_SUBSCRIBER_ATTEMPT_RESERVATION_USD","0.25");
+    await pool().query(`INSERT INTO sloptogether.eventsub_config_fingerprints(twitch_channel_id,registration_key,config_fingerprint,subscription_ids)
+      VALUES($1,'subscriber-events',$2,ARRAY['local-subscription'])`,[channelId,randomBytes(32)]);
     await pool().query("UPDATE sloptogether.channels SET subscriber_interrupt_policy=$2::jsonb,owner_budget_cap_usd=10 WHERE twitch_channel_id=$1",
       [channelId,JSON.stringify(settings)]);
     const request=signedSubscribe(`local-eventsub-${randomUUID()}`);
@@ -139,6 +145,59 @@ testDatabase("subscriber trust policy PostgreSQL integration",()=>{
     const outbox=await pool().query("SELECT 1 FROM sloptogether.outbox WHERE event_kind='subscriber_interrupt.plan' AND aggregate_id=$1",[event.rows[0]!.interrupt_id]);
     expect(outbox.rowCount).toBe(1);
     expect((await pool().query("SELECT 1 FROM sloptogether.subscription_events WHERE broadcaster_twitch_id=$1",[channelId])).rowCount).toBe(1);
+    await pool().query("DELETE FROM sloptogether.eventsub_config_fingerprints WHERE twitch_channel_id=$1 AND registration_key='subscriber-events'",[channelId]);
+  },20_000);
+
+  it.skipIf(!process.env.SLOPTOGETHER_TWITCH_CLI)("accepts and deduplicates an official Twitch CLI mock subscription",async()=>{
+    const subscriptionId=`cli-test-${randomUUID()}`;
+    const messageId=`cli-message-${randomUUID()}`;
+    const responses:number[]=[];
+    const errors:string[]=[];
+    let callback="";
+    const server=createServer(async(req,res)=>{
+      try{
+        const chunks:Buffer[]=[];
+        for await(const chunk of req) chunks.push(Buffer.from(chunk));
+        const headers=new Headers();
+        for(const [key,value] of Object.entries(req.headers)) if(typeof value==="string") headers.set(key,value);
+        const response=await handleEventSubWebhook(new Request(callback,{method:"POST",headers,body:Buffer.concat(chunks)}));
+        responses.push(response.status);
+        res.writeHead(response.status,Object.fromEntries(response.headers));res.end(Buffer.from(await response.arrayBuffer()));
+      }catch(error){
+        const status=typeof error==="object"&&error!==null&&"status" in error?Number(error.status):500;
+        responses.push(status);errors.push(String(error));res.writeHead(status);res.end();
+      }
+    });
+    await new Promise<void>(resolve=>server.listen(0,"127.0.0.1",resolve));
+    const address=server.address();
+    if(!address||typeof address==="string") throw new Error("mock_webhook_server_unavailable");
+    callback=`http://127.0.0.1:${address.port}/eventsub`;
+    vi.stubEnv("TWITCH_EVENTSUB_CALLBACK_URL",callback);
+    try{
+      await pool().query(`INSERT INTO sloptogether.eventsub_config_fingerprints(twitch_channel_id,registration_key,config_fingerprint,subscription_ids)
+        VALUES($1,'subscriber-events',$2,ARRAY[$3]) ON CONFLICT(twitch_channel_id,registration_key) DO UPDATE SET subscription_ids=EXCLUDED.subscription_ids`,[channelId,randomBytes(32),subscriptionId]);
+      await pool().query("UPDATE sloptogether.channels SET subscriber_interrupt_policy=$2::jsonb,owner_budget_cap_usd=10 WHERE twitch_channel_id=$1",[channelId,JSON.stringify({...settings,minimumGapSeconds:0})]);
+      const args=["event","trigger","subscribe","--no-config","--to-user",channelId,"--from-user","9001","--subscription-id",subscriptionId,"--event-id",messageId,"--forward-address",callback,"--secret",secret];
+      try {
+        await runCli(process.env.SLOPTOGETHER_TWITCH_CLI!,["event","verify-subscription","subscribe","--no-config","--broadcaster",channelId,"--subscription-id",subscriptionId,"--forward-address",callback,"--secret",secret]);
+        // CLI notifications use the literal callback "null" even when forwarded.
+        vi.stubEnv("TWITCH_EVENTSUB_CALLBACK_URL","null");
+        await runCli(process.env.SLOPTOGETHER_TWITCH_CLI!,args);
+        await runCli(process.env.SLOPTOGETHER_TWITCH_CLI!,args);
+        await runCli(process.env.SLOPTOGETHER_TWITCH_CLI!,[...args.slice(0,-1),"wrong-local-test-secret"]);
+      }
+      catch(error) { throw new Error(`Twitch CLI failed; responses=${responses.join(",")}; errors=${errors.join(",")}`,{cause:error}); }
+      expect({responses,errors}).toEqual({responses:[200,204,204,403],errors:["ApiError: eventsub_signature_invalid"]});
+      const result=await pool().query<{state:string;interrupt_id:string}>("SELECT state,interrupt_id FROM sloptogether.subscription_events WHERE broadcaster_twitch_id=$1 AND twitch_message_id=$2",[channelId,messageId]);
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0]).toMatchObject({state:"queued"});
+      const interrupt=await pool().query<{plan_payload:Record<string,unknown>}>("SELECT plan_payload FROM sloptogether.interrupt_requests WHERE id=$1",[result.rows[0]!.interrupt_id]);
+      expect(interrupt.rows[0]?.plan_payload).toMatchObject({durationSeconds:10,frameCount:243,requireAudio:true});
+    }finally{
+      delete process.env.TWITCH_EVENTSUB_CALLBACK_URL;
+      await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));
+      await pool().query("DELETE FROM sloptogether.eventsub_config_fingerprints WHERE twitch_channel_id=$1 AND registration_key='subscriber-events'",[channelId]);
+    }
   },20_000);
 
   it("does not fence trust for a superseded EventSub registration",async()=>{
@@ -178,5 +237,18 @@ testDatabase("subscriber trust policy PostgreSQL integration",()=>{
     expect(result.rows[0]).toEqual({channel_revision:6,binding_revision:3,chat_voting_enabled:false});
     const audit=await pool().query<{policy_revision:number}>("SELECT policy_revision FROM sloptogether.audit_log WHERE twitch_channel_id=$1 AND action='eventsub.revoked' AND target_id='chat-policy'",[channelId]);
     expect(audit.rows[0]?.policy_revision).toBe(6);
+  },20_000);
+
+  it("registers subscription listening without enabling or reserving generated clips",async()=>{
+    await pool().query("UPDATE sloptogether.channels SET owner_budget_cap_usd=0 WHERE twitch_channel_id=$1",[channelId]);
+    const before=await pool().query<{count:string}>("SELECT count(*)::text AS count FROM sloptogether.funding_authorizations WHERE twitch_channel_id=$1",[channelId]);
+    await transaction(client=>persistSubscriberSettings(client,channelId,ownerId,{...settings,enabled:false,eventSubListening:true,hourlySpendCapUsd:0}));
+    const saved=await pool().query<{enabled:boolean;event_sub_listening:boolean}>(`SELECT
+      (subscriber_interrupt_policy->>'enabled')::boolean AS enabled,
+      (subscriber_interrupt_policy->>'eventSubListening')::boolean AS event_sub_listening
+      FROM sloptogether.channels WHERE twitch_channel_id=$1`,[channelId]);
+    const after=await pool().query<{count:string}>("SELECT count(*)::text AS count FROM sloptogether.funding_authorizations WHERE twitch_channel_id=$1",[channelId]);
+    expect(saved.rows[0]).toEqual({enabled:false,event_sub_listening:true});
+    expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
   },20_000);
 });

@@ -30,7 +30,13 @@ class Element {
   click() { this.handlers.click?.(); }
 }
 
-function panelHarness({ proposalResponse = { ok:true, json:async()=>({state:"eligible"}) }, streams = [{ slug:"main", displayName:"Main stream", isDefault:true }], streamsByToken = null } = {}) {
+function panelHarness({ proposalResponse = { ok:true, json:async()=>({state:"eligible"}) }, promptLockState = {enabled:false,products:[],proposals:[]},
+  promptLockIntentResponse = {ok:true,json:async()=>({intentId:"prompt-intent",proposalId:"choice-one",streamSlug:"main"})},
+  receiptResponse = {ok:true,json:async()=>({accepted:true,actionKind:"prompt_lock",state:"receipt_seen"})},
+  intentStatusResponse = {ok:true,json:async()=>({actionKind:"prompt_lock",state:"reserved",expiresAt:"2026-10-27T14:00:00Z",transactionReceived:true})},
+  bitsProducts = [{ sku:"turbo", cost:{type:"bits",amount:"100"}, inDevelopment:false }],
+  streams = [{ slug:"main", displayName:"Main stream", isDefault:true }], streamsByToken = null,
+  stateResponse = null } = {}) {
   const elements = new Map();
   const getElementById = id => {
     if (!elements.has(id)) elements.set(id, new Element());
@@ -39,11 +45,14 @@ function panelHarness({ proposalResponse = { ok:true, json:async()=>({state:"eli
   let onAuthorized;
   let onVisibilityChanged;
   let bitsCatalogReads = 0;
+  let usedBitsSku = null;
+  let transactionComplete;
   const calls = [];
   const ext = {
     viewer: { isLinked: true, id: "viewer-one" },
     features: { isBitsEnabled: true },
-    bits: { getProducts() { bitsCatalogReads++; return Promise.resolve([{ sku:"turbo", cost:{type:"bits",amount:"100"}, inDevelopment:false }]); }, onTransactionComplete() {}, onTransactionCancelled() {} },
+    bits: { getProducts() { bitsCatalogReads++; return Promise.resolve(bitsProducts); }, useBits(sku){usedBitsSku=sku;},
+      onTransactionComplete(callback) { transactionComplete=callback; }, onTransactionCancelled() {} },
     onAuthorized(callback) { onAuthorized = callback; },
     onContext() {},
     onVisibilityChanged(callback) { onVisibilityChanged = callback; },
@@ -55,6 +64,7 @@ function panelHarness({ proposalResponse = { ok:true, json:async()=>({state:"eli
   const fetch = (url, options = {}) => {
     calls.push({ url, options });
     if (url.startsWith("https://www.clips.gg/sloptogether/api/v1/extension/state?stream=")) {
+      if(stateResponse)return stateResponse(url,options);
       const stream = new URL(url).searchParams.get("stream");
       const availableStreams=streamsByToken?.[options.headers?.["x-extension-jwt"]]??streams;
       if(!availableStreams.some(item=>item.slug===stream))return Promise.resolve({ok:false,json:async()=>({message:"Stream not found."})});
@@ -63,7 +73,11 @@ function panelHarness({ proposalResponse = { ok:true, json:async()=>({state:"eli
         activeElection: stream === "late-night" ? otherElection : election, canSubmitPrompts: true,
       }) });
     }
-    if (url.endsWith("/extension/bits/prompt-queue")) return Promise.resolve({ ok:true, json:async()=>({ enabled:false, products:[] }) });
+    if (url.startsWith("https://www.clips.gg/sloptogether/api/v1/extension/bits/prompt-lock/state?stream="))
+      return Promise.resolve({ok:true,json:async()=>promptLockState});
+    if (url.endsWith("/extension/bits/prompt-lock/intents")) return Promise.resolve(promptLockIntentResponse);
+    if (url.endsWith("/extension/bits/receipt")) return Promise.resolve(receiptResponse);
+    if (/\/extension\/bits\/intents\/[^/]+$/.test(url)) return Promise.resolve(intentStatusResponse);
     if (/\/proposals$/.test(url)) return Promise.resolve(proposalResponse);
     if (url.endsWith("/ballots")) {
       ballotSignal = options.signal;
@@ -82,9 +96,11 @@ function panelHarness({ proposalResponse = { ok:true, json:async()=>({state:"eli
     sessionStorage: { getItem: () => null, removeItem() {} },
   };
   const source = panelSource
-    .replace('import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";', 'const bitsOutcome = () => ({}); const isLateReceiptGracePending = () => false;');
+    .replace('import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from "./bits-state.mjs";', 'const bitsOutcome = () => ({}); const isLateReceiptGracePending = () => false; const promptLockBitsOutcome = () => ({pending:false,error:false,text:"Prompt locked."});');
   vm.runInNewContext(source, { window, document: { getElementById, createElement: () => new Element(), documentElement: { dataset: {} } }, fetch, AbortController, Date, Number, Boolean, String, Array, Math, Error, encodeURIComponent });
-  return { elements, ext, calls, get bitsCatalogReads() { return bitsCatalogReads; }, authorize: auth => onAuthorized(auth), show: () => onVisibilityChanged(true), get ballotSignal() { return ballotSignal; }, completeBallot: () => completeBallot() };
+  return { elements, ext, calls, get bitsCatalogReads() { return bitsCatalogReads; },get usedBitsSku(){return usedBitsSku;},
+    authorize: auth => onAuthorized(auth), show: () => onVisibilityChanged(true), get ballotSignal() { return ballotSignal; }, completeBallot: () => completeBallot(),
+    completeTransaction:receipt=>transactionComplete?.(receipt) };
 }
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
@@ -108,6 +124,26 @@ test("a polling refresh does not cancel an in-flight ballot", async () => {
   panel.completeBallot();
   await settle();
   assert.equal(panel.elements.get("error").hidden, true);
+});
+
+test("an older state response cannot replace a newer election after an overlapping refresh", async () => {
+  let finishOldState;
+  let requests=0;
+  const state=(id)=>({channel:{twitchLogin:"channel"},streams:[{slug:"main",displayName:"Main",isDefault:true}],
+    activeElection:{id:`election-${id}`,state:"open",choices:[{id:`choice-${id}`,title:`Scene ${id}`,voteCount:0}]},canSubmitPrompts:true});
+  const panel=panelHarness({stateResponse:()=>{
+    requests++;
+    if(requests===1)return Promise.resolve({ok:true,json:()=>new Promise(resolve=>{finishOldState=resolve;})});
+    return Promise.resolve({ok:true,json:async()=>state("new")});
+  }});
+  panel.authorize({channelId:"channel",userId:"viewer-one",token:"one"});
+  await settle();
+  panel.show();
+  await settle();
+  assert.equal(panel.elements.get("choices").children[0].dataset.choiceId,"choice-new");
+  finishOldState(state("old"));
+  await settle();
+  assert.equal(panel.elements.get("choices").children[0].dataset.choiceId,"choice-new");
 });
 
 test("changing identity cancels the old ballot without showing its error to the new viewer", async () => {
@@ -139,6 +175,31 @@ test("a free Extension prompt submits to the channel proposal API while paid Tur
   assert.deepEqual(JSON.parse(request.options.body), { prompt:"A cartoon rocket bursts into confetti", planningMode:"continuation" });
   assert.equal(request.options.headers["x-extension-jwt"], "one");
   assert.equal(panel.elements.get("turbo").hidden, true);
+});
+
+test("the Bits Prompt Lock action is separate from hidden Turbo and binds to the selected proposal",async()=>{
+  const panel=panelHarness({
+    promptLockState:{enabled:true,requiresLinkedIdentity:false,stream:{slug:"main"},products:[{sku:"prompt-lock-400",amountBits:400,displayName:"Prompt Lock"}],
+      proposals:[{proposalId:"choice-one",electionId:"election-one",segmentId:"segment-one",promptPreview:"A scene"}]},
+    bitsProducts:[{sku:"prompt-lock-400",cost:{type:"bits",amount:"400"},inDevelopment:false}],
+  });
+  panel.authorize({channelId:"channel",userId:"viewer-one",token:"one"});
+  await settle();
+  panel.elements.get("choices").children[0].click();
+  const lockButton=panel.elements.get("prompt-lock-products").children[0];
+  assert.ok(lockButton,"the viewer's selected proposal has a lock action");
+  assert.equal(lockButton.children[1].textContent,"400 Bits");
+  lockButton.click();
+  await settle();
+  const intent=panel.calls.find(call=>call.url.endsWith("/extension/bits/prompt-lock/intents"));
+  assert.deepEqual(JSON.parse(intent.options.body),{sku:"prompt-lock-400",proposalId:"choice-one",stream:"main"});
+  assert.equal(panel.usedBitsSku,"prompt-lock-400");
+  assert.equal(panel.elements.get("turbo").hidden,true);
+
+  panel.completeTransaction({initiator:"current_user",transactionReceipt:"synthetic-receipt-token-long-enough"});
+  await settle();
+  assert.ok(panel.calls.some(call=>call.url.endsWith("/extension/bits/receipt")),"the Twitch receipt goes to the shared verification endpoint");
+  assert.equal(panel.elements.get("prompt-lock-status").textContent,"Prompt locked.");
 });
 
 test("a prompt rejection stays visible through the next successful poll", async () => {

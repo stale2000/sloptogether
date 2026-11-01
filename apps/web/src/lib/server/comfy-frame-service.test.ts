@@ -89,9 +89,9 @@ describe("Comfy Cloud start-frame generation",()=>{
       .resolves.toMatchObject({id:localId,requestId,state:"queued"});
     expect(mocks.screenPromptAndImages).toHaveBeenCalledWith({channelId:"123",prompt,images:[]});
     expect(calls.some(sql=>sql.includes("comfy-frame-account"))).toBe(true);
-    const expiry=calls.find(sql=>sql.includes("comfy.frame_generation.expire"));
-    expect(expiry).toContain("$1::text");
-    expect(expiry).toContain("WHERE id=$1::uuid");
+    const expiryOutbox=calls.find(sql=>sql.includes("comfy.frame_generation.expire"));
+    expect(expiryOutbox).toContain("$1::text");
+    expect(expiryOutbox).toContain("WHERE id=$1::uuid");
     expect(fetch).toHaveBeenCalledTimes(1);
     const [url,init]=fetch.mock.calls[0]!;
     expect(url).toBe("https://cloud.comfy.org/api/v2/jobs");

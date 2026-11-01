@@ -20,7 +20,8 @@ These are goals, not measured claims. This repository does not establish a
 200× apples-to-apples saving, an end-to-end cost below $2/hour, or a "best in
 the world" ranking. The imported runtime targets Linux/NVIDIA workers; consumer
 GPU and RTX 4090/WSL2 operation still need hardware qualification. The Ada
-upscale path also requires at least 128 GiB of system RAM.
+upscale candidate retains a conservative 128 GiB host-RAM admission guard;
+that value is not a measured requirement of the new load-time FP8 path.
 
 ## Runtime and installation
 
@@ -52,8 +53,13 @@ environment and model setup.
 
 SlopTogether's `auto` profile selects resident NVFP4 on Blackwell GPUs with at
 least 94 GiB total and 90 GiB free VRAM. Ada GPUs with at least 24 GB VRAM use
-per-row FP8 with sequential CPU offload and require at least 128 GiB system
-RAM. The Ada path can be substantially slower because weights move over PCIe.
+per-row FP8 with sequential CPU offload. The transformer is quantized during
+checkpoint loading instead of first retaining a complete BF16 transformer.
+The same large Linear layers are selected; smaller layers retain BF16. A failed
+FP8 load stops without a full-BF16 fallback. Checkpoint prefetch is disabled
+for Ada and skips omitted components on other profiles. The conservative
+128 GiB host-RAM guard remains until a constrained-memory run measures the
+new loader. The Ada path can be slower because weights move over PCIe.
 The NVFP4 path requires Blackwell (SM 10.0+) and 90 GiB free VRAM. If the
 persistent refiner worker holds that memory, `auto` stops it and checks again;
 the request fails if the reserve remains unavailable. MXFP8 and BF16 are
@@ -68,6 +74,12 @@ hardware and workload before deployment.
 The RTX 4090/WSL2 path has not been qualified for memory use, latency, output
 quality, or continuous playback. A GPU profile passing its memory admission
 checks is not evidence of runtime or quality support.
+
+Successful worker reports now include 250 ms samples of process RSS, system
+available memory, and cgroup current/limit while loading, refining, and
+exporting. Failed requests emit the same memory sample to private worker stderr.
+These values support hardware qualification but do not change the 128 GiB
+admission requirement or establish a 4090 result.
 
 ## Conditioning and output handling
 

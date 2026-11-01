@@ -1,5 +1,9 @@
 # Fal generation and upscale runbook
 
+For current status, use [the completion plan](completion-plan-2026-10-27.md)
+and [October 27 review](review-fixes-2026-10-27.md). The snapshots below are
+historical and can describe earlier deployments or publisher configurations.
+
 This runbook records the October 26, 2026 investigation. Fal workers, the web
 API, the Cloudflare upload gateway, and the media publisher are separately
 deployed components. A change in one component does not update the others.
@@ -7,7 +11,7 @@ Record each deployed revision and the worker build's `source-manifest.json`
 before drawing conclusions from a test. Never put worker keys, signed URLs,
 upload tickets, or their query strings in logs or this document.
 
-## Live progress snapshot
+## Historical October 26–27 progress snapshot
 
 The current web deployment with the trust fix is Vercel deployment
 `dpl_6DE9NP2qRzf3Aok17YW4WKTXDRq4`. Fal generation revision
@@ -355,11 +359,20 @@ Cloudflare upload and playback acceptance run.
 
 ## GPU shutdown and cost control
 
+To isolate a test stream, set `SLOPTOGETHER_CLAIM_STREAM_SLUG` to its slug in
+both Fal worker app environments and deploy worker revisions containing the
+stream-aware claim client. This limits job claims and claim-time election,
+lease-expiry and recovery processing to that stream. A story producer uses its
+own `stream_slug` setting; it does not configure generation/upscale claims.
+Without the explicit claim setting, workers can claim across their channel.
+
 Fal GPU runners are billable while allocated. The user's hard limit is two hours;
 start only the GPUs needed for the test and verify they are shut down by the
 deadline. The shared `sloptogether-fal-session` controller starts from a
 deadline measured before wake-up, uses `min_concurrency=0`, sends wake pings,
-and on exit scales the named apps down and stops remaining runners. The
+and on exit scales the named apps down and stops remaining runners. Use
+`--generation-only` when no upscale job is pending so the upscale GPU is not
+awakened. The
 in-container eight-hour limit is **not** a sufficient billing safeguard when an
 app has `min_concurrency=1`: Fal may replace the stopped runner. A detached
 controller also needs its own supervised lifetime and shutdown verification.

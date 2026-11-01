@@ -44,17 +44,24 @@ printf "create table public.sloptogether_eventsub_test_guard(marker text not nul
 assert_scratch_database
 for migration in "$repo_root"/db/migrations/[0-9][0-9][0-9]_*.sql; do
   case "$(basename "$migration")" in
-    018_*|019_*) continue ;;
-    0[0-1][0-9]_*|020_*|021_*|022_*) ;;
+    018_*|019_*|023_*) continue ;;
+    0[0-1][0-9]_*|020_*|021_*|022_*|024_*|025_*|026_*|027_*|028_*) ;;
     *) continue ;;
   esac
   env -i "PATH=$PATH" PGSSLMODE=disable PGCONNECT_TIMEOUT=3 psql -h 127.0.0.1 -p "$pg_port" -U postgres -d "$test_db" -v ON_ERROR_STOP=1 -q -f "$migration" >/dev/null
 done
 cd "$repo_root/apps/web"
-env -i "PATH=$PATH" "TMPDIR=${TMPDIR:-/tmp}" NODE_ENV=test \
+env -i "PATH=$PATH" "HOME=$HOME" "TMPDIR=${TMPDIR:-/tmp}" NODE_ENV=test \
   "SLOPTOGETHER_POLICY_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:${pg_port}/${test_db}" \
   "SLOPTOGETHER_EVENTSUB_TEST_GUARD_MARKER=${marker}" \
-  "$repo_root/node_modules/.bin/vitest" run src/lib/server/subscriber-policy.postgres.test.ts src/lib/server/extension-worker-flow.postgres.test.ts
+  "SLOPTOGETHER_TWITCH_CLI=${SLOPTOGETHER_TWITCH_CLI:-}" \
+  "$repo_root/node_modules/.bin/vitest" run src/lib/server/subscriber-policy.postgres.test.ts src/lib/server/extension-worker-flow.postgres.test.ts src/lib/server/story-batch.postgres.test.ts
+env -i "PATH=$PATH" "TMPDIR=${TMPDIR:-/tmp}" NODE_ENV=test \
+  "DATABASE_URL=postgresql://postgres@127.0.0.1:${pg_port}/${test_db}" \
+  "SLOPTOGETHER_DATABASE_SSL_CA=" \
+  "SLOPTOGETHER_EVENTSUB_TEST_GUARD_MARKER=${marker}" \
+  "SLOPTOGETHER_RUN_DB_INTEGRATION=1" \
+  "$repo_root/node_modules/.bin/vitest" run src/lib/server/subscriber-service.postgres.test.ts
 cd "$repo_root"
 env -i "PATH=$PATH" "TMPDIR=${TMPDIR:-/tmp}" NODE_ENV=test \
   "SLOPTOGETHER_PREAIR_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:${pg_port}/${test_db}" \

@@ -15,22 +15,25 @@ vi.mock("./storage",()=>({signedPrivateReadUrl:mocks.signedPrivateReadUrl}));
 vi.mock("./preflight",()=>({screenPromptAndImages:mocks.screenPromptAndImages}));
 vi.mock("./proxy-client-ip",()=>({trustedProxyClientIp:vi.fn()}));
 
-import { claimWorkerLease,createPairing,downloadWorkerAsset,requestClipUpscale } from "./worker-service";
-import { claimStoryProducer,submitStoryProposal } from "./story-producer-service";
+import { claimStoryProducer,claimWorkerLease,createPairing,downloadWorkerAsset,getWorkerStats,requestClipUpscale,submitStoryProposal } from "./worker-service";
 
-const channel={twitch_channel_id:"123",owner_twitch_user_id:"42",policy_revision:7};
+const channel={twitch_channel_id:"123",owner_twitch_user_id:"42",policy_revision:7,owner_budget_cap_usd:"0.0000"};
 const grant={keyId:"producer-key",issuingTwitchUserId:"42",channelId:"123",scopes:["story:write_future"],roles:["story-producer"],recipes:[],paired:false,platform:null};
 const producerLeaseExpires=new Date(Date.now()+60_000);
 const sceneSeed="00000000-0000-4000-8000-000000000011";
+const batchItemId="00000000-0000-4000-8000-000000000016";
 
 function claimClient(activeClaim:boolean,ownerBudgetCapUsd="1.0000",reservedUsd="0"){
   const calls:Array<{sql:string;values?:unknown[]}>=[];
-  const client={query:vi.fn(async(sql:string,values?:unknown[])=>{
+  const client={query:vi.fn(async(sql:string,values?:unknown[]):Promise<{rows:unknown[];rowCount:number}>=>{
     calls.push({sql,values});
     if(sql.includes("SELECT policy_revision,subscriber_interrupt_policy"))return {rows:[{policy_revision:7,subscriber_interrupt_policy:{enabled:false},owner_budget_cap_usd:ownerBudgetCapUsd}],rowCount:1};
     if(sql.includes("SELECT id FROM sloptogether.trusted_executions"))return {rows:[{id:"binding"}],rowCount:1};
     if(sql.includes("SELECT id,fence,last_sequence,lease_expires_at,execution_binding_id"))return {rows:[{id:"producer",fence:"1",last_sequence:"0",lease_expires_at:producerLeaseExpires,execution_binding_id:"binding"}],rowCount:1};
-    if(sql.includes("SELECT id,idempotency_key,expected_channel_revision,input_payload"))return {rows:[{id:"attempt",idempotency_key:"00000000-0000-4000-8000-000000000010",expected_channel_revision:7,input_payload:{theme:"A kind forest",sceneSeed}}],rowCount:1};
+    if(sql.includes("SELECT id,idempotency_key,expected_channel_revision,input_payload"))return {rows:[{id:"attempt",idempotency_key:"00000000-0000-4000-8000-000000000010",expected_channel_revision:7,input_payload:{theme:"A kind forest",sceneSeed,batchItemId}}],rowCount:1};
+    if(sql.includes("FROM sloptogether.story_batch_items i JOIN"))return {rows:[{id:batchItemId,position:0,previous_state:null,previous_segment_id:null}],rowCount:1};
+    if(sql.includes("SELECT s.id AS segment_id,r.state AS revision_state"))return {rows:[{segment_id:"source",revision_state:"ready",boundary_id:"boundary",asset_status:"approved"}],rowCount:1};
+    if(sql.includes("JOIN LATERAL(SELECT s.id,s.state,s.selected_revision_id"))return {rows:[],rowCount:0};
     if(sql.includes("SELECT coalesce(sum(greatest(reserved_usd"))return {rows:[{total:reservedUsd}],rowCount:1};
     if(sql.includes("UPDATE sloptogether.story_plan_attempts")&&sql.includes("RETURNING claim_token"))return activeClaim?{rows:[],rowCount:0}:{rows:[{claim_token:values?.[3]}],rowCount:1};
     return {rows:[],rowCount:1};
@@ -39,6 +42,25 @@ function claimClient(activeClaim:boolean,ownerBudgetCapUsd="1.0000",reservedUsd=
 }
 
 function leaseRequest(){return new Request("https://clips.gg/sloptogether/api/v1/channels/channel/story-producer/leases",{method:"POST"})}
+
+describe("worker queue status",()=>{
+  it("returns channel/stream scoped ready and completed counts for the paired worker key",async()=>{
+    mocks.requestPrincipal.mockResolvedValue({kind:"worker-key",worker:{keyId:"worker-key",channelId:"123",issuingTwitchUserId:"42",
+      scopes:["worker:generation"],roles:["generation"],recipes:[],paired:true,platform:"wsl"}});
+    mocks.canContribute.mockResolvedValue(true);
+    mocks.findChannel.mockResolvedValue({...channel,twitch_login:"owner",display_name:"Owner"});
+    mocks.getStream.mockResolvedValue({id:"stream-id",slug:"cartoon-demo",display_name:"Cartoon Demo"});
+    mocks.query.mockImplementation(async(sql:string)=>sql.includes("count(DISTINCT j.id)")
+      ?{rows:[{count:sql.includes("output_asset_id IS NOT NULL")?"3":"2"}],rowCount:1}:{rows:[],rowCount:0});
+    const result=await getWorkerStats(new Request("https://clips.gg/sloptogether/api/v1/workers/stats?role=generation&streamSlug=cartoon-demo"));
+    expect(result).toMatchObject({channel:{twitchChannelId:"123",twitchLogin:"owner"},stream:{slug:"cartoon-demo"},
+      role:"generation",availableJobs:2,completedJobs:3,autoApprovedOwnerOutput:true});
+    expect(mocks.query.mock.calls.map(([sql,values])=>[String(sql).includes("FROM sloptogether.jobs"),values])).toEqual([
+      [true,["123","stream-id","video_base","worker-key","generation","42"]],
+      [true,["123","stream-id","video_base","worker-key"]],
+    ]);
+  });
+});
 
 describe("worker render lease claims",()=>{
   it("stores the low-resolution output profile when an election schedules a new base render",async()=>{
@@ -208,7 +230,7 @@ describe("upscale requests",()=>{
     const client={query:vi.fn(async(sql:string,_values?:unknown[])=>{
       void _values;
       if(sql.includes("SELECT twitch_channel_id FROM sloptogether.channels"))return {rows:[{twitch_channel_id:"123"}],rowCount:1};
-      if(sql.includes("SELECT a.id AS asset_id"))return {rows:[{asset_id:"asset",segment_revision_id:"revision",sha256:Buffer.alloc(32),screen_id:"screen",width:sourceWidth,height:sourceHeight}],rowCount:1};
+      if(sql.includes("SELECT a.id AS asset_id"))return {rows:[{asset_id:"asset",segment_revision_id:"revision",stream_id:"stream-main",sha256:Buffer.alloc(32),screen_id:"screen",width:sourceWidth,height:sourceHeight}],rowCount:1};
       return {rows:[],rowCount:1};
     })};
     mocks.transaction.mockImplementation(async(work:(db:typeof client)=>Promise<unknown>)=>work(client));
@@ -218,6 +240,18 @@ describe("upscale requests",()=>{
     expect(insert?.[1]?.[3]).toBe(recipeId);
     expect((insert?.[1]?.[4] as Buffer).toString("hex")).toBe(hash);
     expect(JSON.parse(String(insert?.[1]?.[8]))).toMatchObject({inputScreenId:"screen",outputWidth,outputHeight});
+    expect(insert?.[1]?.[9]).toBe("stream-main");
+  });
+
+  it("limits a stream request to clips on that stream",async()=>{
+    vi.stubEnv("PUBLIC_APP_URL","https://www.clips.gg/sloptogether");
+    const client={query:vi.fn(async(sql:string)=>sql.includes("SELECT a.id AS asset_id")?{rows:[],rowCount:0}:{rows:[{}],rowCount:1})};
+    mocks.transaction.mockImplementation(async(work:(db:typeof client)=>Promise<unknown>)=>work(client));
+    const request=new Request("https://www.clips.gg/sloptogether/api/v1/channels/channel/streams/main/upscale",{method:"POST",headers:{Origin:"https://www.clips.gg","Content-Type":"application/json"},body:JSON.stringify({programItemId:"00000000-0000-4000-8000-000000000001"})});
+    await expect(requestClipUpscale("channel",request,"main")).rejects.toMatchObject({status:404,code:"approved_story_clip_not_found"});
+    const source=client.query.mock.calls.find(([sql])=>String(sql).includes("SELECT a.id AS asset_id"));
+    expect(source?.[0]).toContain("pi.stream_id=$3");
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.jobs"))).toBe(false);
   });
 
   it.each([{width:1920,height:1080,code:"clip_already_at_upscale_target"},{width:512,height:256,code:"clip_dimensions_invalid"}])
@@ -300,7 +334,7 @@ describe("worker private media grants",()=>{
   it("rejects a gateway override outside the pinned upload host",async()=>{
     vi.stubEnv("SLOPTOGETHER_UPLOAD_WORKER_ORIGIN","https://attacker.example");
     const assetId="00000000-0000-4000-8000-000000000072";
-    mocks.requestPrincipal.mockResolvedValue({kind:"worker-key",worker:{keyId:"generation-key",issuingTwitchUserId:"42",channelId:"123",scopes:["worker:generation"],roles:["generation"],paired:false}});
+    mocks.requestPrincipal.mockResolvedValue({kind:"worker-key",worker:{keyId:"generation-key",issuingTwitchUserId:"42",channelId:"123",scopes:["worker:generation"],roles:["generation"],recipes:[],paired:false}});
     mocks.query.mockResolvedValue({rows:[{fence:"7",attempt_state:"running",lease_expires_at:new Date(Date.now()+60_000),deadline:new Date(Date.now()+120_000),channel_id:"123",stage:"video_base",key_id:"generation-key",binding_role:"generation",binding_revoked_at:null,requested_by:"42",interrupt_actor_id:null,parent_asset_id:null,start_asset_id:assetId,end_asset_id:null,asset_id:assetId,storage_key:"private/123/images/asset/frame.png",content_type:"image/png",byte_size:"141261",status:"approved",screen_clear:true}],rowCount:1});
     await expect(downloadWorkerAsset("00000000-0000-4000-8000-000000000071","00000000-0000-4000-8000-000000000072",
       new Request("https://www.clips.gg/sloptogether/api/v1/workers/leases/lease/asset/asset",{headers:{Authorization:"SlopWorker test", "x-lease-fence":"7"}})))
@@ -325,7 +359,24 @@ beforeEach(()=>{
 afterEach(()=>{vi.unstubAllEnvs();vi.unstubAllGlobals()});
 
 describe("story producer planning claims",()=>{
-  it.each([false,true])("pins 512×288 when the story producer schedules a render (subscriber=%s)",async(subscriber)=>{
+  it.each([
+    {position:1,previous_state:"scheduled",previous_segment_id:"source"},
+    {position:1,previous_state:"pending",previous_segment_id:null},
+  ])("plans a future candidate without waiting for an earlier rendered endpoint: %j",async scenario=>{
+    const {client}=claimClient(false);
+    const original=client.query.getMockImplementation()!;
+    client.query.mockImplementation(async(sql:string,values?:unknown[])=>{
+      if(sql.includes("FROM sloptogether.story_batch_items i JOIN"))return {rows:[{id:batchItemId,...scenario}],rowCount:1};
+      return original(sql,values);
+    });
+    mocks.transaction.mockImplementation(async(work:(db:typeof client)=>Promise<unknown>)=>work(client));
+    await expect(claimStoryProducer("channel",leaseRequest())).resolves.toMatchObject({batchItemId,storyContext:{sceneSeed}});
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("SELECT s.id AS segment_id,r.state AS revision_state"))).toBe(false);
+    expect(mocks.screenPromptAndImages).not.toHaveBeenCalled();
+  });
+
+  it("pins 512×288 when the story producer schedules a subscriber render",async()=>{
+    const subscriber=true;
     const bytes=Buffer.from("synthetic-start-image");
     const imageSha=createHash("sha256").update(bytes).digest();
     const interruptId="00000000-0000-4000-8000-000000000019";
@@ -341,7 +392,10 @@ describe("story producer planning claims",()=>{
       if(sql.includes("SELECT policy_revision,subscriber_interrupt_policy,output_width"))return {rows:[{policy_revision:7,subscriber_interrupt_policy:{enabled:true},output_width:1280,output_height:720}],rowCount:1};
       if(sql.includes("SELECT policy_revision,owner_budget_cap_usd"))return {rows:[{policy_revision:7,owner_budget_cap_usd:"100"}],rowCount:1};
       if(sql.includes("SELECT id,fence,lease_expires_at,last_sequence,stream_id FROM sloptogether.story_producers"))return {rows:[{id:"producer",fence:"1",lease_expires_at:new Date(Date.now()+60_000),last_sequence:"0",stream_id:"stream-main"}],rowCount:1};
-      if(sql.includes("expected_channel_revision,input_payload FROM sloptogether.story_plan_attempts"))return {rows:[{id:"attempt",expected_channel_revision:7,input_payload:subscriber?{interruptId}:{}}],rowCount:1};
+      if(sql.includes("expected_channel_revision,input_payload FROM sloptogether.story_plan_attempts"))return {rows:[{id:"attempt",expected_channel_revision:7,input_payload:subscriber?{interruptId}:{batchItemId}}],rowCount:1};
+      if(sql.includes("FROM sloptogether.story_batch_items i JOIN"))return {rows:[{id:batchItemId,position:0,previous_state:null,previous_segment_id:null}],rowCount:1};
+      if(sql.includes("SELECT s.id AS segment_id,r.state AS revision_state"))return {rows:[{segment_id:"source",revision_state:"ready",boundary_id:"boundary",asset_status:"approved"}],rowCount:1};
+      if(sql.includes("JOIN LATERAL(SELECT s.id,s.state,s.selected_revision_id"))return {rows:[],rowCount:0};
       if(sql.includes("SELECT ir.funding_id,ir.expires_at"))return {rows:[{funding_id:"funding",expires_at:new Date(Date.now()+600_000),trigger_event_id:"event",subscriber_label:"viewer",event_actor_id:null}],rowCount:1};
       if(sql.includes("SELECT coalesce(sum(greatest(reserved_usd"))return {rows:[{total:"0"}],rowCount:1};
       if(sql.includes("SELECT id FROM sloptogether.branches"))return {rows:[{id:"branch"}],rowCount:1};
@@ -369,20 +423,57 @@ describe("story producer planning claims",()=>{
     if(subscriber)expect(insert?.values?.[4]).toBe("fast-h3-trim-5step-vsa20-b1-10s");
   });
 
-  it("does not claim a paid planning attempt when its render budget is unavailable",async()=>{
-    const {client}=claimClient(false,"0.0000");
+  it.each(["0.0000","0.5500"])("allows free candidate planning independently of owner render budget %s",async cap=>{
+    const {client}=claimClient(false,cap,cap);
     mocks.transaction.mockImplementation(async(work:(db:typeof client)=>Promise<unknown>)=>work(client));
-
-    await expect(claimStoryProducer("channel",leaseRequest())).rejects.toMatchObject({status:409,code:"owner_generation_budget_unavailable"});
-    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("SET claim_token"))).toBe(false);
+    await expect(claimStoryProducer("channel",leaseRequest())).resolves.toMatchObject({batchItemId});
+    expect(mocks.screenPromptAndImages).not.toHaveBeenCalled();
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.jobs"))).toBe(false);
   });
 
-  it("does not pay for a story plan when existing reservations exhaust the owner cap",async()=>{
+  it("never screens or schedules an approved pair when the owner render budget is exhausted",async()=>{
+    mocks.findChannel.mockResolvedValue({...channel,owner_budget_cap_usd:"0.5500"});
     const {client}=claimClient(false,"0.5500","0.5500");
+    const original=client.query.getMockImplementation()!;
+    client.query.mockImplementation(async(sql:string,values?:unknown[])=>{
+      if(sql.includes("SELECT policy_revision,owner_budget_cap_usd"))return {rows:[{policy_revision:7,owner_budget_cap_usd:"0.5500"}],rowCount:1};
+      if(sql.includes("SELECT 1 FROM sloptogether.trusted_executions"))return {rows:[{}],rowCount:1};
+      return original(sql,values);
+    });
     mocks.transaction.mockImplementation(async(work:(db:typeof client)=>Promise<unknown>)=>work(client));
+    await expect(claimStoryProducer("channel",leaseRequest())).resolves.toMatchObject({batchItemId});
+    expect(mocks.screenPromptAndImages).not.toHaveBeenCalled();
+    expect(mocks.signedPrivateReadUrl).not.toHaveBeenCalled();
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("pair_screen_token=$2"))).toBe(false);
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO sloptogether.jobs"))).toBe(false);
+  });
 
-    await expect(claimStoryProducer("channel",leaseRequest())).rejects.toMatchObject({status:409,code:"owner_generation_budget_exhausted"});
-    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("SET claim_token"))).toBe(false);
+  it("stores an independently planned candidate without screening or creating a render job",async()=>{
+    const calls:Array<{sql:string;values?:unknown[]}>=[];
+    const client={query:vi.fn(async(sql:string,values?:unknown[])=>{
+      calls.push({sql,values});
+      if(sql.includes("SELECT policy_revision FROM sloptogether.channels"))return {rows:[{policy_revision:7}],rowCount:1};
+      if(sql.includes("SELECT 1 FROM sloptogether.trusted_executions"))return {rows:[{}],rowCount:1};
+      if(sql.includes("SELECT fence,lease_expires_at,last_sequence FROM sloptogether.story_producers"))return {rows:[{fence:"1",lease_expires_at:new Date(Date.now()+60_000),last_sequence:"0"}],rowCount:1};
+      if(sql.includes("SELECT expected_channel_revision,input_payload FROM sloptogether.story_plan_attempts"))return {rows:[{expected_channel_revision:7,input_payload:{batchItemId}}],rowCount:1};
+      if(sql.includes("FROM sloptogether.story_batch_items i JOIN"))return {rows:[{id:batchItemId,position:2,segment_id:"existing-segment"}],rowCount:1};
+      if(sql.includes("SET state='planned',candidate_plan"))return {rows:[{candidate_revision:1}],rowCount:1};
+      return {rows:[],rowCount:1};
+    })};
+    mocks.transaction.mockImplementation(async(work:(db:typeof client)=>Promise<unknown>)=>work(client));
+    const plan={visualAction:"A friendly fox waves beside a star map.",camera:"One continuous wide shot.",speakerId:"S1",speakerCharacter:"a cartoon fox",voiceDescription:"a warm curious voice",dialogue:"Hello, stars!",soundscape:"Soft forest chimes.",music:"none" as const};
+    const request=new Request("https://clips.gg/sloptogether/api/v1/channels/channel/story-proposals",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      leaseId:"00000000-0000-4000-8000-000000000014",fence:1,sequence:1,idempotencyKey:"00000000-0000-4000-8000-000000000012",claimToken:"00000000-0000-4000-8000-000000000013",plan,compiledH3Prompt:compileH3StoryPrompt(plan),
+    })});
+    await expect(submitStoryProposal("channel",request)).resolves.toMatchObject({accepted:true,batchItemId,state:"planned"});
+    const saved=calls.find(call=>call.sql.includes("SET state='planned',candidate_plan"));
+    expect(saved?.values?.[0]).toBe(batchItemId);
+    expect(JSON.parse(String(saved?.values?.[1]))).toEqual(plan);
+    expect(saved?.values?.[2]).toBe(compileH3StoryPrompt(plan));
+    expect(mocks.screenPromptAndImages).not.toHaveBeenCalled();
+    expect(mocks.signedPrivateReadUrl).not.toHaveBeenCalled();
+    expect(calls.some(call=>call.sql.includes("INSERT INTO sloptogether.jobs"))).toBe(false);
+    expect(calls.some(call=>call.sql.includes("INSERT INTO sloptogether.funding_authorizations"))).toBe(false);
   });
 
   it("does not hand the same active plan to a concurrent process",async()=>{
@@ -414,6 +505,9 @@ describe("story producer planning claims",()=>{
       if(sql.includes("SELECT id FROM sloptogether.trusted_executions"))return {rows:[{id:"binding"}],rowCount:1};
       if(sql.includes("SELECT id,fence,last_sequence,lease_expires_at,execution_binding_id"))return {rows:[{id:"producer",fence:"1",last_sequence:"0",lease_expires_at:producerLeaseExpires,execution_binding_id:"binding"}],rowCount:1};
       if(sql.includes("SELECT id,idempotency_key,expected_channel_revision,input_payload"))return {rows:[],rowCount:0};
+      if(sql.includes("FROM sloptogether.story_batch_items i JOIN"))return {rows:[{id:batchItemId,position:0,previous_state:null,previous_segment_id:null}],rowCount:1};
+      if(sql.includes("SELECT s.id AS segment_id,r.state AS revision_state"))return {rows:[{segment_id:"source",revision_state:"ready",boundary_id:"boundary",asset_status:"approved"}],rowCount:1};
+      if(sql.includes("JOIN LATERAL(SELECT s.id,s.state,s.selected_revision_id"))return {rows:[],rowCount:0};
       if(sql.includes("SELECT c.story_world_prompt"))return {rows:[{story_world_prompt:"A kind forest",recent_story_summary:"A fox arrived",recent_dialogue:"Hello there."}],rowCount:1};
       if(sql.includes("SELECT ir.id,ir.subscriber_label,ir.plan_payload"))return {rows:[],rowCount:0};
       return {rows:[],rowCount:1};
@@ -439,20 +533,23 @@ describe("story producer planning claims",()=>{
         ?{rows:[{storage_key:"private/123/start.png",content_type:"image/png",byte_size:String(bytes.length),sha256:digest}],rowCount:1}
         :{rows:[],rowCount:0});
     vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response(bytes,{status:200})));
-    const client={query:vi.fn(async(sql:string)=>sql.includes("SELECT policy_revision,owner_budget_cap_usd")
-      ?{rows:[{policy_revision:7,owner_budget_cap_usd:"100"}],rowCount:1}
-      :sql.includes("SELECT id,fence,lease_expires_at,last_sequence,stream_id FROM sloptogether.story_producers")
-        ?{rows:[{id:"00000000-0000-4000-8000-000000000014",fence:"1",lease_expires_at:new Date(Date.now()+60_000),last_sequence:"0",stream_id:"stream-main"}],rowCount:1}
-        :sql.includes("SELECT id,expected_channel_revision,input_payload FROM sloptogether.story_plan_attempts")
-          ?{rows:[{id:"attempt",expected_channel_revision:7,input_payload:{interruptId:"subscriber-request"}}],rowCount:1}
-          :{rows:[],rowCount:1})};
+    const client={query:vi.fn(async(sql:string)=>sql.includes("SELECT policy_revision FROM sloptogether.channels")
+      ?{rows:[{policy_revision:7}],rowCount:1}
+      :sql.includes("SELECT 1 FROM sloptogether.trusted_executions")
+        ?{rows:[{}],rowCount:1}
+        :sql.includes("SELECT fence,lease_expires_at,last_sequence FROM sloptogether.story_producers")
+          ?{rows:[{fence:"1",lease_expires_at:new Date(Date.now()+60_000),last_sequence:"0"}],rowCount:1}
+          :sql.includes("SELECT expected_channel_revision,input_payload FROM sloptogether.story_plan_attempts")
+            ?{rows:[{expected_channel_revision:7,input_payload:{interruptId:"subscriber-request"}}],rowCount:1}
+            :{rows:[],rowCount:0})};
     mocks.transaction.mockImplementation(async(work:(db:typeof client)=>Promise<unknown>)=>work(client));
     const plan={visualAction:"A friendly fox waves beside a star map.",camera:"One continuous wide shot.",speakerId:"S1",speakerCharacter:"a cartoon fox",voiceDescription:"a warm curious voice",dialogue:"Hello, stars!",soundscape:"Soft forest chimes.",music:"none" as const};
     const compiledH3Prompt=compileH3StoryPrompt(plan);
     const request=new Request("https://clips.gg/sloptogether/api/v1/channels/channel/story-proposals",{
       method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({leaseId:"00000000-0000-4000-8000-000000000014",fence:1,sequence:1,idempotencyKey:"00000000-0000-4000-8000-000000000012",claimToken:"00000000-0000-4000-8000-000000000013",plan,compiledH3Prompt}),
     });
-    await expect(submitStoryProposal("channel",request)).rejects.toMatchObject({status:409,code:"story_plan_interrupt_binding_mismatch"});
-    expect(client.query).toHaveBeenCalledTimes(3);
+    await expect(submitStoryProposal("channel",request)).rejects.toMatchObject({status:409,code:"story_plan_attempt_not_current"});
+    expect(client.query.mock.calls.some(([sql])=>String(sql).includes("candidate_plan=$2"))).toBe(false);
+    expect(mocks.screenPromptAndImages).not.toHaveBeenCalled();
   });
 });

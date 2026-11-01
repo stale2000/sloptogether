@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import tempfile
 import sys
 import unittest
 from pathlib import Path
@@ -77,6 +78,89 @@ class AutomaticUpscaleProfileTest(unittest.TestCase):
         self.assertFalse(pipeline.cpu_offload_enabled)
 
 
+class SoLHostMemorySamplerTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.runtime = load_module("sloptogether_h3_model_runtime_memory", NODE_ROOT / "model_runtime.py")
+
+    def test_reports_peak_process_and_cgroup_usage_and_lowest_available_ram(self):
+        sampler = self.runtime.HostMemorySampler(reader=lambda: {})
+        sampler.observe({
+            "process_rss_bytes": 2 * 1024**3,
+            "system_total_bytes": 128 * 1024**3,
+            "system_available_bytes": 96 * 1024**3,
+            "cgroup_current_bytes": 4 * 1024**3,
+            "cgroup_limit_bytes": 120 * 1024**3,
+        })
+        sampler.observe({
+            "process_rss_bytes": 12 * 1024**3,
+            "system_total_bytes": 128 * 1024**3,
+            "system_available_bytes": 48 * 1024**3,
+            "cgroup_current_bytes": 24 * 1024**3,
+            "cgroup_limit_bytes": 120 * 1024**3,
+        })
+        sampler.observe({
+            "process_rss_bytes": 8 * 1024**3,
+            "system_total_bytes": 128 * 1024**3,
+            "system_available_bytes": 64 * 1024**3,
+            "cgroup_current_bytes": 16 * 1024**3,
+            "cgroup_limit_bytes": 120 * 1024**3,
+        })
+        self.assertEqual(sampler.report(), {
+            "host_memory_sample_count": 3,
+            "host_memory_sample_interval_ms": 250,
+            "host_process_rss_start_bytes": 2 * 1024**3,
+            "host_process_rss_peak_bytes": 12 * 1024**3,
+            "host_system_total_bytes": 128 * 1024**3,
+            "host_system_available_min_bytes": 48 * 1024**3,
+            "host_cgroup_memory_peak_bytes": 24 * 1024**3,
+            "host_cgroup_memory_limit_bytes": 120 * 1024**3,
+            "host_cgroup_memory_available_min_bytes": 96 * 1024**3,
+        })
+
+    def test_unavailable_measurement_sources_do_not_create_fake_zero_metrics(self):
+        sampler = self.runtime.HostMemorySampler(reader=lambda: {})
+        sampler.observe({})
+        report = sampler.report()
+        self.assertIsNone(report["host_process_rss_peak_bytes"])
+        self.assertIsNone(report["host_system_available_min_bytes"])
+        self.assertIsNone(report["host_cgroup_memory_peak_bytes"])
+
+
+class SoLCheckpointPrefetchTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.runtime = load_module("sloptogether_h3_model_runtime_prefetch", NODE_ROOT / "model_runtime.py")
+
+    def test_ada_offload_does_not_prime_an_entire_checkpoint_into_container_page_cache(self):
+        with patch.object(self.runtime, "_prefetch_cached_safetensors") as prefetch:
+            self.runtime._prefetch_pipeline_weights(
+                Path("unused"), transformer_precision="fp8", decoder_mode="pruna_fast",
+                fixed_conditioning=True, cached_transformer=False,
+            )
+        prefetch.assert_not_called()
+
+    def test_only_components_the_pipeline_will_load_are_read(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for component in ("transformer", "vae", "diffusion_decoder", "text_encoder", "connectors"):
+                (root / component).mkdir()
+                (root / component / "weights.safetensors").write_bytes(b"weights")
+            opened = []
+            original_open = Path.open
+
+            def track_open(path, *args, **kwargs):
+                opened.append(path.parent.name)
+                return original_open(path, *args, **kwargs)
+
+            with patch.object(Path, "open", track_open):
+                self.runtime._prefetch_pipeline_weights(
+                    root, transformer_precision="nvfp4", decoder_mode="pruna_fast",
+                    fixed_conditioning=True, cached_transformer=True,
+                )
+            self.assertEqual(opened, ["vae"])
+
+
 class AdaFloat8QuantizationTest(unittest.TestCase):
     def test_windows_ram_probe_uses_physical_memory_limit(self):
         from sloptogether_worker import runner
@@ -90,6 +174,23 @@ class AdaFloat8QuantizationTest(unittest.TestCase):
             runner.ctypes, "windll", SimpleNamespace(kernel32=kernel32), create=True,
         ):
             self.assertEqual(runner.detect_system_memory(), 128 * 1024**3)
+
+    def test_windows_wsl_ram_probe_uses_the_distribution_memory_limit(self):
+        from sloptogether_worker import runner
+
+        result=SimpleNamespace(returncode=0,stdout="67108864\n")
+        with patch.object(runner.sys,"platform","win32"),patch.object(runner.shutil,"which",return_value="wsl.exe"),patch.object(
+            runner.subprocess,"run",return_value=result,
+        ) as run:
+            self.assertEqual(runner.detect_system_memory(wsl_distro="Ubuntu-24.04"),64*1024**3)
+        self.assertEqual(run.call_args.args[0][1:4],["--distribution","Ubuntu-24.04","--exec"])
+        self.assertFalse(run.call_args.kwargs["shell"])
+
+    def test_windows_wsl_ram_probe_fails_closed_when_the_distribution_is_unavailable(self):
+        from sloptogether_worker import runner
+
+        with patch.object(runner.sys,"platform","win32"),patch.object(runner.shutil,"which",return_value=None):
+            self.assertIsNone(runner.detect_system_memory(wsl_distro="Ubuntu-24.04"))
 
     def test_uses_torchao_fp8_per_row_only_on_ada_or_newer(self):
         quantize = Mock()

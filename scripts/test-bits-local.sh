@@ -45,7 +45,7 @@ for migration in "$repo_root"/db/migrations/[0-9][0-9][0-9]_*.sql; do
   # isolated database owner and does not need those grants.
   case "$(basename "$migration")" in
     018_*|019_*) continue ;;
-    0[0-1][0-9]_*|020_*|021_*) ;;
+    0[0-1][0-9]_*|020_*|021_*|024_*|025_*|026_*|027_*|028_*) ;;
     *) continue ;;
   esac
   env -i "PATH=$PATH" PGSSLMODE=disable PGCONNECT_TIMEOUT=3 psql -h 127.0.0.1 -p "$bits_port" -U postgres -d "$bits_db_name" -v ON_ERROR_STOP=1 -q -f "$migration" >/dev/null

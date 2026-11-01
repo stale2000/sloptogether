@@ -2,6 +2,7 @@
 # Copy to worker.toml, then replace the WSL distro name and Linux username.
 platform = "wsl"
 role = "generation"
+stream_slug = "cartoon-demo"
 api_base_url = "https://www.clips.gg/sloptogether/api/v1"
 comfy_url = "http://127.0.0.1:8188"
 comfy_input_dir = '\\wsl.localhost\Ubuntu\home\YOUR_USER\ComfyUI\input'

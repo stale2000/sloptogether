@@ -94,6 +94,9 @@ export function formatDuration(value: number | null | undefined): string {
 
 export function displayProblem(error: unknown): string {
   if (error instanceof ApiError) {
+    if (error.code === "eventsub_not_configured") return "Set TWITCH_EVENTSUB_SECRET in the SlopTogether Vercel Production environment.";
+    if (error.code === "extension_bits_not_configured") return "Set the Twitch API Client Secret as TWITCH_EXTENSION_CLIENT_SECRET in Vercel Production.";
+    if (error.code === "extension_not_configured") return "Set TWITCH_EXTENSION_CLIENT_ID in Vercel Production.";
     if (error.code === "channel_not_found") return "This channel is not set up yet.";
     if (error.status === 404 || error.status === 503) return "This service is not configured yet. Your settings and content haven't been changed.";
     if (error.status === 401) return "Connect Twitch to continue.";

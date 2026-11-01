@@ -169,10 +169,42 @@ class WorkerApi:
             raise WorkerError("pairing_not_available", "Twitch device pairing expired or was denied.")
         return None
 
+    def exchange_session(self, role: str) -> dict[str, Any]:
+        if role not in {"generation", "upscale"}:
+            raise WorkerError("worker_role_unsupported", "Worker role is not supported.")
+        result, _ = self._request("POST", "/workers/sessions/exchange", query={"role": role})
+        return result
+
+    def public_channel(self, locator: str) -> dict[str, Any]:
+        if not re.fullmatch(r"[A-Za-z0-9_]{1,25}", locator):
+            raise WorkerError("channel_locator_invalid", "Channel link is invalid.")
+        result, _ = self._request("GET", f"/channels/{urllib.parse.quote(locator, safe='')}", authorized=False)
+        channel = result.get("channel")
+        if not isinstance(channel, dict):
+            raise WorkerError("channel_response_invalid", "SlopTogether returned an invalid channel.")
+        return channel
+
+    def public_streams(self, locator: str) -> list[dict[str, Any]]:
+        if not re.fullmatch(r"[A-Za-z0-9_]{1,25}", locator):
+            raise WorkerError("channel_locator_invalid", "Channel link is invalid.")
+        result, _ = self._request("GET", f"/channels/{urllib.parse.quote(locator, safe='')}/streams", authorized=False)
+        streams = result.get("streams")
+        if not isinstance(streams, list) or any(not isinstance(stream, dict) for stream in streams):
+            raise WorkerError("stream_response_invalid", "SlopTogether returned an invalid stream list.")
+        return streams
+
+    def worker_stats(self, role: str, stream_slug: str) -> dict[str, Any]:
+        if role not in {"generation", "upscale"}:
+            raise WorkerError("worker_role_unsupported", "Worker role is not supported.")
+        result, _ = self._request("GET", "/workers/stats", query={"role": role, "streamSlug": stream_slug})
+        return result
+
     def claim(self, supported_recipes: list[str] | None = None) -> Lease | None:
         query = {"role": self.config.role}
         if self.config.channel_id:
             query["channelId"] = self.config.channel_id
+        if getattr(self.config, "claim_stream_slug", None):
+            query["streamSlug"] = self.config.claim_stream_slug
         body = {} if supported_recipes is None else {"supportedRecipes": supported_recipes}
         result, _ = self._request("POST", "/workers/leases", body=body, query=query)
         if result.get("status") == "empty":

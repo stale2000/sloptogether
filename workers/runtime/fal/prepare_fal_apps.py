@@ -33,7 +33,7 @@ keep_alive = 60
 request_timeout = 3600
 startup_timeout = 3600
 private_logs = true
-secrets = ["{worker_key_name}", "SLOPTOGETHER_API_BASE_URL", "SLOPTOGETHER_ALLOWED_UPLOAD_HOSTS"]
+secrets = ["{worker_key_name}", "SLOPTOGETHER_API_BASE_URL", "SLOPTOGETHER_ALLOWED_UPLOAD_HOSTS", "SLOPTOGETHER_CLAIM_STREAM_SLUG"]
 
 [tool.fal.apps.{app}.image]
 dockerfile = "Dockerfile"
