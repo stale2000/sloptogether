@@ -160,6 +160,16 @@ async function dispatch(request:NextRequest,path:string[]){
   if(p[0]==="channels"&&p[1]&&p[2]==="assets"&&p[3]&&p[4]==="complete"&&p.length===5&&method==="POST")return jsonOk(await completeAssetUpload(p[3]!,request));
   if(p[0]==="media"&&p[1]&&(p.length===2||(p.length===3&&p[2]==="preview"))&&method==="GET"){
     const result=await getApprovedMediaAsset(p[1]!,request);
+    if(result.extensionScopedPreview){
+      const image=await fetch(result.url,{cache:"no-store",signal:AbortSignal.timeout(5000)});
+      const contentType=result.contentType.toLowerCase();
+      if(!image.ok||!contentType.startsWith("image/")||contentType==="image/svg+xml")throw new ApiError(502,"frame_preview_unavailable");
+      const declaredBytes=Number(image.headers.get("content-length")??0);
+      if(declaredBytes>8*1024*1024)throw new ApiError(502,"frame_preview_too_large");
+      const bytes=await image.arrayBuffer();
+      if(bytes.byteLength>8*1024*1024)throw new ApiError(502,"frame_preview_too_large");
+      return new NextResponse(bytes,{status:200,headers:{"Content-Type":result.contentType,"Content-Length":String(bytes.byteLength),"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}});
+    }
     return NextResponse.redirect(result.url,302);
   }
   if(p[0]==="workers"&&p[1]==="pairings"&&p.length===2&&method==="POST")return jsonOk(await import("@/lib/server/worker-service").then(m=>m.createPairing(request)),{status:201});
