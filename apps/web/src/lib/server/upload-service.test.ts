@@ -56,6 +56,8 @@ describe("Extension previews for approved future start frames",()=>{
     const sql=String(mocks.query.mock.calls[1]?.[0]);
     expect(sql).toContain("i.approved_candidate_revision=i.candidate_revision");
     expect(sql).toContain("boundary.asset_id=a.id");
+    expect(sql).toContain("b.twitch_channel_id=a.twitch_channel_id");
+    expect(sql).not.toContain("b.retired_at");
   });
 
   it("does not share candidate frames across Twitch channels",async()=>{

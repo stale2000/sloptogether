@@ -328,7 +328,7 @@ export async function getApprovedMediaAsset(assetId:string,request?:Request) {
     if(principal){
       const candidate=await query<{storage_key:string;content_type:string;twitch_channel_id:string;uploaded_by_twitch_user_id:string|null;media_kind:string;status:string;extension_preview:boolean}>(`SELECT a.storage_key,a.content_type,a.twitch_channel_id,a.uploaded_by_twitch_user_id,a.media_kind,a.status,
         EXISTS(SELECT 1 FROM sloptogether.story_batch_items i
-          JOIN sloptogether.story_batches b ON b.id=i.batch_id AND b.twitch_channel_id=a.twitch_channel_id AND b.retired_at IS NULL
+          JOIN sloptogether.story_batches b ON b.id=i.batch_id AND b.twitch_channel_id=a.twitch_channel_id
           JOIN sloptogether.boundary_revisions boundary ON boundary.id=i.start_boundary_revision_id
             AND boundary.twitch_channel_id=a.twitch_channel_id AND boundary.asset_id=a.id AND boundary.retired_at IS NULL
           JOIN sloptogether.channels c ON c.twitch_channel_id=a.twitch_channel_id AND c.is_enabled AND c.visibility<>'private'
