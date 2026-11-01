@@ -1,6 +1,6 @@
 # Confirmed product decisions
 
-Recorded October 23, 2026 from the user's answers. These replace earlier proposed defaults wherever those conflict. Scope is the fully working public app at **https://clips.gg/sloptogether**; recording decisions is not implementation or deployment evidence.
+Recorded October 23, 2026 from the user's answers. These replace earlier proposed defaults wherever those conflict. Scope is the public app at **https://clips.gg/sloptogether**; recording decisions is not implementation or deployment evidence.
 
 | Area | Confirmed requirement |
 |---|---|
@@ -13,7 +13,7 @@ Recorded October 23, 2026 from the user's answers. These replace earlier propose
 | Worker identity | Ordinary users connect Twitch and receive revocable device credentials. Headless owner/streamer workers can instead configure a special scoped key issued by their Twitch-authenticated channel owner. Identity/trust comes from server key metadata, not a caller flag or interactive OAuth on every fal startup. |
 | Contribution settings | A channel can permit any Twitch-authenticated non-banned person, broadcaster/moderator roles only, an explicit whitelist, or a configured combination by capability. Public site access does not itself grant generation spending or upload authority. |
 | Twitch participation | Viewers can submit scene-prompt proposals through the site or Twitch Extension, subject to the channel's contributor policy and input screening. They can vote through the Extension, site, or chat. All surfaces use the same channel election/API and one identified free ballot; changing surfaces does not duplicate a vote. Streamer overrides remain authoritative and visible in each client. This Twitch Extension is separate from any OBS plugin, which is not needed. |
-| Subscriber shout-outs | Optional channel setting receives subscription EventSub notifications and generates a funny named approximately15-second interstitial, then resumes the story. Spoken dialogue is required for this feature; gift/resub handling, ready-time insertion, costs and cooldown are configured and streamer-overridable. |
+| Subscriber shout-outs | Optional channel setting receives subscription EventSub notifications and generates a personalized approximately 10-second interstitial, then resumes the story. Spoken dialogue is required for this feature; gift/resub handling, ready-time insertion, costs and cooldown are configured and streamer-overridable. |
 | Cheap story generators | Ordinary story adapters and subscriber planners emit bounded H3-compatible visual prompts, short dialogue/speaker/audio fields, with one small-model call or safe template fallback. Reuse the existing prompt format and cap actual planning/render spend. |
 | Review authority | Streamer/broadcaster, verified moderators and specifically whitelisted reviewer Twitch accounts can approve/reject according to channel grants. |
 | Uploaded clip approval | Ordinary user-uploaded generated/upscaled media requires approval. Channel settings can explicitly whitelist streamer/moderator roles and designated uploaders to bypass human approval; contributor/reviewer membership alone is not that bypass. |

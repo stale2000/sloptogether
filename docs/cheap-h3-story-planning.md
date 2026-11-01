@@ -28,18 +28,18 @@ Generate one approximately15-second scene at a time, with a short visual action,
 {
   "kind": "subscriber_interrupt",
   "duration_seconds": 15,
-  "visual_action": "A cartoon captain celebrates in a tiny spaceship; the escape pod pops into a harmless burst of confetti.",
-  "camera": "One wide shot, then a gentle push toward the surprised captain.",
+  "visual_action": "A brief, fictional action tied to the channel theme.",
+  "camera": "One clear shot with a simple camera move.",
   "speaker_id": "S1",
-  "speaker_character": "Captain Fizzy, a fictional cartoon astronaut",
-  "voice_description": "A cheerful theatrical cartoon voice",
-  "dialogue": "Nova just subscribed, and the emergency escape pod is full of space spaghetti!",
-  "soundscape": "Quiet spaceship hum, comic spring sound and soft confetti pops.",
+  "speaker_character": "An approved fictional speaker",
+  "voice_description": "The selected voice preset",
+  "dialogue": "A short greeting using the approved display name.",
+  "soundscape": "Optional ambience from the approved sound set.",
   "music": "none"
 }
 ```
 
-The event/channel/job/boundary IDs, budgets, lease keys and approval flags are server-supplied, never trusted model output. The example uses the name only as a shout-out label; it does not clone a subscriber's voice or generate their likeness. The ordinary story path uses the same schema/compiler with continuity context instead of an event punchline.
+The event/channel/job/boundary IDs, budgets, lease keys and approval flags are server-supplied, never trusted model output. Subscriber names are labels only; do not clone a subscriber's voice or generate their likeness. The ordinary story path uses the same schema/compiler with continuity context instead of an event punchline.
 
 ## Cost and latency controls
 

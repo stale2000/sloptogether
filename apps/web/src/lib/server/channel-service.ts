@@ -13,6 +13,7 @@ import { hmacKeySecret,randomSecret } from "./crypto";
 import { z } from "zod";
 import { abandonStoryProducerPlans, lockRevokedWorkerSegments, retireRevokedWorkerJobs } from "./worker-revocation";
 import { carryForwardTrustedExecutions,isSafeTrustedPolicyAudit,nonAuthoritySettings } from "./trusted-policy";
+import { settingsFrom } from "./subscriber-service";
 
 export async function sessionOverview(request:Request){
   const configured={twitchOAuth:publicRuntimeStatus().twitchOAuth};
@@ -88,7 +89,7 @@ export async function readChannelSettings(locator:string,request:Request){
     twitchChannelId:channel.twitch_channel_id,login:channel.twitch_login,displayName:channel.display_name,
     contributionMode:channel.contribution_mode,contributorWhitelist:channel.contributor_whitelist,
     reviewerWhitelist:channel.reviewer_whitelist,uploadApprovalBypassIds:channel.upload_approval_bypass_ids,
-    roleBasedUploadBypass:channel.role_based_upload_bypass,subscriberInterrupts:channel.subscriber_interrupt_policy,
+    roleBasedUploadBypass:channel.role_based_upload_bypass,subscriberInterrupts:settingsFrom(channel.subscriber_interrupt_policy),
     storyWorldPrompt:channel.story_world_prompt,h3StyleProfile:channel.h3_style_profile,
     ownerBudgetCapUsd:Number(channel.owner_budget_cap_usd),...budget,policyRevision:channel.policy_revision,chatVotingEnabled:channel.chat_voting_enabled,
     subscriberAttemptReservationUsd:reservationUsd("SLOPTOGETHER_SUBSCRIBER_ATTEMPT_RESERVATION_USD"),
@@ -184,7 +185,7 @@ export async function listReviewQueue(locator:string,request:Request,streamId?:s
     "LEFT JOIN sloptogether.boundary_revisions eb ON eb.id=p.end_boundary_revision_id "+
     "LEFT JOIN sloptogether.assets ea ON ea.id=eb.asset_id "+
     "LEFT JOIN sloptogether.input_screens sc ON sc.id=p.input_screen_id "+
-    "WHERE s.twitch_channel_id=$1 AND ($2::uuid IS NULL OR EXISTS(SELECT 1 FROM sloptogether.branches b WHERE b.id=s.branch_id AND b.stream_id=$2)) AND p.state='pending' ORDER BY p.created_at LIMIT 150",
+    "WHERE s.twitch_channel_id=$1 AND ($2::uuid IS NULL OR EXISTS(SELECT 1 FROM sloptogether.branches b WHERE b.id=s.branch_id AND b.stream_id=$2)) AND p.state='pending' AND p.review_reason IS DISTINCT FROM 'awaiting_bits_payment' ORDER BY p.created_at LIMIT 150",
     [channel.twitch_channel_id,streamId??null]);
   const proposalItems=result.rows.map(row=>({id:row.id,kind:row.asset_id&&row.end_asset_id?"anchor_pair":row.asset_id?"start_frame":row.end_asset_id?"end_frame":"prompt",contributor:row.author_twitch_user_id,prompt:row.prompt??"",state:row.state,inputHeld:row.effective_state!=="clear",automatedState:row.automated_state,submittedAt:row.created_at.toISOString(),thumbnailUrl:row.asset_id?"/sloptogether/api/v1/media/"+row.asset_id+"/preview":undefined,endThumbnailUrl:row.end_asset_id?"/sloptogether/api/v1/media/"+row.end_asset_id+"/preview":undefined}));
   const artifacts=await query<{id:string;uploaded_by_twitch_user_id:string|null;prompt:string|null;stage:string;created_at:Date;effective_state:string|null;automated_state:string|null;screen_expires_at:Date|null;duration_seconds:string|null}>(
@@ -221,7 +222,7 @@ export async function resolveReviewInput(locator:string,itemId:string,request:Re
       JOIN sloptogether.elections e ON e.id=p.election_id JOIN sloptogether.segments s ON s.id=e.segment_id
       LEFT JOIN sloptogether.boundary_revisions b ON b.id=p.start_boundary_revision_id LEFT JOIN sloptogether.assets a ON a.id=b.asset_id
       LEFT JOIN sloptogether.boundary_revisions eb ON eb.id=p.end_boundary_revision_id LEFT JOIN sloptogether.assets ea ON ea.id=eb.asset_id
-      WHERE p.id=$1 AND s.twitch_channel_id=$2 AND p.input_screen_id IS NOT NULL FOR UPDATE OF p,e,s`,[itemId,channel.twitch_channel_id]);
+      WHERE p.id=$1 AND s.twitch_channel_id=$2 AND p.input_screen_id IS NOT NULL AND p.review_reason IS DISTINCT FROM 'awaiting_bits_payment' FOR UPDATE OF p,e,s`,[itemId,channel.twitch_channel_id]);
     const row=item.rows[0];if(!row)throw new ApiError(404,"review_item_not_found");
     if(row.state!=="pending")throw new ApiError(409,"review_item_already_decided");
     const {authorizeManualInputResolution}=await import("./preflight");
@@ -285,14 +286,15 @@ export async function decideReview(locator:string,itemId:string,request:Request)
   const actor=await requireContentReviewer(channel,principal);
   const body=await readJson(request,z.object({decision:z.enum(["approve","reject"]),reason:z.string().trim().max(500)}).strict());
   return transaction(async client=>{
-    const result=await client.query<{id:string;state:string;election_id:string;election_state:string;closes_at:Date;segment_id:string;segment_state:string;selected_revision_id:string|null;protected_at:Date|null;segment_revision_id:string|null;input_screen_id:string|null;asset_id:string|null;asset_sha256:Buffer|null;asset_status:string|null;end_asset_id:string|null;end_asset_sha256:Buffer|null;end_asset_status:string|null;automated_state:string|null;effective_state:string|null;screen_expires_at:Date|null}>(
-      "SELECT p.id,p.state,p.election_id,e.state AS election_state,e.closes_at,e.segment_id,s.state AS segment_state,s.selected_revision_id,s.protected_at,p.segment_revision_id,p.input_screen_id,a.id AS asset_id,a.sha256 AS asset_sha256,a.status AS asset_status,ea.id AS end_asset_id,ea.sha256 AS end_asset_sha256,ea.status AS end_asset_status,sc.automated_state,sc.effective_state,sc.expires_at AS screen_expires_at FROM sloptogether.proposals p "+
+    const result=await client.query<{id:string;state:string;review_reason:string|null;election_id:string;election_state:string;closes_at:Date;segment_id:string;segment_state:string;selected_revision_id:string|null;protected_at:Date|null;segment_revision_id:string|null;input_screen_id:string|null;asset_id:string|null;asset_sha256:Buffer|null;asset_status:string|null;end_asset_id:string|null;end_asset_sha256:Buffer|null;end_asset_status:string|null;automated_state:string|null;effective_state:string|null;screen_expires_at:Date|null}>(
+      "SELECT p.id,p.state,p.review_reason,p.election_id,e.state AS election_state,e.closes_at,e.segment_id,s.state AS segment_state,s.selected_revision_id,s.protected_at,p.segment_revision_id,p.input_screen_id,a.id AS asset_id,a.sha256 AS asset_sha256,a.status AS asset_status,ea.id AS end_asset_id,ea.sha256 AS end_asset_sha256,ea.status AS end_asset_status,sc.automated_state,sc.effective_state,sc.expires_at AS screen_expires_at FROM sloptogether.proposals p "+
       "JOIN sloptogether.elections e ON e.id=p.election_id JOIN sloptogether.segments s ON s.id=e.segment_id "+
       "LEFT JOIN sloptogether.boundary_revisions b ON b.id=p.start_boundary_revision_id LEFT JOIN sloptogether.assets a ON a.id=b.asset_id "+
       "LEFT JOIN sloptogether.boundary_revisions eb ON eb.id=p.end_boundary_revision_id LEFT JOIN sloptogether.assets ea ON ea.id=eb.asset_id "+
       "LEFT JOIN sloptogether.input_screens sc ON sc.id=p.input_screen_id "+
       "WHERE p.id=$1 AND s.twitch_channel_id=$2 FOR UPDATE OF p,e,s",[itemId,channel.twitch_channel_id]);
     const row=result.rows[0];if(!row)throw new ApiError(404,"review_item_not_found");
+    if(row.review_reason==="awaiting_bits_payment")throw new ApiError(409,"bits_payment_pending");
     if(row.state!=="pending")throw new ApiError(409,"review_item_already_decided");
     if(body.decision==="approve"){
       if(row.election_state==="selected"||row.election_state==="superseded"||row.segment_state==="played"||row.segment_state==="retired"||row.segment_state==="rendering"||row.protected_at)

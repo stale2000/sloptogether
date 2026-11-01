@@ -1,7 +1,8 @@
 import { createHmac,randomBytes } from "node:crypto";
 import { afterAll,beforeAll,describe,expect,it,vi } from "vitest";
 import { pool,transaction } from "./db";
-import { cancelPendingInterrupts,handleEventSubWebhook } from "./subscriber-service";
+import { cancelPendingInterrupts } from "./subscriber-service";
+import {handleEventSubWebhook} from "./eventsub-webhook";
 
 vi.mock("server-only",()=>({}));
 

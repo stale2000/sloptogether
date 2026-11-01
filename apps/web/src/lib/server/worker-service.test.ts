@@ -15,7 +15,8 @@ vi.mock("./storage",()=>({signedPrivateReadUrl:mocks.signedPrivateReadUrl}));
 vi.mock("./preflight",()=>({screenPromptAndImages:mocks.screenPromptAndImages}));
 vi.mock("./proxy-client-ip",()=>({trustedProxyClientIp:vi.fn()}));
 
-import { claimStoryProducer,claimWorkerLease,createPairing,downloadWorkerAsset,requestClipUpscale,submitStoryProposal } from "./worker-service";
+import { claimWorkerLease,createPairing,downloadWorkerAsset,requestClipUpscale } from "./worker-service";
+import { claimStoryProducer,submitStoryProposal } from "./story-producer-service";
 
 const channel={twitch_channel_id:"123",owner_twitch_user_id:"42",policy_revision:7};
 const grant={keyId:"producer-key",issuingTwitchUserId:"42",channelId:"123",scopes:["story:write_future"],roles:["story-producer"],recipes:[],paired:false,platform:null};

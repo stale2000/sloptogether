@@ -63,6 +63,7 @@ function panelHarness({ proposalResponse = { ok:true, json:async()=>({state:"eli
         activeElection: stream === "late-night" ? otherElection : election, canSubmitPrompts: true,
       }) });
     }
+    if (url.endsWith("/extension/bits/prompt-queue")) return Promise.resolve({ ok:true, json:async()=>({ enabled:false, products:[] }) });
     if (/\/proposals$/.test(url)) return Promise.resolve(proposalResponse);
     if (url.endsWith("/ballots")) {
       ballotSignal = options.signal;

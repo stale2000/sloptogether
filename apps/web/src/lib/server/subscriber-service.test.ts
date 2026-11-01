@@ -12,7 +12,8 @@ vi.mock("./timeline",()=>({getActiveElections:vi.fn()}));
 vi.mock("./session",()=>({currentSession:vi.fn()}));
 vi.mock("./voting-service",()=>({castBallot:vi.fn()}));
 
-import { handleEventSubWebhook,handleSubscriberSettings } from "./subscriber-service";
+import { handleSubscriberSettings } from "./subscriber-service";
+import {handleEventSubWebhook} from "./eventsub-webhook";
 
 const secret="local-eventsub-test-secret";
 const event={broadcaster_user_id:"123",user_id:"456",user_login:"viewer_456",user_name:"Viewer",is_anonymous:false,is_gift:false};

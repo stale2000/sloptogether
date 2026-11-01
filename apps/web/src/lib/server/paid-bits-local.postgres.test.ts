@@ -23,7 +23,7 @@ vi.mock("./twitch",()=>({
   appAccessToken:vi.fn(),twitchCredentials:vi.fn(),
 }));
 import { createExtensionBitsIntent,recordExtensionBitsReceipt } from "./paid-bits-service";
-import { handleEventSubWebhook } from "./subscriber-service";
+import { handleEventSubWebhook } from "./eventsub-webhook";
 import { pool } from "./db";
 
 type Fixture={channel:string;viewer:string;segment:string;revision:string;screen:string};

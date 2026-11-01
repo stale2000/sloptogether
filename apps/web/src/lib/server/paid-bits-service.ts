@@ -9,6 +9,7 @@ import { constantTimeEqual } from "./crypto";
 import { findChannel,isBanned } from "./channels";
 import { verifyExtensionBitsReceipt,verifyExtensionRequest } from "./extension-auth";
 import { getExtensionTransaction,listExtensionBitsProducts,twitchExtensionClientId } from "./twitch";
+import { createPaidPromptProposal } from "./proposal-service";
 import { bitsReconcileEndpointMatchesApp,bitsTransactionMatchesReceiptTarget } from "../bits-reconciliation";
 
 // Keep the paid product implementation, but never expose or dispatch it.
@@ -20,6 +21,15 @@ const productsSchema=z.array(z.object({
   resolution:z.enum(["480P","768P","1080P"]),
   reservedUsd:z.number().min(0.0001).max(500),
 }).strict()).min(1).max(20);
+const promptQueueProductsSchema=z.array(z.object({
+  sku:z.string().trim().min(1).max(255).regex(/^[A-Za-z0-9._-]+$/),
+  amountBits:z.number().int().min(1).max(10_000),
+}).strict()).min(1).max(10);
+const promptQueueSnapshotSchema=z.object({
+  schemaVersion:z.literal(1),actionType:z.literal("prompt_queue"),proposalId:z.string().uuid(),streamId:z.string().uuid(),
+  segmentId:z.string().uuid(),segmentRevisionId:z.string().uuid(),promptHash:z.string().regex(/^[a-f0-9]{64}$/),
+  startBoundaryId:z.string().uuid(),inputScreenId:z.string().uuid(),policyRevision:z.number().int().positive(),
+}).strict();
 const dispatchSnapshotSchema=z.object({
   schemaVersion:z.literal(1),channelId:z.string().regex(/^[0-9]{1,32}$/),policyRevision:z.number().int().positive(),
   segmentId:z.string().uuid(),segmentRevisionId:z.string().uuid(),prompt:z.string().min(1).max(6000),
@@ -43,6 +53,32 @@ function configuredProducts(){
     throw new ApiError(503,"bits_reconciliation_not_configured");
   try{return productsSchema.parse(JSON.parse(process.env.SLOPTOGETHER_BITS_TURBO_PRODUCTS_JSON??""));}
   catch{throw new ApiError(503,"bits_catalog_not_configured");}
+}
+
+function promptQueueEnabled(){
+  return process.env.SLOPTOGETHER_BITS_PROMPT_QUEUE_ENABLED==="true"
+    &&process.env.SLOPTOGETHER_BITS_POLICY_APPROVED==="true"
+    &&process.env.SLOPTOGETHER_BITS_EVENTSUB_READY==="true";
+}
+
+function configuredPromptQueueProducts(){
+  if(!promptQueueEnabled())return [];
+  try{return promptQueueProductsSchema.parse(JSON.parse(process.env.SLOPTOGETHER_BITS_PROMPT_QUEUE_PRODUCTS_JSON??""));}
+  catch{throw new ApiError(503,"bits_prompt_catalog_not_configured");}
+}
+
+async function availablePromptQueueProducts(){
+  const configured=configuredPromptQueueProducts();
+  if(!configured.length)return [];
+  const extensionId=twitchExtensionClientId();
+  const subscription=await query(`SELECT 1 FROM sloptogether.extension_bits_eventsub_subscriptions
+    WHERE extension_client_id=$1 AND state='enabled' LIMIT 1`,[extensionId]);
+  if(!subscription.rowCount)return [];
+  const catalog=await listExtensionBitsProducts();
+  return configured.flatMap(product=>{
+    const actual=catalog.find(row=>row.sku===product.sku&&row.amountBits===product.amountBits&&!row.inDevelopment);
+    return actual?[{...product,displayName:actual.displayName}]:[];
+  });
 }
 
 async function availableProducts(){
@@ -80,6 +116,7 @@ function dispatchSnapshotHash(snapshot:unknown){
 
 type VerifiedBitsRecord={transaction_id:string;broadcaster_twitch_id:string;purchaser_twitch_user_id:string;product_sku:string;amount_bits:number;
   occurred_at:Date;is_in_development:boolean;extension_client_id:string;state:string};
+type PaidPromptIntentRow={id:string;proposal_id:string|null;dispatch_snapshot:unknown;dispatch_snapshot_sha256:Buffer|null;policy_revision:number;input_sha256:Buffer};
 
 async function markBitsTransactionUnallocated(client:PoolClient,transactionId:string,reason:string){
   await client.query("UPDATE sloptogether.extension_bits_transactions SET state='verified_unallocated',settlement_state='pending',processed_at=now() WHERE transaction_id=$1",[transactionId]);
@@ -87,12 +124,102 @@ async function markBitsTransactionUnallocated(client:PoolClient,transactionId:st
     WHERE receipt_transaction_id=$1 AND state=ANY($3::text[])`,[transactionId,reason,[...receiptReconcileStates]]);
 }
 
+async function fulfillPaidPromptQueueTransaction(client:PoolClient,tx:VerifiedBitsRecord,intent:PaidPromptIntentRow){
+  const parsed=promptQueueSnapshotSchema.safeParse(intent.dispatch_snapshot);
+  if(!parsed.success||!Buffer.isBuffer(intent.dispatch_snapshot_sha256)
+    ||!dispatchSnapshotHash(parsed.data).equals(intent.dispatch_snapshot_sha256)){
+    await client.query("UPDATE sloptogether.paid_action_intents SET state='paid_unfulfilled',receipt_transaction_id=$2,receipt_timestamp=$3,state_reason='queue_snapshot_invalid',updated_at=now() WHERE id=$1",
+      [intent.id,tx.transaction_id,tx.occurred_at]);
+    await client.query("UPDATE sloptogether.extension_bits_transactions SET intent_id=$2,state='paid_unfulfilled',settlement_state='paid_unfulfilled',processed_at=now() WHERE transaction_id=$1",
+      [tx.transaction_id,intent.id]);
+    if(intent.proposal_id)await client.query("UPDATE sloptogether.proposals SET state='rejected',review_reason='Paid prompt queue snapshot invalid' WHERE id=$1 AND state='pending' AND review_reason='awaiting_bits_payment'",[intent.proposal_id]);
+    return {state:"paid_unfulfilled"};
+  }
+  const target=parsed.data;
+  const channel=await client.query<{policy_revision:number;is_enabled:boolean;visibility:string}>(
+    "SELECT policy_revision,is_enabled,visibility FROM sloptogether.channels WHERE twitch_channel_id=$1 FOR UPDATE",[tx.broadcaster_twitch_id]);
+  const proposal=await client.query<{proposal_id:string;proposal_state:string;review_reason:string|null;prompt:string;input_screen_id:string;segment_id:string;segment_state:string;
+    protected_at:Date|null;selected_revision_id:string|null;revision_id:string;revision_prompt:string;revision_start_boundary_id:string;
+    ordinal:string;branch_id:string;
+    stream_id:string;branch_selected:boolean;branch_archived_at:Date|null;election_id:string;election_state:string;winner_proposal_id:string|null;
+    screen_clear:boolean;screen_sha256:Buffer|null;start_boundary_valid:boolean;committed:boolean}>(`SELECT p.id AS proposal_id,p.state AS proposal_state,p.review_reason,p.prompt,p.input_screen_id,
+      s.id AS segment_id,s.state AS segment_state,s.protected_at,s.selected_revision_id,
+      s.ordinal::text AS ordinal,b.id AS branch_id,
+      r.id AS revision_id,r.prompt AS revision_prompt,r.start_boundary_revision_id AS revision_start_boundary_id,
+      b.stream_id,b.is_selected AS branch_selected,b.archived_at AS branch_archived_at,
+      e.id AS election_id,e.state AS election_state,e.winner_proposal_id,
+      (i.id IS NOT NULL AND i.effective_state='clear' AND (i.expires_at IS NULL OR i.expires_at>now())) AS screen_clear,
+      i.input_sha256 AS screen_sha256,
+      EXISTS(SELECT 1 FROM sloptogether.boundary_revisions sb JOIN sloptogether.assets sa ON sa.id=sb.asset_id
+        WHERE sb.id=r.start_boundary_revision_id AND sb.retired_at IS NULL AND sb.twitch_channel_id=s.twitch_channel_id
+          AND sa.status IN ('approved','published') AND sa.media_kind='image') AS start_boundary_valid,
+      EXISTS(SELECT 1 FROM sloptogether.program_items pi WHERE pi.segment_id=s.id AND pi.committed_at IS NOT NULL) AS committed
+      FROM sloptogether.proposals p JOIN sloptogether.elections e ON e.id=p.election_id
+      JOIN sloptogether.segments s ON s.id=e.segment_id JOIN sloptogether.branches b ON b.id=s.branch_id
+      JOIN sloptogether.segment_revisions r ON r.id=p.segment_revision_id
+      LEFT JOIN sloptogether.input_screens i ON i.id=p.input_screen_id AND i.twitch_channel_id=s.twitch_channel_id
+      WHERE p.id=$1 AND s.twitch_channel_id=$2 FOR UPDATE OF p,e,s,r`,[target.proposalId,tx.broadcaster_twitch_id]);
+  const row=proposal.rows[0],channelRow=channel.rows[0];
+  let latestBoundaryId:string|null=null;
+  if(row){
+    const latestBoundary=await client.query<{boundary_id:string|null}>(`SELECT coalesce(r.requested_end_boundary_revision_id,er.resolved_end_boundary_revision_id) AS boundary_id
+    FROM sloptogether.segments s JOIN sloptogether.segment_revisions r ON r.id=s.selected_revision_id
+    LEFT JOIN LATERAL(SELECT resolved_end_boundary_revision_id FROM sloptogether.endpoint_resolutions
+      WHERE segment_revision_id=r.id AND retired_at IS NULL ORDER BY created_at DESC LIMIT 1) er ON true
+    WHERE s.branch_id=$1 AND s.ordinal<$2 AND s.state NOT IN ('retired','rejected')
+    ORDER BY s.ordinal DESC LIMIT 1`,[row.branch_id,row.ordinal]);
+    latestBoundaryId=latestBoundary.rows[0]?.boundary_id??null;
+  }
+  const banned=await client.query(`SELECT 1 FROM sloptogether.bans WHERE twitch_user_id=$1 AND revoked_at IS NULL
+    AND (expires_at IS NULL OR expires_at>now()) AND (scope='global' OR twitch_channel_id=$2)`,[tx.purchaser_twitch_user_id,tx.broadcaster_twitch_id]);
+  const eligible=Boolean(promptQueueEnabled()&&channelRow?.is_enabled&&channelRow.visibility!=="private"
+    &&channelRow.policy_revision===intent.policy_revision&&!banned.rowCount&&row
+    &&row.proposal_state==="pending"&&row.review_reason==="awaiting_bits_payment"&&row.prompt===row.revision_prompt
+    &&typeof row.prompt==="string"&&createHash("sha256").update(row.prompt).digest("hex")===target.promptHash
+    &&row.proposal_id===intent.proposal_id&&row.segment_id===target.segmentId&&row.revision_id===target.segmentRevisionId
+    &&row.stream_id===target.streamId&&row.branch_selected&&row.branch_archived_at===null
+    &&(row.segment_state==="open"||row.segment_state==="voting")&&!row.protected_at&&!row.selected_revision_id&&!row.committed
+    &&row.screen_clear&&row.input_screen_id===target.inputScreenId&&Buffer.isBuffer(row.screen_sha256)
+    &&row.screen_sha256.equals(intent.input_sha256)
+    &&row.start_boundary_valid
+    &&row.revision_start_boundary_id===target.startBoundaryId
+    &&latestBoundaryId===target.startBoundaryId
+    &&row.election_state!=="selected"&&row.winner_proposal_id===null);
+  if(!eligible){
+    const reason=!promptQueueEnabled()?"prompt_queue_disabled_after_purchase":banned.rowCount?"purchaser_banned":!row?"paid_prompt_missing":"paid_prompt_target_changed";
+    await client.query("UPDATE sloptogether.paid_action_intents SET state='paid_unfulfilled',receipt_transaction_id=$2,receipt_timestamp=$3,state_reason=$4,updated_at=now() WHERE id=$1",
+      [intent.id,tx.transaction_id,tx.occurred_at,reason]);
+    await client.query("UPDATE sloptogether.extension_bits_transactions SET intent_id=$2,state='paid_unfulfilled',settlement_state='paid_unfulfilled',processed_at=now() WHERE transaction_id=$1",
+      [tx.transaction_id,intent.id]);
+    if(intent.proposal_id)await client.query("UPDATE sloptogether.proposals SET state='rejected',review_reason=$2 WHERE id=$1 AND state='pending' AND review_reason='awaiting_bits_payment'",[intent.proposal_id,reason.slice(0,500)]);
+    await client.query(`INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,action,target_kind,target_id,after_state)
+      VALUES($1,$2,'bits.prompt_unfulfilled','paid_action_intent',$3,$4::jsonb)`,
+    [tx.broadcaster_twitch_id,tx.purchaser_twitch_user_id,intent.id,JSON.stringify({transactionId:tx.transaction_id,reason})]);
+    return {state:"paid_unfulfilled",reason};
+  }
+  await client.query("UPDATE sloptogether.proposals SET state='eligible',review_reason=NULL WHERE id=$1 AND state='pending' AND review_reason='awaiting_bits_payment'",[row.proposal_id]);
+  await client.query(`UPDATE sloptogether.elections SET state='open',closes_at=greatest(closes_at,now()+interval '120 seconds')
+    WHERE id=$1 AND winner_proposal_id IS NULL AND state IN ('open','closed')`,[row.election_id]);
+  await client.query("UPDATE sloptogether.segments SET state='voting' WHERE id=$1 AND state IN ('open','voting') AND protected_at IS NULL",[row.segment_id]);
+  await client.query("UPDATE sloptogether.paid_action_intents SET state='consumed_succeeded',receipt_transaction_id=$2,receipt_timestamp=$3,state_reason='prompt_queued',updated_at=now() WHERE id=$1",
+    [intent.id,tx.transaction_id,tx.occurred_at]);
+  await client.query("UPDATE sloptogether.extension_bits_transactions SET intent_id=$2,state='reserved',settlement_state='consumed_succeeded',processed_at=now() WHERE transaction_id=$1",
+    [tx.transaction_id,intent.id]);
+  await client.query(`INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,action,target_kind,target_id,after_state)
+    VALUES($1,$2,'bits.prompt_queued','proposal',$3,$4::jsonb)`,
+  [tx.broadcaster_twitch_id,tx.purchaser_twitch_user_id,row.proposal_id,JSON.stringify({transactionId:tx.transaction_id,sku:tx.product_sku,bits:tx.amount_bits})]);
+  return {state:"consumed_succeeded",queueState:"queued",proposalId:row.proposal_id};
+}
+
 async function fulfillVerifiedBitsTransaction(client:PoolClient,tx:VerifiedBitsRecord){
   if(tx.is_in_development){
-    const intent=await client.query("SELECT id FROM sloptogether.paid_action_intents WHERE twitch_channel_id=$1 AND twitch_user_id=$2 AND product_sku=$3 AND state IN ('intent_open','receipt_seen') AND purchase_window_started_at<=$4 AND expires_at>=$4 ORDER BY created_at LIMIT 2 FOR UPDATE",
+    const intent=await client.query<{id:string;action_kind:string;proposal_id:string|null}>("SELECT id,action_kind,proposal_id FROM sloptogether.paid_action_intents WHERE twitch_channel_id=$1 AND twitch_user_id=$2 AND product_sku=$3 AND state IN ('intent_open','receipt_seen') AND purchase_window_started_at<=$4 AND expires_at>=$4 ORDER BY created_at LIMIT 2 FOR UPDATE",
       [tx.broadcaster_twitch_id,tx.purchaser_twitch_user_id,tx.product_sku,tx.occurred_at]);
     const intentId=intent.rows.length===1?intent.rows[0]!.id:null;
     if(intentId)await client.query("UPDATE sloptogether.paid_action_intents SET state='cancelled',receipt_transaction_id=$2,receipt_timestamp=$3,state_reason='development_transaction',updated_at=now() WHERE id=$1",[intentId,tx.transaction_id,tx.occurred_at]);
+    const matched=intent.rows.length===1?intent.rows[0]:null;
+    if(matched?.action_kind==="prompt_lock"&&matched.proposal_id)
+      await client.query("UPDATE sloptogether.proposals SET state='rejected',review_reason='Development Bits transaction' WHERE id=$1 AND state='pending' AND review_reason='awaiting_bits_payment'",[matched.proposal_id]);
     await client.query("UPDATE sloptogether.extension_bits_transactions SET state='development_ignored',settlement_state='development_ignored',intent_id=$2,processed_at=now() WHERE transaction_id=$1",[tx.transaction_id,intentId]);
     return {state:"development_ignored"};
   }
@@ -111,6 +238,7 @@ async function fulfillVerifiedBitsTransaction(client:PoolClient,tx:VerifiedBitsR
     await markBitsTransactionUnallocated(client,tx.transaction_id,"transaction_product_or_extension_mismatch");
     return {state:"verified_unallocated"};
   }
+  if(intent.action_kind==="prompt_lock")return fulfillPaidPromptQueueTransaction(client,tx,intent as PaidPromptIntentRow);
   const parsedSnapshot=dispatchSnapshotSchema.safeParse(intent.dispatch_snapshot);
   if(!parsedSnapshot.success||!Buffer.isBuffer(intent.dispatch_snapshot_sha256)
     ||!dispatchSnapshotHash(parsedSnapshot.data).equals(intent.dispatch_snapshot_sha256)){
@@ -236,6 +364,34 @@ export async function getExtensionBitsState(request:Request){
     target:{segmentId:row.segment_id,segmentRevisionId:row.revision_id,promptPreview:row.prompt.slice(0,180)}};
 }
 
+export async function getExtensionPromptBitsState(request:Request){
+  const principal=verifyExtensionRequest(request);
+  if(!principal.linkedTwitchUserId)
+    return {enabled:false,products:[],requiresLinkedIdentity:true};
+  if(await isBanned(principal.channelId,principal.linkedTwitchUserId))
+    return {enabled:false,products:[],requiresLinkedIdentity:false};
+  const products=await availablePromptQueueProducts();
+  return {enabled:products.length>0,products:products.map(({sku,amountBits,displayName})=>({sku,amountBits,displayName})),requiresLinkedIdentity:false};
+}
+
+export async function createExtensionBitsPromptIntent(request:Request){
+  const principal=verifyExtensionRequest(request);
+  if(!principal.linkedTwitchUserId)throw new ApiError(409,"bits_identity_share_required","Share your Twitch identity before queueing a prompt with Bits.");
+  if(await isBanned(principal.channelId,principal.linkedTwitchUserId))throw new ApiError(403,"channel_ban_active");
+  if(!promptQueueEnabled())throw new ApiError(503,"bits_prompt_queue_unavailable");
+  const body=await readJson(request,z.object({
+    sku:z.string().trim().min(1).max(255),
+    prompt:z.string().trim().min(1).max(1000),
+    streamSlug:z.string().trim().min(1).max(40).regex(/^[a-z0-9][a-z0-9-]*$/).default("main"),
+  }).strict());
+  const product=(await availablePromptQueueProducts()).find(row=>row.sku===body.sku);
+  if(!product)throw new ApiError(409,"bits_product_unavailable");
+  const queued=await createPaidPromptProposal(principal.channelId,request,body.prompt,body.streamSlug,product);
+  if(!queued.paidIntentId)throw new ApiError(500,"bits_prompt_intent_missing");
+  return {intentId:queued.paidIntentId,sku:product.sku,amountBits:product.amountBits,displayName:product.displayName,
+    proposalId:queued.proposalId,segmentId:queued.segmentId,expiresAt:queued.expiresAt};
+}
+
 export async function createExtensionBitsIntent(request:Request){
   const principal=verifyExtensionRequest(request);
   if(!PAID_TURBO_ENABLED)throw new ApiError(503,"bits_action_unavailable","This option is currently unavailable.");
@@ -311,7 +467,7 @@ export async function recordExtensionBitsReceipt(request:Request){
   const receipt=verifyExtensionBitsReceipt(body.transactionReceipt);
   if(receipt.userId!==principal.linkedTwitchUserId)throw new ApiError(403,"bits_receipt_user_mismatch");
   return transaction(async client=>{
-    const result=await client.query("SELECT state,opaque_user_id,twitch_user_id,purchase_window_started_at,expires_at,receipt_transaction_id FROM sloptogether.paid_action_intents WHERE id=$1 AND twitch_channel_id=$2 FOR UPDATE",
+    const result=await client.query("SELECT state,action_kind,opaque_user_id,twitch_user_id,purchase_window_started_at,expires_at,receipt_transaction_id FROM sloptogether.paid_action_intents WHERE id=$1 AND twitch_channel_id=$2 FOR UPDATE",
       [body.intentId,principal.channelId]);
     const intent=result.rows[0];if(!intent)throw new ApiError(404,"paid_action_intent_not_found");
     if(intent.opaque_user_id!==principal.opaqueUserId||intent.twitch_user_id!==receipt.userId)throw new ApiError(403,"paid_action_intent_identity_mismatch");
@@ -319,10 +475,12 @@ export async function recordExtensionBitsReceipt(request:Request){
     if(intent.receipt_transaction_id&&intent.receipt_transaction_id!==receipt.transactionId)throw new ApiError(409,"paid_action_intent_already_bound");
     const open=intent.state==="intent_open"||intent.state==="receipt_seen";
     const late=intent.state==="expired"||intent.state==="cancelled";
-    if(!open&&!late)return {accepted:intent.state==="reserved",state:intent.state};
+    if(!open&&!late)return {accepted:intent.state==="reserved"||intent.action_kind==="prompt_lock"&&intent.state==="consumed_succeeded",state:intent.state};
     if(receipt.inDevelopment){
       await client.query("UPDATE sloptogether.paid_action_intents SET state='cancelled',receipt_transaction_id=$2,receipt_timestamp=$3,state_reason='development_transaction',updated_at=now() WHERE id=$1",
         [body.intentId,receipt.transactionId,receipt.occurredAt]);
+      if(intent.action_kind==="prompt_lock"&&intent.proposal_id)
+        await client.query("UPDATE sloptogether.proposals SET state='rejected',review_reason='Development Bits transaction' WHERE id=$1 AND state='pending' AND review_reason='awaiting_bits_payment'",[intent.proposal_id]);
       return {accepted:false,state:"development_ignored"};
     }
     if(late){
@@ -337,7 +495,7 @@ export async function recordExtensionBitsReceipt(request:Request){
     const tx=verified.rows[0];
     if(tx&&tx.state==="verified_unallocated"){
       const outcome=await fulfillVerifiedBitsTransaction(client,tx);
-      return {accepted:outcome.state==="reserved",state:outcome.state,transactionId:receipt.transactionId};
+      return {accepted:outcome.state==="reserved"||outcome.state==="consumed_succeeded",state:outcome.state,transactionId:receipt.transactionId};
     }
     if(!tx){
       await scheduleBitsReceiptReconciliation(client,body.intentId);
@@ -348,8 +506,8 @@ export async function recordExtensionBitsReceipt(request:Request){
 
 async function markReceiptUnfulfilled(intentId:string,reason:string,verified?:Awaited<ReturnType<typeof getExtensionTransaction>>){
   return transaction(async client=>{
-    const result=await client.query<{id:string;twitch_channel_id:string;twitch_user_id:string;product_sku:string;amount_bits:number;reserved_usd:string;receipt_transaction_id:string|null;state:string}>(
-      "SELECT id,twitch_channel_id,twitch_user_id,product_sku,amount_bits,reserved_usd,receipt_transaction_id,state FROM sloptogether.paid_action_intents WHERE id=$1 FOR UPDATE",[intentId]);
+    const result=await client.query<{id:string;twitch_channel_id:string;twitch_user_id:string;product_sku:string;amount_bits:number;reserved_usd:string|null;receipt_transaction_id:string|null;state:string;action_kind:string;proposal_id:string|null}>(
+      "SELECT id,twitch_channel_id,twitch_user_id,product_sku,amount_bits,reserved_usd,receipt_transaction_id,state,action_kind,proposal_id FROM sloptogether.paid_action_intents WHERE id=$1 FOR UPDATE",[intentId]);
     const intent=result.rows[0];if(!intent)throw new ApiError(404,"paid_action_intent_not_found");
     if(!receiptReconcileStates.includes(intent.state as typeof receiptReconcileStates[number]))return {state:intent.state,reconciled:true};
     if(verified&&verified.broadcasterId===intent.twitch_channel_id&&verified.userId===intent.twitch_user_id){
@@ -358,6 +516,16 @@ async function markReceiptUnfulfilled(intentId:string,reason:string,verified?:Aw
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'paid_unfulfilled',$11::jsonb,'paid_unfulfilled','receipt_reconcile') ON CONFLICT(transaction_id) DO NOTHING`,
       [verified.id,"receipt-reconcile:"+verified.id,process.env.TWITCH_EXTENSION_CLIENT_ID,verified.broadcasterId,verified.userId,verified.sku,verified.amountBits,verified.inDevelopment,
         verified.timestamp,intent.id,JSON.stringify({source:"receipt_reconcile",reason})]);
+    }
+    if(intent.action_kind==="prompt_lock"){
+      if(intent.proposal_id)await client.query("UPDATE sloptogether.proposals SET state='rejected',review_reason=$2 WHERE id=$1 AND state='pending' AND review_reason='awaiting_bits_payment'",[intent.proposal_id,reason.slice(0,500)]);
+      await client.query("UPDATE sloptogether.paid_action_intents SET state='paid_unfulfilled',state_reason=$2,updated_at=now() WHERE id=$1 AND state=ANY($3::text[])",[intent.id,reason,[...receiptReconcileStates]]);
+      await client.query("UPDATE sloptogether.extension_bits_transactions SET state='paid_unfulfilled',settlement_state='paid_unfulfilled',processed_at=now() WHERE transaction_id=$1 AND intent_id=$2",
+        [intent.receipt_transaction_id,intent.id]);
+      await client.query(`INSERT INTO sloptogether.audit_log(twitch_channel_id,actor_twitch_user_id,action,target_kind,target_id,after_state)
+        VALUES($1,$2,'bits.receipt_unfulfilled','paid_action_intent',$3,$4::jsonb)`,
+      [intent.twitch_channel_id,intent.twitch_user_id,intent.id,JSON.stringify({transactionId:intent.receipt_transaction_id,reason})]);
+      return {state:"paid_unfulfilled",reconciled:true};
     }
     await client.query(`INSERT INTO sloptogether.funding_authorizations(twitch_channel_id,source,twitch_transaction_id,purchaser_twitch_user_id,paid_action_intent_id,
       amount_bits,reserved_usd,state,consumed_at,settled_at)
@@ -487,8 +655,11 @@ async function reconcilePaidBitsReceiptIntent(intentId:string){
 export async function cancelExtensionBitsIntent(intentId:string,request:Request){
   const principal=verifyExtensionRequest(request);
   return transaction(async client=>{
-    const result=await client.query("UPDATE sloptogether.paid_action_intents SET state='cancelled',state_reason='purchase_cancelled',updated_at=now() WHERE id=$1 AND twitch_channel_id=$2 AND opaque_user_id=$3 AND state='intent_open' RETURNING id",
+    const result=await client.query<{id:string;proposal_id:string|null;action_kind:string}>("UPDATE sloptogether.paid_action_intents SET state='cancelled',state_reason='purchase_cancelled',updated_at=now() WHERE id=$1 AND twitch_channel_id=$2 AND opaque_user_id=$3 AND state='intent_open' RETURNING id,proposal_id,action_kind",
       [intentId,principal.channelId,principal.opaqueUserId]);
+    const intent=result.rows[0];
+    if(intent?.action_kind==="prompt_lock"&&intent.proposal_id)
+      await client.query("UPDATE sloptogether.proposals SET state='rejected',review_reason='Bits prompt purchase cancelled' WHERE id=$1 AND state='pending' AND review_reason='awaiting_bits_payment'",[intent.proposal_id]);
     return {cancelled:Boolean(result.rowCount)};
   });
 }
@@ -496,13 +667,15 @@ export async function cancelExtensionBitsIntent(intentId:string,request:Request)
 export async function getExtensionBitsIntentStatus(intentId:string,request:Request){
   const principal=verifyExtensionRequest(request);
   if(!principal.linkedTwitchUserId)throw new ApiError(409,"bits_identity_share_required");
-  const result=await query<{id:string;state:string;state_reason:string;expires_at:Date;receipt_transaction_id:string|null}>(
-    `SELECT id,state,state_reason,expires_at,receipt_transaction_id FROM sloptogether.paid_action_intents
+  const result=await query<{id:string;state:string;state_reason:string;expires_at:Date;receipt_transaction_id:string|null;action_kind:string;proposal_id:string|null}>(
+    `SELECT id,state,state_reason,expires_at,receipt_transaction_id,action_kind,proposal_id FROM sloptogether.paid_action_intents
      WHERE id=$1 AND twitch_channel_id=$2 AND twitch_user_id=$3 AND opaque_user_id=$4`,
     [intentId,principal.channelId,principal.linkedTwitchUserId,principal.opaqueUserId]);
   const intent=result.rows[0];if(!intent)throw new ApiError(404,"paid_action_intent_not_found");
   if(intent.state==="intent_open"&&intent.expires_at.getTime()<=Date.now()){
     await query("UPDATE sloptogether.paid_action_intents SET state='expired',state_reason='purchase_window_elapsed',updated_at=now() WHERE id=$1 AND state='intent_open' AND expires_at<=now()",[intent.id]);
+    if(intent.action_kind==="prompt_lock"&&intent.proposal_id)
+      await query("UPDATE sloptogether.proposals SET state='rejected',review_reason='Bits prompt purchase expired' WHERE id=$1 AND state='pending' AND review_reason='awaiting_bits_payment'",[intent.proposal_id]);
     return {intentId:intent.id,state:"expired",expiresAt:intent.expires_at.toISOString(),transactionReceived:Boolean(intent.receipt_transaction_id)};
   }
   if(intent.state==="cancelled"&&intent.state_reason==="development_transaction")
@@ -512,7 +685,8 @@ export async function getExtensionBitsIntentStatus(intentId:string,request:Reque
     if(pending.rowCount)return {intentId:intent.id,state:"receipt_seen",expiresAt:intent.expires_at.toISOString(),transactionReceived:Boolean(intent.receipt_transaction_id)};
   }
   const pendingLateReceipt=intent.receipt_transaction_id&&["expired","cancelled"].includes(intent.state);
-  return {intentId:intent.id,state:pendingLateReceipt?"receipt_seen":intent.state,expiresAt:intent.expires_at.toISOString(),transactionReceived:Boolean(intent.receipt_transaction_id)};
+  const state=intent.action_kind==="prompt_lock"&&intent.state==="consumed_succeeded"?"queued":pendingLateReceipt?"receipt_seen":intent.state;
+  return {intentId:intent.id,state,proposalId:intent.proposal_id??undefined,expiresAt:intent.expires_at.toISOString(),transactionReceived:Boolean(intent.receipt_transaction_id)};
 }
 
 export async function requestBitsReceiptReconciliation(intentId:string,request:Request){

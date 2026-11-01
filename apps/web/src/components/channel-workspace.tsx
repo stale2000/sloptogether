@@ -271,7 +271,7 @@ export function ChannelWorkspace({ channelSlug,streamSlug="main" }: { channelSlu
                 {data.value.currentProgramItem?.upscaleUrl?<a href={data.value.currentProgramItem.upscaleUrl} target="_blank" rel="noopener noreferrer" className="subtle-link">Open approved upscale ↗</a>:null}
               </div>
               <div className="timeline-heading">
-                <div><SectionLabel suffix={<span className="tiny-count">{data.value.segments.length} SCENES</span>}>UP NEXT</SectionLabel><h2>The story keeps moving.</h2></div>
+                <div><SectionLabel suffix={<span className="tiny-count">{data.value.segments.length} SCENES</span>}>UP NEXT</SectionLabel><h2>Scenes in this stream</h2></div>
                 <Link href={`/channels/${channelSlug}/streams/${streamSlug}/output`} className="subtle-link mono">OPEN SOURCE ↗</Link>
               </div>
               {data.value.segments.length ? <ol className="scene-list">
@@ -281,13 +281,13 @@ export function ChannelWorkspace({ channelSlug,streamSlug="main" }: { channelSlu
                   <span className="scene-description"><strong>{segment.promptPreview || "Scene prompt awaiting review"}</strong><small>{segment.kind === "subscriber_interrupt" ? "COMMUNITY MOMENT" : "STORY SCENE"} · {formatDuration(segment.durationSeconds)}</small>{segment.upscaleUrl?<a href={segment.upscaleUrl} target="_blank" rel="noopener noreferrer" className="subtle-link">Open approved upscale ↗</a>:null}</span>
                   <span className={`scene-status scene-status-${segment.state}`}><span>{stateText(segment.state)}</span>{programReady&&segment.programItemId?<button type="button" aria-label={`Play scene ${index+1}`} onClick={()=>seekToScene(segment.id)}>▶</button>:null}</span>
                 </li>)}
-              </ol> : <div className="empty-state"><div className="empty-glyph">✦</div><strong>The first scene starts with chat.</strong><p>Submit a prompt or frame below, or open the Extension while watching this channel.</p></div>}
+              </ol> : <div className="empty-state"><div className="empty-glyph">✦</div><strong>No scenes yet.</strong><p>Submit a prompt or frame below, or open the Extension while watching this channel.</p></div>}
             </section>
 
             <aside className="side-stack" aria-label="Channel participation">
               {data.value.elections?.filter((election) => election.state === "open").map((election) => <div className="panel" key={election.id}>
                 <SectionLabel suffix={<span className="vote-window">OPEN</span>}>CHANNEL ELECTION</SectionLabel>
-                <h2>Choose what happens next</h2>
+                <h2>Vote on the next scene</h2>
                 <p className="panel-copy">One ballot per Twitch account. Change it in chat, on the site, or in the Extension.</p>
                 <div className="choice-list">{election.choices.map((choice) => <button className="choice-row" key={choice.id} aria-pressed={election.myChoiceId === choice.id} disabled={voted !== null} onClick={() => void submitVote(election.id, choice)}>
                   <span>{choice.title}</span><span className="choice-count">{voted === choice.id ? "…" : choice.votes} <span aria-hidden="true">◉</span></span>
@@ -300,10 +300,10 @@ export function ChannelWorkspace({ channelSlug,streamSlug="main" }: { channelSlu
 
               <form className="panel proposal-card" onSubmit={(event) => { event.preventDefault(); void sendProposal(new FormData(event.currentTarget)); }}>
                 <SectionLabel suffix={<span className="free-pill">{moderationState==="ready"?"FREE TO PROPOSE":"SUBMISSIONS PAUSED"}</span>}>YOUR IDEA</SectionLabel>
-                <h2>Add a spark to the next scene.</h2>
+                <h2>Propose a scene</h2>
                 <p className="panel-copy" role="status" aria-live="polite">{moderationState==="ready"?"Your prompt and frame get a quick input check before voting or rendering.":moderationState==="unavailable"?"Prompt and image screening is not configured yet, so proposals cannot be accepted.":moderationState==="checking"?"Checking prompt and image screening availability…":"Screening status could not be verified, so proposals are paused."}</p>
                 <label className="field-label" htmlFor="proposal-prompt">Scene prompt</label>
-                <textarea id="proposal-prompt" name="prompt" className="prompt-input" rows={4} minLength={1} maxLength={1000} placeholder="A tiny spaceship finds a lighthouse floating between the stars…" value={promptText} onChange={event=>setPromptText(event.currentTarget.value)} required />
+                <textarea id="proposal-prompt" name="prompt" className="prompt-input" rows={4} minLength={1} maxLength={1000} placeholder="Describe the scene you want the community to vote on." value={promptText} onChange={event=>setPromptText(event.currentTarget.value)} required />
                 <div className="prompt-meta"><span>Keep it visual and kind</span><span>1,000 characters max</span></div>
                 <label className="field-label" htmlFor="proposal-planning">How should this scene connect?</label>
                 <select id="proposal-planning" name="planningMode" className="select-input" defaultValue="continuation">

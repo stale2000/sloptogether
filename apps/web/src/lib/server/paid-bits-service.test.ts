@@ -20,8 +20,8 @@ function makeClient(state:string,expiresAt=new Date("2026-10-24T10:01:00Z")){
   const calls:Array<{sql:string;values?:unknown[]}>=[];
   const client:TestClient={query:vi.fn(async(sql:string,values?:unknown[])=>{
     calls.push({sql,values});
-    if(sql.includes("SELECT state,opaque_user_id,twitch_user_id,purchase_window_started_at"))return {rows:[{
-      state,opaque_user_id:"opaque",twitch_user_id:"456",purchase_window_started_at:new Date("2026-10-24T10:00:00Z"),expires_at:expiresAt,receipt_transaction_id:null,
+    if(sql.includes("SELECT state,action_kind,opaque_user_id,twitch_user_id,purchase_window_started_at"))return {rows:[{
+      state,action_kind:"turbo_dispatch",proposal_id:null,opaque_user_id:"opaque",twitch_user_id:"456",purchase_window_started_at:new Date("2026-10-24T10:00:00Z"),expires_at:expiresAt,receipt_transaction_id:null,
     }],rowCount:1};
     if(sql.includes("SELECT * FROM sloptogether.extension_bits_transactions"))return {rows:[],rowCount:0};
     return {rows:[],rowCount:1};

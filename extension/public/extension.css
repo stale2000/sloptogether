@@ -71,6 +71,12 @@ button { color: inherit; }
 h1 { margin: 0; font-size: 16px; font-weight: 730; letter-spacing: -.02em; }
 .status { margin: 12px 0 0; color: var(--soft); font-size: 12px; }
 .ballot { margin-top: 13px; }
+.panel-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 12px; }
+.panel-tab { min-height: 36px; border: 1px solid var(--line); border-radius: 4px; background: transparent; color: var(--soft); font-size: 11px; font-weight: 700; cursor: pointer; }
+.panel-tab[aria-selected="true"] { border-color: var(--purple); background: var(--surface); color: var(--purple); }
+.live-ideas { margin-top: 12px; padding: 9px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
+.live-ideas h2 { margin-bottom: 5px; }
+.live-idea { color: var(--ink); }
 h2 { margin: 0; font-size: 14px; font-weight: 700; }
 .turbo { margin-top: 13px; padding: 10px; border: 1px solid var(--line); border-left: 3px solid var(--purple); border-radius: 4px; background: var(--surface); }
 #turbo { display: none !important; }

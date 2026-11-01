@@ -1,24 +1,22 @@
-# EventSub subscriber meme video plan
+# Subscriber alert design and release checks
 
-Updated October 27, 2026, America/Los_Angeles. **Planning document; this is not a claim of live qualification.** Part of the [remaining product plan](completion-plan-2026-10-27.md).
+This document keeps the design and release checks for subscriber alerts. Current implementation status and evidence are in [Subscriber messages and alerts](subscriber-interrupts.md). Local integration is not proof of live Twitch delivery or browser interruption/resume.
 
 ## Product behavior
 
-With the feature enabled, a Twitch subscription triggers a personalized, approximately **ten-second** animated meme. Example: “LunaByte just subscribed, and their rocket turned into a confetti cannon!” The video must show the rocket/confetti action and deliver the short spoken acknowledgment. A caption rendered by the app can display the screened exact handle; do not rely on video-model lettering.
+With the feature enabled, an eligible Twitch subscription can trigger a personalized, approximately **ten-second** animated alert. The clip should include a short spoken acknowledgment. Render the screened display name as an app caption; do not rely on video-model lettering.
 
-The ready clip plays in the channel's chosen SlopTogether stream at a safe boundary and returns to the story. The browser remains the OBS capture source. Normal story clips remain about fifteen seconds. Subscription payment is not an app payment or render budget.
+When ready, the clip is intended to play in the channel's selected stream at a safe boundary, then return to the story. The browser remains the OBS capture source. Story clips target about fifteen seconds. A Twitch subscription is not an app payment or render budget.
 
-## Existing implementation to extend
+## Implemented paths and remaining qualification
 
-| Area | Existing source | Remaining work |
+| Area | Working path | Remaining qualification |
 |---|---|---|
-| Webhook and registration | `apps/web/src/lib/server/subscriber-service.ts`; `apps/web/src/app/api/v1/[...path]/route.ts` | Qualify live registrations/revocations; persist/reconcile lifecycle and stream routing |
-| Signature and receipts | `verifyEventSubMessage`, `handleEventSubWebhook`, `admitSubscriptionEvent` in subscriber service | Keep raw-body verification/deduplication; prove retry/crash behavior and registered-subscription matching |
-| Queue and funding | `subscription_events`, `interrupt_requests`, `funding_authorizations`, durable outbox | Ten-second policy, selected stream, template snapshot, budget/expiry and burst behavior |
-| Story planning | `apps/web/src/lib/server/worker-service.ts`; `workers/runtime/src/sloptogether_worker/story_producer.py` | Versioned gag library, rotation, action/dialogue consistency and deterministic retry |
-| Duration contract | `packages/contracts/src/index.ts` requires 10 seconds for subscriber clips; admission queues 243 frames at 24 fps and the generation lease uses the dedicated 10-second FastH3 recipe | Local code and guarded PostgreSQL tests cover the duration contract; qualify a real Twitch event and playback/resume before marking complete |
-| Rendering/publication | Common worker runtime; `workers/media-publisher/src/index.mjs` and `publish.mjs` | Actual ten-second FastH3 recipe, ready-alert scheduling and trust qualification |
-| Playback/review | `program-player.tsx`, `program-service.ts`, separate control/moderation UI | Once-only insert/resume with buffered media, rewind, controller transfer and multiple streams |
+| EventSub | Signed webhook, receipt deduplication, subscription intake and `!prompt <idea>` proposal handling are implemented. | Verify live registration, renewal, revocation and delivery against Twitch. |
+| Queue and funding | Durable alert requests, budget reservations, expiry/skip and cancellation use the existing outbox and tables. | Qualify production reconciliation, burst limits and funding recovery. |
+| Worker and media | The shared worker claims the 243-frame FastH3 alert job; the publisher validates media and can create an HLS program item. | A real subscriber alert has not completed a live Fal render-to-playback run. |
+| Playback | Program state supports ready alerts and safe-boundary scheduling; seek and rewind update skipped/played history. | Verify alert insertion and return-to-story behavior in the browser, including buffered media and controller changes. |
+| Story planning | The owner story producer and shared H3 compiler provide the alert plan and prompt path. | Qualify the reviewed alert templates, voice/dialogue match and deterministic recovery. |
 
 Reuse these interfaces and tables. Add only missing fields/constraints in additive migrations within the existing `sloptogether` schema; do not introduce another queue, unauthenticated render endpoint or separate GPU engine.
 
@@ -28,7 +26,7 @@ flowchart LR
   V --> R[Persist event and one alert request]
   R --> A[Acknowledge Twitch]
   R --> Q[Durable alert queue and owner budget]
-  Q --> P[Pick gag and compile short H3 plan]
+  Q --> P[Select approved template and compile short H3 plan]
   P --> S[Screen prompt and approved frame]
   S --> G[Shared FastH3 worker: about 10 seconds]
   G --> M[Upload, validate and approve]
@@ -48,7 +46,7 @@ flowchart LR
 | Event | Alert behavior |
 |---|---|
 | `channel.subscribe` | One new-sub alert; inspect `is_gift` to apply gift policy. Twitch excludes resubs from this event. |
-| `channel.subscription.message` | Optional alert when a viewer shares a resubscription message. This does not observe every automatic renewal. Ignore the raw message as planner instructions. |
+| `channel.subscription.message` | A resubscription message, when the subscriber chooses to send one; this does not observe every automatic renewal. An exact `!prompt <text>` command can submit a normal screened scene proposal when resub messages are enabled. Never pass the message directly to a planner. |
 | `channel.subscription.gift` | Optional single gifter/batch alert, with total count and anonymous identity respected. |
 
 Gift mode is either off, one gifter/batch alert, or recipient alerts. Do not render the aggregate gift and its recipient events as duplicate shout-outs. Deduplicate identical Twitch message IDs. Apply the explicit gift-mode rule across aggregate/recipient event types; do not collapse unrelated subscriptions merely because their names or timestamps are close.
@@ -60,34 +58,16 @@ Sources: [event types](https://dev.twitch.tv/docs/eventsub/eventsub-subscription
 - Verify the HMAC over message ID, timestamp and exact raw request body, compare in constant time, validate timestamp/body bounds, and match the subscription/channel/client/version to a current registered configuration. Verify challenges and revocations as well as notifications.
 - Persist a minimal receipt and one derived request transactionally before returning a success response. No planner, moderation provider or GPU call belongs in the webhook handler. A failed database write must remain retryable by Twitch.
 - Use durable uniqueness for event/request, budget reservation and work identities. Retries after a process crash cannot generate another plan, charge another attempt or play another alert. Treat Twitch delivery as potentially duplicated/out of order.
-- Store sanitized identity and required event fields. Names are bounded data, never prompt instructions or HTML; omit raw resub text by default and retain only necessary data with a documented expiry.
+- Store sanitized identity and required event fields. Names are bounded data, never prompt instructions or HTML. Omit ordinary resub text; for `!prompt <text>`, store only the extracted proposal through the normal proposal and moderation path.
 - Snapshot the channel policy revision, target stream, selected template/version, approved image digest and expiry. The target stream must belong to the subscribing channel. Default to `main`; changing settings must not reroute an existing event or fan it out silently.
 
 Source: [Twitch webhook verification, challenges and notifications](https://dev.twitch.tv/docs/eventsub/handling-webhook-events/).
 
-## 3. Build a reusable animated gag library
+## 3. Maintain a reviewed alert-template library
 
-Start with 20–30 reviewed ideas. Each template has a stable ID/version, style tags, approved reusable start/end frames when needed, fictional character description, visual beats, camera, short dialogue, sound cues and exclusions. Rotate by event ID and recent channel history; persist the choice so retries do not change the gag.
+Use reviewed templates with stable IDs and versions, channel-approved styles, fixed visual beats, dialogue structure, audio rules and exclusions. Keep each alert to one setting and one main action with a short setup, action and payoff. Do not generate new alert templates automatically.
 
-Starter ideas:
-
-| Template | Visible ten-second gag |
-|---|---|
-| Rocket confetti | A cartoon rocket blasts off, puffs into confetti, and the astronaut drifts down waving |
-| Mecha upgrade | A tiny robot receives an absurdly huge crown, wobbles, then strikes a heroic pose |
-| Dragon delivery | A friendly miniature dragon drops a gift crate and sneezes a burst of streamers |
-| Anime power-up | A character builds an enormous energy aura, which becomes a cloud of rubber ducks |
-| Banana landing | A space banana lands triumphantly on the moon and slips onto a springy cushion |
-| Duck portal | A wizard opens a portal and a parade of toy ducks marches through |
-| Game-show cannon | A cheerful announcer launches a contestant onto an inflatable victory throne |
-| Giant toast | A toaster launches a cartoon hero on a slice of toast; they surf to a victory banner |
-| Cat command center | A cat captain presses a large button and the spaceship becomes a disco ball |
-| Knight parade | A tiny knight enters riding an oversized snail with a confetti flag |
-| Cloud elevator | A character rides a cloud upward and emerges wearing a ridiculous superhero cape |
-| Gift avalanche | Wrapped boxes tumble into a cheerful pile and reveal a waving fictional mascot |
-
-For a ten-second clip use one setting and one main action: setup in the first two seconds, the gag during seconds two–eight, then a short payoff. Aim for one clear 12–20-word spoken line; check name length and the existing compiler limit. Do not fill a short clip with unrelated motion or ask the model to spell a banner accurately.
-
+Aim for one clear 12–20-word spoken line and enforce the compiler limit. Keep the action consistent between the visual plan and dialogue. Do not ask the model to render names, captions or other exact text.
 Use template substitution by default, requiring no paid text call. An optional configured cheap text model may vary the same bounded structured fields once; schema failure or provider outage returns the approved template. Store the final compiled prompt and version, and enforce the same action in the visual beats and dialogue. Do not let the planner select funding, stream routing, credentials or playback authority.
 
 **No automatic Comfy image generation.** Streamer/moderators can manually create a low-cost approved style image in advance. Alerts reuse that image pool or an explicitly approved current frame. A missing approved frame skips/holds the alert with a clear reason; it never spends the Comfy key automatically.
@@ -98,7 +78,7 @@ Use template substitution by default, requiring no paid text call. An optional c
 - Carry that target through the planning payload, H3 compiler, immutable job recipe, worker lease, native supported frame count, media validation and program timing. Create a separate versioned alert recipe if the pinned fifteen-second graph cannot accept the duration safely.
 - Use 512×288 16:9 base video and the imported five-step FastH3 Trim route. Qualify approximately 10 seconds, normally within 9.5–10.5 seconds, against actual decoded duration/frame timestamps. Do not silently render fifteen seconds while claiming ten, or trim away the spoken payoff.
 - Run the compiled prompt, name/line and actual reference frames through input screening. Use trusted managed workers for timely alerts; public donor output still requires its configured review.
-- Verify audible intelligible dialogue and the actual requested visual gag. Presence of an AAC track alone does not establish speech. Preserve audio in optional SoL upscale.
+- Verify audible intelligible dialogue and the requested visual action. Presence of an AAC track alone does not establish speech. Preserve audio in optional SoL upscale.
 - Keep upscale optional and out of the default alert latency path. If enabled, it has its own accepted-source dependency, reservation and ready deadline. Never delay a usable alert indefinitely waiting for enhancement.
 
 ## 5. Bound priority, cost and latency
@@ -129,10 +109,10 @@ Initial controls can retain current conservative values: feature off, minimum ga
 4. Production canary on one channel/target stream with conservative caps: verify actual Twitch subscriptions are enabled, then observe a real event when one is available. Do not purchase subscriptions as part of testing without separate authorization. Capture event/request/job/program IDs and actual browser/video/audio evidence.
 5. Confirm disabled mode and expiry create no new provider spending; no duplicate playback or billable render on redelivery; unrelated story/paid slots and streams remain intact. Verify the two-hour Fal cutoff and zero GPUs after test completion.
 
-**Release gate:** one actual subscribed viewer is acknowledged by the correct ~10-second animated gag, with audible matching speech, normal media admission, once-only browser playback and correct story resume; security/burst/recovery cases pass separately. The local duration and publication path are implemented and integration-tested, but no real Twitch event, generated clip, or live browser interruption has satisfied this gate yet.
+**Release gate:** one actual subscribed viewer is acknowledged by the correct ~10-second alert, with audible matching speech, normal media admission, once-only browser playback and correct story resume; security/burst/recovery cases pass separately. The local duration and publication path are implemented and integration-tested, but no real Twitch event, generated clip, or live browser interruption has satisfied this gate yet.
 
 ## Remaining access and decisions
 
 - Real channel subscription authorization and Twitch capability/eligibility must be available for live canary delivery. Do not infer this from ordinary Twitch login.
 - The owner configures a small alert budget and one target stream. Defaults can be established locally; they are not reasons to stop planning or implementation.
-- Start with generic fictional cartoon avatars, the reviewed gag library, template text and base-quality alerts. More elaborate personalization, automatic image calls and mandatory upscale are not prerequisites.
+- Start with generic fictional cartoon avatars, the reviewed alert templates, template text and base-quality alerts. More elaborate personalization, automatic image calls and mandatory upscale are not prerequisites.

@@ -10,11 +10,12 @@ vi.mock("./storage",()=>({signedPrivateReadUrl:vi.fn(async(key:string)=>`http://
 import {pool} from "./db";
 import {castBallot} from "./voting-service";
 import {submitProposal} from "./proposal-service";
-import {claimStoryProducer,claimWorkerLease,submitStoryProposal} from "./worker-service";
+import {claimWorkerLease} from "./worker-service";
+import {claimStoryProducer,submitStoryProposal} from "./story-producer-service";
 import {requestPrincipal} from "./principals";
 import * as principalModule from "./principals";
 import {hashWorkerSecret} from "./crypto";
-import {handleEventSubWebhook} from "./subscriber-service";
+import {handleEventSubWebhook} from "./eventsub-webhook";
 import {heartbeatPlayback} from "./program-service";
 import {createComfyFrameGeneration} from "./comfy-frame-service";
 

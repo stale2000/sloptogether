@@ -1,6 +1,6 @@
-# Twitch identity to GPU lease to Cloudflare upload
+# Worker pairing, job leases and uploads
 
-Proposed application protocol. Public API prefix: `https://www.clips.gg/sloptogether/api/v1` (the apex redirects to `www`). Twitch authenticates the person; SlopTogether issues the narrowly scoped device/job credentials. Cloudflare does not accept a Twitch OAuth token as permission to write to our bucket.
+The shared worker uses this implemented API to authenticate, claim work and upload results. Generation and upscale roles use the same protocol. Sustained production publication and Windows hardware qualification remain open. Public API prefix: `https://www.clips.gg/sloptogether/api/v1` (the apex redirects to `www`). Twitch authenticates the person; SlopTogether issues the narrowly scoped device/job credentials. Cloudflare does not accept a Twitch OAuth token as permission to write to our bucket.
 
 ## Credentials and lifecycle
 

@@ -10,6 +10,12 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     status: document.getElementById("status"),
     streamPicker: document.getElementById("stream-picker"),
     streamSelect: document.getElementById("stream-select"),
+    voteTab: document.getElementById("vote-tab"),
+    suggestTab: document.getElementById("suggest-tab"),
+    votePanel: document.getElementById("vote-panel"),
+    suggestPanel: document.getElementById("suggest-panel"),
+    liveIdeas: document.getElementById("live-ideas"),
+    liveIdeasList: document.getElementById("live-ideas-list"),
     turbo: document.getElementById("turbo"),
     turboPrompt: document.getElementById("turbo-prompt"),
     turboProducts: document.getElementById("turbo-products"),
@@ -27,6 +33,10 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     promptForm: document.getElementById("prompt-form"),
     promptInput: document.getElementById("prompt-input"),
     promptSubmit: document.getElementById("submit-prompt"),
+    suggestStatus: document.getElementById("suggest-status"),
+    promptBits: document.getElementById("prompt-bits"),
+    promptBitsProducts: document.getElementById("prompt-bits-products"),
+    promptBitsStatus: document.getElementById("prompt-bits-status"),
     empty: document.getElementById("empty"),
     link: document.getElementById("link-account"),
     error: document.getElementById("error"),
@@ -36,6 +46,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
   let authorization = null;
   let currentElection = null;
   let selectedStreamSlug = "main";
+  let selectedPanel = "vote";
   let currentChannelLogin = null;
   let selectedChoiceId = null;
   let abortController = null;
@@ -45,7 +56,11 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
   let isSubmitting = false;
   let isSubmittingPrompt = false;
   let isPromptFormOpen = false;
+  let promptSubmissionMessage = "";
   let canSubmitPrompts = false;
+  let promptBitsProducts = [];
+  let promptBitsBusy = false;
+  let promptBitsMessage = "";
   let bitsState = null;
   let bitsPending = false;
   let bitsBusy = false;
@@ -101,6 +116,9 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     if (bitsTimer) window.clearTimeout(bitsTimer);
     bitsTimer = 0;
     bitsState = null;
+    promptBitsProducts = [];
+    promptBitsBusy = false;
+    promptBitsMessage = "";
     bitsPending = false;
     bitsBusy = false;
     bitsReceiptUnverified = false;
@@ -113,6 +131,9 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     nodes.turboLink.hidden = true;
     nodes.turboReconcile.hidden = true;
     nodes.turbo.hidden = true;
+    nodes.promptBitsStatus.hidden = true;
+    nodes.promptBitsStatus.textContent = "";
+    renderPromptBits();
   }
 
   function renderTurboProducts() {
@@ -205,6 +226,41 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
       if (typeof result.state !== "string") throw new Error("status_invalid");
       if (requestEpoch !== identityEpoch || bitsIntent?.intentId !== intentId) return;
       clearError();
+      if (bitsIntent.actionType === "prompt_queue") {
+        if (result.state === "queued" || result.state === "consumed_succeeded") {
+          promptBitsMessage = "Prompt added to the community vote queue. The winning prompt becomes the next scene.";
+          promptBitsBusy = false;
+          bitsPending = false;
+          bitsIntent = null;
+          bitsTransactionEpoch = null;
+          try { window.sessionStorage.removeItem("sloptogether-prompt-bits:" + currentAuthorization.channelId + ":" + window.Twitch?.ext?.viewer?.id); } catch {}
+          nodes.promptInput.value = "";
+          if (bitsTimer) window.clearTimeout(bitsTimer);
+          bitsTimer = 0;
+          try { window.sessionStorage.removeItem("sloptogether-prompt-bits:" + currentAuthorization.channelId + ":" + window.Twitch?.ext?.viewer?.id); } catch {}
+          renderPromptForm();
+          void refresh();
+          return;
+        }
+        if (["paid_unfulfilled","expired","cancelled","development_ignored","verified_unallocated"].includes(result.state)) {
+          promptBitsMessage = result.state === "expired" ? "The Bits confirmation expired; the prompt was not queued."
+            : result.state === "cancelled" ? "The Bits action was cancelled; the prompt was not queued."
+            : "Bits were recorded, but the prompt was not queued. Contact the channel owner.";
+          promptBitsBusy = false;
+          bitsPending = false;
+          bitsIntent = null;
+          bitsTransactionEpoch = null;
+          renderPromptForm();
+          return;
+        }
+        promptBitsMessage = result.state === "receipt_unverified"
+          ? "Checking the Bits receipt. Do not submit another payment yet."
+          : "Bits receipt received. Waiting for the prompt to enter the queue.";
+        promptBitsBusy = true;
+        bitsTimer = window.setTimeout(checkBitsIntent, result.state === "receipt_unverified" ? 30_000 : 5000);
+        renderPromptForm();
+        return;
+      }
       if (isLateReceiptGracePending(result.state,result.transactionReceived,result.expiresAt)) {
         setTurboStatus("Bits verification in progress.");
         bitsTimer = window.setTimeout(checkBitsIntent, 5000);
@@ -340,11 +396,49 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
   function showNoElection() {
     currentElection = null;
     selectedChoiceId = null;
+    renderLiveIdeas([]);
     nodes.ballot.hidden = true;
     nodes.empty.hidden = false;
     nodes.link.hidden = !authorization || linkedIdentity(authorization);
     nodes.status.hidden = true;
     nodes.submit.disabled = true;
+  }
+
+  function selectPanel(name) {
+    selectedPanel = name === "suggest" ? "suggest" : "vote";
+    nodes.votePanel.hidden = selectedPanel !== "vote";
+    nodes.suggestPanel.hidden = selectedPanel !== "suggest";
+    nodes.voteTab.setAttribute("aria-selected", String(selectedPanel === "vote"));
+    nodes.suggestTab.setAttribute("aria-selected", String(selectedPanel === "suggest"));
+  }
+
+  function renderPromptSubmissionStatus() {
+    nodes.suggestStatus.hidden = !promptSubmissionMessage;
+    message(nodes.suggestStatus, promptSubmissionMessage);
+  }
+
+  function renderLiveIdeas(choices) {
+    if (!nodes.liveIdeas || !nodes.liveIdeasList) return;
+    const ideas = Array.isArray(choices)
+      ? choices.filter(choice => choice && typeof choice.id === "string" && typeof choice.title === "string").slice(0, 8)
+      : [];
+    nodes.liveIdeasList.replaceChildren();
+    for (const idea of ideas) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "choice live-idea";
+      button.textContent = idea.title;
+      button.setAttribute("aria-label", "Prefill prompt from live idea: " + idea.title);
+      button.addEventListener("click", () => {
+        nodes.promptInput.value = idea.title;
+        isPromptFormOpen = true;
+        selectPanel("suggest");
+        renderPromptForm();
+        nodes.promptInput.focus();
+      });
+      nodes.liveIdeasList.append(button);
+    }
+    nodes.liveIdeas.hidden = ideas.length === 0;
   }
 
   function renderPromptForm(allowed = canSubmitPrompts) {
@@ -353,9 +447,107 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
     nodes.promptForm.hidden = !isPromptFormOpen;
     nodes.promptToggle.setAttribute("aria-expanded", String(isPromptFormOpen));
     nodes.promptToggle.textContent = linkedIdentity(authorization) ? "Suggest a scene" : "Link account to suggest";
-    nodes.promptInput.disabled = !linkedIdentity(authorization) || isSubmittingPrompt;
-    nodes.promptSubmit.disabled = !linkedIdentity(authorization) || isSubmittingPrompt || !nodes.promptInput.value.trim();
+    nodes.promptInput.disabled = !linkedIdentity(authorization) || isSubmittingPrompt || promptBitsBusy;
+    nodes.promptSubmit.disabled = !linkedIdentity(authorization) || isSubmittingPrompt || promptBitsBusy || !nodes.promptInput.value.trim();
     nodes.promptSubmit.textContent = isSubmittingPrompt ? "Submitting…" : "Submit prompt";
+    if (nodes.streamSelect) nodes.streamSelect.disabled = promptBitsBusy;
+    renderPromptBits();
+  }
+
+  function renderPromptBits() {
+    if (!nodes.promptBits) return;
+    nodes.promptBitsProducts.replaceChildren();
+    for (const product of promptBitsProducts) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary";
+      button.textContent = product.displayName + " · " + product.amountBits + " Bits";
+      button.disabled = !linkedIdentity(authorization) || promptBitsBusy || isSubmittingPrompt || !nodes.promptInput.value.trim();
+      button.addEventListener("click", () => { void queuePromptWithBits(product); });
+      nodes.promptBitsProducts.append(button);
+    }
+    nodes.promptBits.hidden = !isPromptFormOpen || promptBitsProducts.length === 0;
+    nodes.promptBitsStatus.hidden = !promptBitsMessage;
+    message(nodes.promptBitsStatus, promptBitsMessage);
+  }
+
+  async function loadPromptQueueBits() {
+    const helper = window.Twitch?.ext;
+    if (!authorization || !isVisible) return;
+    if (!linkedIdentity(authorization) || helper?.features?.isBitsEnabled !== true || !helper.bits) {
+      promptBitsProducts = [];
+      renderPromptBits();
+      return;
+    }
+    const requestEpoch = identityEpoch;
+    try {
+      const state = await api("/extension/bits/prompt-queue");
+      if (requestEpoch !== identityEpoch) return;
+      if (state.enabled !== true || !Array.isArray(state.products) || state.products.length === 0) {
+        promptBitsProducts = [];
+        renderPromptBits();
+        return;
+      }
+      const catalog = await helper.bits.getProducts();
+      if (requestEpoch !== identityEpoch) return;
+      const allowed = new Map((state.products || []).map(product => [product.sku, product.amountBits]));
+      promptBitsProducts = catalog.filter(item => item.inDevelopment !== true && allowed.get(item.sku) === Number(item.cost?.amount))
+        .map(item => ({ sku: item.sku, amountBits: Number(item.cost.amount), displayName: state.products.find(product => product.sku === item.sku)?.displayName || item.displayName }));
+    } catch {
+      if (requestEpoch === identityEpoch) promptBitsProducts = [];
+    }
+    renderPromptBits();
+  }
+
+  async function queuePromptWithBits(product) {
+    if (!authorization || !linkedIdentity(authorization) || promptBitsBusy || !nodes.promptInput.value.trim()) return;
+    const helper = window.Twitch?.ext;
+    if (helper?.features?.isBitsEnabled !== true || !helper.bits) {
+      promptBitsMessage = "Bits are not available for this channel.";
+      renderPromptBits();
+      return;
+    }
+    const requestEpoch = identityEpoch;
+    const requestStreamEpoch = streamEpoch;
+    const currentAuthorization = authorization;
+    promptBitsBusy = true;
+    promptBitsMessage = "Checking the prompt before opening Twitch’s Bits confirmation.";
+    clearError();
+    renderPromptForm();
+    try {
+      const response = await fetch(API + "/extension/bits/prompt-intents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-extension-jwt": currentAuthorization.token },
+        body: JSON.stringify({ sku: product.sku, prompt: nodes.promptInput.value.trim(), streamSlug: selectedStreamSlug }),
+      });
+      const intent = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(intent.message || intent.error || "Prompt could not be queued.");
+      if (requestEpoch !== identityEpoch || requestStreamEpoch !== streamEpoch) {
+        void fetch(API + "/extension/bits/intents/" + encodeURIComponent(intent.intentId) + "/cancel", { method: "POST", headers: { "x-extension-jwt": currentAuthorization.token } });
+        return;
+      }
+      bitsIntent = { intentId: intent.intentId, sku: product.sku, identityEpoch: requestEpoch, actionType: "prompt_queue" };
+      bitsPending = true;
+      bitsTransactionEpoch = requestEpoch;
+      try { window.sessionStorage.setItem("sloptogether-prompt-bits:" + currentAuthorization.channelId + ":" + (helper.viewer?.id || ""), intent.intentId); } catch {}
+      promptBitsMessage = "Confirm " + product.amountBits + " Bits to add this prompt to the community vote queue.";
+      try { helper.bits.useBits(product.sku); }
+      catch (error) {
+        bitsTransactionEpoch = null;
+        void fetch(API + "/extension/bits/intents/" + encodeURIComponent(intent.intentId) + "/cancel", { method: "POST", headers: { "x-extension-jwt": currentAuthorization.token } });
+        bitsIntent = null;
+        bitsPending = false;
+        promptBitsBusy = false;
+        promptBitsMessage = error.message || "The Bits confirmation could not be opened.";
+        try { window.sessionStorage.removeItem("sloptogether-prompt-bits:" + currentAuthorization.channelId + ":" + (helper.viewer?.id || "")); } catch {}
+      }
+    } catch (error) {
+      if (requestEpoch === identityEpoch && requestStreamEpoch === streamEpoch) {
+        promptBitsBusy = false;
+        promptBitsMessage = error.message || "Prompt could not be queued with Bits.";
+      }
+    }
+    renderPromptForm();
   }
 
   function togglePromptForm() {
@@ -372,6 +564,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
 
   function renderChoices(election) {
     const choices = Array.isArray(election.choices) ? election.choices : [];
+    renderLiveIdeas(choices);
     const ownChoice = election.myVote?.choiceId || null;
     if (!selectedChoiceId || !choices.some((choice) => choice.id === selectedChoiceId)) {
       selectedChoiceId = ownChoice;
@@ -473,6 +666,7 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
       if (errorSource === "refresh") clearError();
       renderPromptForm(result.canSubmitPrompts === true);
       void loadTurbo();
+      void loadPromptQueueBits();
       const election = result.activeElection || result.election ||
         (Array.isArray(result.elections) ? result.elections.find((item) => item?.state === "open") : null);
       if (!election) {
@@ -555,8 +749,12 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
       if (!response.ok) throw new Error(result.message || result.error || "Prompt could not be submitted.");
       nodes.promptInput.value = "";
       isPromptFormOpen = false;
-      nodes.status.textContent = result.state === "pending" ? "Prompt sent for review." : "Prompt added to the vote.";
-      nodes.status.hidden = false;
+      promptSubmissionMessage = result.state === "pending"
+        ? result.screen === "held"
+          ? "Automated review held this suggestion. It will not appear in voting until a moderator clears it."
+          : "Suggestion sent for moderator review. It will appear in voting after approval."
+        : "Suggestion added to the live vote.";
+      renderPromptSubmissionStatus();
       await refresh();
     } catch (error) {
       if (requestEpoch === identityEpoch && requestStreamEpoch === streamEpoch) setError(error.message || "Prompt could not be submitted.");
@@ -586,6 +784,10 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
         voteAbortController = null;
         authorizedIdentity = nextIdentity;
         identityEpoch += 1;
+        isPromptFormOpen = false;
+        promptSubmissionMessage = "";
+        renderPromptSubmissionStatus();
+        selectPanel("vote");
         resetBitsForIdentityChange();
         isSubmitting = false;
         isSubmittingPrompt = false;
@@ -618,6 +820,16 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
             void checkBitsIntent();
           }
         } catch { /* Storage is optional; Twitch and server receipts remain authoritative. */ }
+        try {
+          const promptIntentId = window.sessionStorage.getItem("sloptogether-prompt-bits:" + auth.channelId + ":" + linkedId);
+          if (promptIntentId && /^[0-9a-f-]{36}$/i.test(promptIntentId)) {
+            bitsIntent = { intentId: promptIntentId, sku: "", identityEpoch, actionType: "prompt_queue" };
+            bitsPending = true;
+            promptBitsBusy = true;
+            promptBitsMessage = "Checking whether your prompt reached the queue.";
+            void checkBitsIntent();
+          }
+        } catch { /* Storage is optional; server state remains authoritative. */ }
       }
     });
     helper.onContext((context) => {
@@ -631,10 +843,37 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
       if (visible) { refresh(); if (bitsPending) void checkBitsIntent(); }
       else { stopPolling(); if (bitsTimer) window.clearTimeout(bitsTimer); bitsTimer = 0; }
     });
-    helper.features?.onChanged?.(() => { void loadTurbo(); });
+    helper.features?.onChanged?.(() => { void loadTurbo(); void loadPromptQueueBits(); });
     helper.bits?.onTransactionComplete?.((receipt) => {
-      if (!PAID_TURBO_UI_ENABLED) return;
       if (bitsTransactionEpoch !== identityEpoch || !bitsIntent || bitsIntent.identityEpoch !== identityEpoch || receipt?.initiator !== "current_user" || typeof receipt.transactionReceipt !== "string" || !authorization) return;
+      if (bitsIntent.actionType === "prompt_queue") {
+        bitsTransactionEpoch = null;
+        const requestEpoch = identityEpoch;
+        const intentId = bitsIntent.intentId;
+        const currentAuthorization = authorization;
+        promptBitsMessage = "Bits received. Waiting for queue confirmation.";
+        renderPromptForm();
+        void fetch(API + "/extension/bits/receipt", {
+          method: "POST", headers: { "Content-Type": "application/json", "x-extension-jwt": currentAuthorization.token },
+          body: JSON.stringify({ intentId, transactionReceipt: receipt.transactionReceipt }),
+        }).then(async (response) => {
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.message || "Bits receipt could not be verified.");
+          if (requestEpoch !== identityEpoch || bitsIntent?.intentId !== intentId) return;
+          promptBitsMessage = result.state === "consumed_succeeded" || result.state === "queued"
+            ? "Prompt added to the community vote queue."
+            : "Bits received. Waiting for queue confirmation.";
+          renderPromptForm();
+          void checkBitsIntent();
+        }).catch((error) => {
+          if (requestEpoch === identityEpoch) {
+            promptBitsMessage = error.message || "Bits receipt could not be verified.";
+            renderPromptForm();
+          }
+        });
+        return;
+      }
+      if (!PAID_TURBO_UI_ENABLED) return;
       bitsTransactionEpoch = null;
       const requestEpoch = identityEpoch;
       const intentId = bitsIntent.intentId;
@@ -653,8 +892,20 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
       }).catch((error) => { if (requestEpoch === identityEpoch) setError(error.message || "Bits receipt verification failed."); });
     });
     helper.bits?.onTransactionCancelled?.(() => {
-      if (!PAID_TURBO_UI_ENABLED) return;
       if (bitsTransactionEpoch !== identityEpoch || !bitsIntent || bitsIntent.identityEpoch !== identityEpoch || !authorization) return;
+      if (bitsIntent.actionType === "prompt_queue") {
+        bitsTransactionEpoch = null;
+        const intentId = bitsIntent.intentId;
+        void fetch(API + "/extension/bits/intents/" + encodeURIComponent(intentId) + "/cancel", { method: "POST", headers: { "x-extension-jwt": authorization.token } });
+        promptBitsMessage = "Bits action cancelled. The prompt was not queued.";
+        promptBitsBusy = false;
+        bitsPending = false;
+        bitsIntent = null;
+        try { window.sessionStorage.removeItem("sloptogether-prompt-bits:" + authorization.channelId + ":" + helper.viewer?.id); } catch {}
+        renderPromptForm();
+        return;
+      }
+      if (!PAID_TURBO_UI_ENABLED) return;
       bitsTransactionEpoch = null;
       const intentId = bitsIntent.intentId;
       void fetch(`${API}/extension/bits/intents/${encodeURIComponent(intentId)}/cancel`, { method: "POST", headers: { "x-extension-jwt": authorization.token } });
@@ -664,11 +915,19 @@ import { bitsOutcome, isLateReceiptGracePending } from "./bits-state.mjs";
   }
 
   nodes.submit.addEventListener("click", submitVote);
-  nodes.promptInput.addEventListener("input", () => renderPromptForm());
+  nodes.voteTab.addEventListener("click", () => selectPanel("vote"));
+  nodes.suggestTab.addEventListener("click", () => selectPanel("suggest"));
+  nodes.promptInput.addEventListener("input", () => {
+    if (!promptBitsBusy) promptBitsMessage = "";
+    renderPromptForm();
+  });
   nodes.streamSelect?.addEventListener("change",()=>{
+    if(promptBitsBusy){nodes.streamSelect.value=selectedStreamSlug;return;}
     if(!nodes.streamSelect.value||nodes.streamSelect.value===selectedStreamSlug)return;
     selectedStreamSlug=nodes.streamSelect.value;
     streamEpoch+=1;
+    promptSubmissionMessage="";
+    renderPromptSubmissionStatus();
     isSubmitting=false;
     isSubmittingPrompt=false;
     canSubmitPrompts=false;

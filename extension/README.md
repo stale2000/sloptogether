@@ -19,4 +19,6 @@ The panel sends its Twitch-signed JWT to `https://www.clips.gg/sloptogether/api/
 
 For the registered version, use `panel.html`, `mobile.html`, `video_component.html`, and `video_overlay.html` for its viewer paths; use `config.html` for configuration and Live Configuration. The current version is Local Test at `https://www.clips.gg/sloptogether/extension/`. Upload the packaged assets in the Twitch Developer Console to enable Hosted Test, then test the real Extension Helper, linked identity, voting and prompt submission in Developer Rig and on the channel before requesting Twitch review.
 
-Bits remains disabled until the fixed catalog products, Twitch policy approval, transaction EventSub and server receipt path have been tested. Bits only buys one fixed Turbo attempt for the currently locked scene; it does not purchase arbitrary prompts.
+Bits prompt queueing is a separate fixed-SKU action from H3 Max Turbo. A viewer can submit one prompt as a queue entry; the server screens it before opening Twitch's Bits confirmation, and a verified transaction makes it eligible in the normal community vote. The queue entry does not guarantee selection or generation. The extension displays the exact Bits amount returned by Twitch and never labels the action a donation.
+
+Enable the product only after Bits monetization, the fixed SKU, transaction EventSub, and the prompt queue server gates are configured. The current Twitch Developer Console version is Local Test; Twitch test transactions do not spend real Bits or create production queue entries.

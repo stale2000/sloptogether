@@ -1,6 +1,6 @@
 # SlopTogether — implementation plan
 
-Status: product specification and historical implementation notes. Use the [October 27 execution plan](../../docs/completion-plan-2026-10-27.md) for current status, EventSub ten-second alert scope, Windows release work and the two-hour GPU maximum. The [October 24 implementation audit](../../docs/implementation-audit-2026-10-24.md) and [current completion plan](sloptogether-completion-plan.md) supersede older readiness/deployment assumptions below. Public target: **https://clips.gg/sloptogether**. The application must support continuous streams with no fixed clip-count limit; three/four clips are only smoke-test sizes. The existing Clips.gg database is approved for additive objects in the isolated `sloptogether` schema with a scoped runtime role.
+Status: historical product specification and implementation notes. The [architecture plan](../../docs/architecture-plan.md) and [October 27 completion plan](../../docs/completion-plan-2026-10-27.md) supersede status, sequencing and conflicting requirements below. Retained for design rationale; do not use historical deployment snapshots as current evidence.
 
 ### Earlier deployment snapshot — superseded by the current audit
 

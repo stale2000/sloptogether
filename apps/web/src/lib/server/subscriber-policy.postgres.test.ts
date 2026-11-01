@@ -1,7 +1,8 @@
 import { createHmac,randomBytes,randomUUID } from "node:crypto";
 import { afterAll,beforeAll,describe,expect,it,vi } from "vitest";
 import { lifecyclePool,pool,transaction } from "./db";
-import { handleEventSubWebhook,persistSubscriberSettings } from "./subscriber-service";
+import { persistSubscriberSettings } from "./subscriber-service";
+import { handleEventSubWebhook } from "./eventsub-webhook";
 import { isSafeTrustedPolicyAudit } from "./trusted-policy";
 
 vi.mock("server-only",()=>({}));
