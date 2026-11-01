@@ -25,6 +25,9 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
     bitsEventSubTestRun: document.getElementById("bits-eventsub-test-run"),
     bitsEventSubTestStatus: document.getElementById("bits-eventsub-test-status"),
     ballot: document.getElementById("ballot"),
+    upcoming: document.getElementById("upcoming-scenes"),
+    upcomingStatus: document.getElementById("upcoming-status"),
+    upcomingList: document.getElementById("upcoming-list"),
     question: document.getElementById("question"),
     countdown: document.getElementById("countdown"),
     helper: document.getElementById("helper"),
@@ -44,6 +47,7 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
   let authorization = null;
   let currentElection = null;
   let selectedStreamSlug = "main";
+  let streamSelectionTouched = false;
   let currentChannelLogin = null;
   let selectedChoiceId = null;
   let abortController = null;
@@ -525,6 +529,55 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
     renderPromptLock();
   }
 
+  function renderUpcomingScenes(items, execution = {}) {
+    const scenes = Array.isArray(items) ? items.filter(item => item && typeof item.prompt === "string").slice(0, 4) : [];
+    nodes.upcoming.hidden = scenes.length === 0;
+    nodes.upcomingList.replaceChildren();
+    if (!scenes.length) return;
+
+    const ready = execution?.ready === true;
+    const status = execution?.streamerLive === true
+      ? "ON AIR"
+      : execution?.workerOnline === true
+        ? "WORKER ONLINE"
+        : execution?.streamSourceActive === true
+          ? "SOURCE OPEN · WAITING"
+          : "WAITING FOR STREAM OR WORKER";
+    nodes.upcomingStatus.textContent = status;
+    nodes.upcomingStatus.className = `upcoming-status${ready ? " is-ready" : ""}`;
+
+    for (const scene of scenes) {
+      const card = document.createElement("article");
+      card.className = "upcoming-scene";
+      if (scene.frameUrl && typeof scene.frameUrl === "string") {
+        const image = document.createElement("img");
+        image.className = "upcoming-frame";
+        image.alt = `Start frame for clip ${Number(scene.position) + 1}`;
+        image.loading = "lazy";
+        if(scene.frameUrl.startsWith("/sloptogether/api/v1/media/")){
+          image.src = `https://www.clips.gg${scene.frameUrl}`;
+          card.append(image);
+        }
+      }
+      const copy = document.createElement("div");
+      copy.className = "upcoming-copy";
+      const heading = document.createElement("div");
+      heading.className = "upcoming-meta";
+      const clip = document.createElement("strong");
+      clip.textContent = `CLIP ${String(Number(scene.position) + 1).padStart(2, "0")}`;
+      const stage = document.createElement("span");
+      stage.textContent = scene.status === "ready" ? (ready ? "READY" : "APPROVED")
+        : scene.status === "scheduled" ? "QUEUED"
+          : scene.status === "awaiting_next_frame" ? "AWAITING NEXT FRAME" : "APPROVED";
+      heading.append(clip, stage);
+      const prompt = document.createElement("p");
+      prompt.textContent = scene.prompt;
+      copy.append(heading, prompt);
+      card.append(copy);
+      nodes.upcomingList.append(card);
+    }
+  }
+
   function renderPromptForm(allowed = canSubmitPrompts) {
     canSubmitPrompts = allowed;
     nodes.promptSection.hidden = !authorization || !canSubmitPrompts;
@@ -650,6 +703,16 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
         if(available.some(item=>item.slug===selectedStreamSlug))nodes.streamSelect.value=selectedStreamSlug;
       }
       if(nodes.streamPicker)nodes.streamPicker.hidden=available.length<2;
+      if(!streamSelectionTouched&&selectedStreamSlug==="main"&&typeof result.preferredStreamSlug==="string"
+        &&result.preferredStreamSlug!==selectedStreamSlug&&available.some(item=>item.slug===result.preferredStreamSlug)){
+        selectedStreamSlug=result.preferredStreamSlug;
+        streamEpoch+=1;
+        if(nodes.streamSelect)nodes.streamSelect.value=selectedStreamSlug;
+        message(nodes.status,"Loading upcoming scenes…");nodes.status.hidden=false;
+        void refresh();
+        return;
+      }
+      renderUpcomingScenes(result.upcomingScenes,result.execution);
       renderSubscriberNotice(result.subscriberInterrupts || result.channel?.subscriberInterrupts);
       if (errorSource === "refresh") clearError();
       renderPromptForm(result.canSubmitPrompts === true);
@@ -762,6 +825,7 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
       if (auth.channelId !== authorizedChannelId) {
         authorizedChannelId = auth.channelId;
         selectedStreamSlug = "main";
+        streamSelectionTouched = false;
         streamEpoch += 1;
       }
       if (nextIdentity !== authorizedIdentity) {
@@ -783,6 +847,7 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
         nodes.link.hidden = true;
         nodes.subscriber.hidden = true;
         nodes.subscriber.replaceChildren();
+        renderUpcomingScenes([],{});
         nodes.status.hidden = false;
         message(nodes.status, "Loading channel…");
         clearError();
@@ -862,6 +927,7 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
   nodes.promptInput.addEventListener("input", () => renderPromptForm());
   nodes.streamSelect?.addEventListener("change",()=>{
     if(!nodes.streamSelect.value||nodes.streamSelect.value===selectedStreamSlug)return;
+    streamSelectionTouched=true;
     selectedStreamSlug=nodes.streamSelect.value;
     streamEpoch+=1;
     isSubmitting=false;
@@ -872,6 +938,7 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
     nodes.ballot.hidden=true;nodes.empty.hidden=true;nodes.status.hidden=false;
     message(nodes.status,"Loading stream…");
     clearError();
+    renderUpcomingScenes([],{});
     renderPromptForm(false);
     renderPromptLock();
     void refresh();

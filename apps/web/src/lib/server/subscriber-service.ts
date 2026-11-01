@@ -36,6 +36,7 @@ type EventSubType=SubscriptionEventType|typeof CHAT_EVENT_TYPE|typeof BITS_EVENT
 const MAX_WEBHOOK_BYTES = 256_000;
 const MAX_PENDING_INTERRUPTS = 20;
 const ACTIVE_INTERRUPT_STATES = ["queued", "planning", "screening", "rendering", "validating", "ready", "scheduled", "playing"];
+const extensionLiveStatusCache=new Map<string,{live:boolean|null;expiresAt:number}>();
 
 export async function withEventSubLifecycleLock<T>(channelId:string,work:(client:PoolClient)=>Promise<T>):Promise<T>{
   const client=await lifecyclePool().connect();let locked=false;let discard=false;
@@ -389,6 +390,26 @@ export async function getPublicSubscriberState(channelId: string) {
   return { enabled: true, current: row ? { id: row.id, label: row.subscriber_label, state: row.program_state } : null };
 }
 
+async function twitchChannelIsLive(channelId:string):Promise<boolean|null>{
+  const cached=extensionLiveStatusCache.get(channelId);
+  if(cached&&cached.expiresAt>Date.now())return cached.live;
+  try{
+    const credentials=twitchCredentials();
+    const token=await appAccessToken();
+    const url=new URL("https://api.twitch.tv/helix/streams");
+    url.searchParams.set("user_id",channelId);url.searchParams.set("first","1");
+    const response=await fetch(url,{cache:"no-store",signal:AbortSignal.timeout(5000),headers:{"Client-Id":credentials.clientId,Authorization:`Bearer ${token}`}});
+    if(!response.ok)throw new Error("twitch_stream_lookup_failed");
+    const result=await response.json() as {data?:Array<{user_id?:string;type?:string}>};
+    const live=Array.isArray(result.data)&&result.data.some(row=>row.user_id===channelId&&row.type==="live");
+    extensionLiveStatusCache.set(channelId,{live,expiresAt:Date.now()+20_000});
+    return live;
+  }catch{
+    extensionLiveStatusCache.set(channelId,{live:null,expiresAt:Date.now()+8_000});
+    return null;
+  }
+}
+
 export async function getExtensionState(request: Request) {
   const extension = verifyExtensionRequest(request);
   const channel = await findChannel(extension.channelId);
@@ -396,11 +417,72 @@ export async function getExtensionState(request: Request) {
   const stream=await getStream(channel.twitch_channel_id,requestedSlug);
   const streamRows=await query<{id:string;slug:string;display_name:string;is_default:boolean}>(
     "SELECT id,slug,display_name,is_default FROM sloptogether.streams WHERE twitch_channel_id=$1 ORDER BY is_default DESC,created_at,id",[channel.twitch_channel_id]);
-  const [elections, subscriberInterrupts] = await Promise.all([
+  const [elections, subscriberInterrupts, upcomingScenes, runtime, preferredStream, streamerLive] = await Promise.all([
     getActiveElections(channel.twitch_channel_id, { kind: "extension", extension },stream.id),
     getPublicSubscriberState(channel.twitch_channel_id),
+    query<{position:number;prompt:string;start_asset_id:string|null;state:string;job_state:string|null;next_frame_ready:boolean}>(
+      `SELECT i.position,coalesce(nullif(i.candidate_plan->>'visualAction',''),i.candidate_prompt) AS prompt,
+        start_asset.id AS start_asset_id,i.state,j.state AS job_state,
+        EXISTS(SELECT 1 FROM sloptogether.story_batch_items next_item
+          JOIN sloptogether.story_batches next_batch ON next_batch.id=next_item.batch_id
+          JOIN sloptogether.boundary_revisions next_boundary ON next_boundary.id=next_item.start_boundary_revision_id
+            AND next_boundary.twitch_channel_id=$1 AND next_boundary.retired_at IS NULL
+          JOIN sloptogether.assets next_asset ON next_asset.id=next_boundary.asset_id AND next_asset.twitch_channel_id=$1
+            AND next_asset.media_kind='image' AND next_asset.status IN ('approved','published')
+          WHERE next_batch.stream_id=b.stream_id AND next_batch.twitch_channel_id=b.twitch_channel_id
+            AND (next_batch.created_at,next_batch.id,next_item.position)>(b.created_at,b.id,i.position)
+            AND next_item.state='planned' AND next_item.approved_at IS NOT NULL
+            AND next_item.approved_candidate_revision=next_item.candidate_revision
+            AND next_item.rejected_at IS NULL
+          ORDER BY next_batch.created_at,next_batch.id,next_item.position LIMIT 1) AS next_frame_ready
+       FROM sloptogether.story_batches b JOIN sloptogether.story_batch_items i ON i.batch_id=b.id
+       LEFT JOIN sloptogether.boundary_revisions start_boundary ON start_boundary.id=i.start_boundary_revision_id
+         AND start_boundary.twitch_channel_id=b.twitch_channel_id AND start_boundary.retired_at IS NULL
+       LEFT JOIN sloptogether.assets start_asset ON start_asset.id=start_boundary.asset_id
+         AND start_asset.twitch_channel_id=b.twitch_channel_id AND start_asset.media_kind='image'
+         AND start_asset.status IN ('approved','published')
+       LEFT JOIN sloptogether.jobs j ON j.id=i.job_id AND j.twitch_channel_id=b.twitch_channel_id
+       WHERE b.twitch_channel_id=$1 AND b.stream_id=$2 AND i.state IN ('planned','scheduled')
+         AND i.candidate_prompt IS NOT NULL AND i.approved_at IS NOT NULL
+         AND i.approved_candidate_revision=i.candidate_revision AND i.rejected_at IS NULL
+       ORDER BY b.created_at DESC,b.id DESC,i.position LIMIT 4`,
+      [channel.twitch_channel_id,stream.id],
+    ),
+    query<{worker_online:boolean;stream_source_active:boolean}>(
+      `SELECT
+        (EXISTS(SELECT 1 FROM sloptogether.trusted_executions te
+          JOIN sloptogether.application_keys k ON k.key_id=te.key_id
+          WHERE te.twitch_channel_id=$1 AND te.revoked_at IS NULL
+            AND te.execution_role IN ('generation','upscale') AND k.revoked_at IS NULL
+            AND (k.expires_at IS NULL OR k.expires_at>now()) AND k.last_used_at>now()-interval '90 seconds'
+            AND k.scopes&&ARRAY['worker:generation','worker:upscale']::text[])
+         OR EXISTS(SELECT 1 FROM sloptogether.trusted_executions te
+          JOIN sloptogether.worker_devices d ON d.id=te.worker_device_id
+          WHERE te.twitch_channel_id=$1 AND te.revoked_at IS NULL
+            AND te.execution_role IN ('generation','upscale') AND d.status='paired' AND d.revoked_at IS NULL
+            AND d.last_seen_at>now()-interval '90 seconds')
+         OR EXISTS(SELECT 1 FROM sloptogether.story_producers p
+          JOIN sloptogether.trusted_executions te ON te.id=p.execution_binding_id
+          WHERE p.twitch_channel_id=$1 AND p.stream_id=$2 AND p.released_at IS NULL
+            AND p.lease_expires_at>now() AND te.revoked_at IS NULL)) AS worker_online,
+        EXISTS(SELECT 1 FROM sloptogether.playback_sessions ps
+          WHERE ps.stream_id=$2 AND ps.lease_expires_at>now()) AS stream_source_active`,
+      [channel.twitch_channel_id,stream.id],
+    ),
+    query<{slug:string}>(
+      `SELECT s.slug FROM sloptogether.streams s
+       WHERE s.twitch_channel_id=$1 AND EXISTS(
+         SELECT 1 FROM sloptogether.story_batches b JOIN sloptogether.story_batch_items i ON i.batch_id=b.id
+         WHERE b.stream_id=s.id AND b.twitch_channel_id=s.twitch_channel_id
+           AND i.state IN ('planned','scheduled') AND i.candidate_prompt IS NOT NULL
+           AND i.approved_at IS NOT NULL AND i.approved_candidate_revision=i.candidate_revision
+           AND i.rejected_at IS NULL)
+       ORDER BY s.created_at DESC,s.id DESC LIMIT 1`,[channel.twitch_channel_id]),
+    twitchChannelIsLive(channel.twitch_channel_id),
   ]);
   const canSubmitPrompts=await canContribute(channel,{kind:"extension",extension});
+  const workerOnline=runtime.rows[0]?.worker_online===true;
+  const streamSourceActive=runtime.rows[0]?.stream_source_active===true;
   return {
     channel: { twitchChannelId: channel.twitch_channel_id, twitchLogin: channel.twitch_login, displayName: channel.display_name },
     stream:{id:stream.id,slug:stream.slug,displayName:stream.display_name},
@@ -409,6 +491,14 @@ export async function getExtensionState(request: Request) {
     activeElection: elections[0] ?? null,
     subscriberInterrupts,
     canSubmitPrompts,
+    upcomingScenes:upcomingScenes.rows.map(item=>({
+      position:item.position,
+      prompt:item.prompt,
+      frameUrl:item.start_asset_id?`/sloptogether/api/v1/media/${encodeURIComponent(item.start_asset_id)}/preview`:null,
+      status:item.state==="scheduled"?item.job_state??"scheduled":item.next_frame_ready?"ready":"awaiting_next_frame",
+    })),
+    execution:{workerOnline,streamSourceActive,streamerLive,ready:workerOnline||streamerLive===true},
+    preferredStreamSlug:upcomingScenes.rows.length?stream.slug:preferredStream.rows[0]?.slug??stream.slug,
   };
 }
 

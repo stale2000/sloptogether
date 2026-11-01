@@ -92,6 +92,17 @@ h2 { margin: 0; font-size: 14px; font-weight: 700; }
 .helper,.note { color: var(--soft); font-size: 10px; line-height: 1.45; }
 .helper { margin: 6px 0 9px; }
 .choices { display: grid; gap: 6px; }
+.upcoming-scenes { margin-top: 12px; }
+.upcoming-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.upcoming-status { color: var(--soft); font-size: 8px; font-weight: 750; letter-spacing: .04em; text-align: right; }
+.upcoming-status.is-ready { color: #57c785; }
+.upcoming-list { display: grid; gap: 6px; }
+.upcoming-scene { display: flex; align-items: flex-start; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
+.upcoming-frame { width: 72px; height: 42px; flex: 0 0 72px; border-radius: 3px; background: var(--field); object-fit: cover; }
+.upcoming-copy { min-width: 0; flex: 1; }
+.upcoming-meta { display: flex; justify-content: space-between; gap: 6px; color: var(--purple); font-size: 8px; font-weight: 750; letter-spacing: .03em; }
+.upcoming-meta span { color: var(--soft); font-size: 7px; text-align: right; }
+.upcoming-copy p { margin: 4px 0 0; color: var(--ink); font-size: 10px; line-height: 1.35; overflow-wrap: anywhere; }
 .stream-picker { display: grid; gap: 5px; margin-top: 10px; color: var(--soft); font-size: 10px; font-weight: 650; }
 .stream-picker select { width: 100%; min-height: 38px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 4px; background: var(--field); color: var(--ink); font: inherit; }
 .choice { display: flex; width: 100%; min-height: 44px; align-items: center; gap: 8px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); text-align: left; cursor: pointer; }
