@@ -322,19 +322,30 @@ export async function getApprovedMediaAsset(assetId:string,request?:Request) {
           AND parent.twitch_channel_id=a.twitch_channel_id
           AND EXISTS(SELECT 1 FROM sloptogether.artifact_approvals aa WHERE aa.asset_id=parent.id AND aa.sha256=parent.sha256 AND aa.decision='approved'))))
       AND EXISTS(SELECT 1 FROM sloptogether.channels c WHERE c.twitch_channel_id=a.twitch_channel_id AND c.is_enabled AND c.visibility<>'private')`,[assetId]);
-  if(publicAsset.rows[0])return {url:await signedPrivateReadUrl(publicAsset.rows[0].storage_key,120),contentType:publicAsset.rows[0].content_type};
+  if(publicAsset.rows[0])return {url:await signedPrivateReadUrl(publicAsset.rows[0].storage_key,120),contentType:publicAsset.rows[0].content_type,extensionScopedPreview:false};
   if(request){
     const principal=await requestPrincipal(request);
     if(principal){
-      const candidate=await query<{storage_key:string;content_type:string;twitch_channel_id:string;uploaded_by_twitch_user_id:string|null}>(`SELECT storage_key,content_type,twitch_channel_id,uploaded_by_twitch_user_id
-        FROM sloptogether.assets WHERE id=$1 AND status IN ('quarantine','validated','approved','published')`,[assetId]);
+      const candidate=await query<{storage_key:string;content_type:string;twitch_channel_id:string;uploaded_by_twitch_user_id:string|null;media_kind:string;status:string;extension_preview:boolean}>(`SELECT a.storage_key,a.content_type,a.twitch_channel_id,a.uploaded_by_twitch_user_id,a.media_kind,a.status,
+        EXISTS(SELECT 1 FROM sloptogether.story_batch_items i
+          JOIN sloptogether.story_batches b ON b.id=i.batch_id AND b.twitch_channel_id=a.twitch_channel_id
+          JOIN sloptogether.boundary_revisions boundary ON boundary.id=i.start_boundary_revision_id
+            AND boundary.twitch_channel_id=a.twitch_channel_id AND boundary.asset_id=a.id AND boundary.retired_at IS NULL
+          JOIN sloptogether.channels c ON c.twitch_channel_id=a.twitch_channel_id AND c.is_enabled AND c.visibility<>'private'
+          WHERE i.state IN ('planned','scheduled') AND i.approved_at IS NOT NULL
+            AND i.approved_candidate_revision=i.candidate_revision AND i.rejected_at IS NULL
+            AND i.candidate_prompt IS NOT NULL) AS extension_preview
+        FROM sloptogether.assets a WHERE a.id=$1 AND a.status IN ('quarantine','validated','approved','published')`,[assetId]);
       const asset=candidate.rows[0];
       if(asset){const channel=await findChannel(asset.twitch_channel_id);const actor=principalTwitchId(principal);
         const ownInteractiveUpload=principal.kind==="session"&&actor===asset.uploaded_by_twitch_user_id;
+        const approvedExtensionFrame=principal.kind==="extension"&&principal.extension.channelId===channel.twitch_channel_id
+          &&asset.status==="approved"&&asset.media_kind==="image"&&asset.extension_preview;
         const scopedReviewer=principal.kind!=="worker-device"&&principal.kind!=="chat"
           &&(principal.kind!=="extension"||principal.extension.channelId===channel.twitch_channel_id)
           &&await canReviewContent(channel,principal);
-        if(actor&&!await isBanned(channel.twitch_channel_id,actor)&&(ownInteractiveUpload||scopedReviewer))return {url:await signedPrivateReadUrl(asset.storage_key,60),contentType:asset.content_type};}
+        if(approvedExtensionFrame)return {url:await signedPrivateReadUrl(asset.storage_key,60),contentType:asset.content_type,extensionScopedPreview:true};
+        if(actor&&!await isBanned(channel.twitch_channel_id,actor)&&(ownInteractiveUpload||scopedReviewer))return {url:await signedPrivateReadUrl(asset.storage_key,60),contentType:asset.content_type,extensionScopedPreview:false};}
     }
   }
   throw new ApiError(404,"media_not_found");

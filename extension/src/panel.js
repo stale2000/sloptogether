@@ -48,6 +48,7 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
   let currentElection = null;
   let selectedStreamSlug = "main";
   let streamSelectionTouched = false;
+  const framePreviewUrls = new Map();
   let currentChannelLogin = null;
   let selectedChoiceId = null;
   let abortController = null;
@@ -531,6 +532,8 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
 
   function renderUpcomingScenes(items, execution = {}) {
     const scenes = Array.isArray(items) ? items.filter(item => item && typeof item.prompt === "string").slice(0, 4) : [];
+    keepUpcomingFrames(scenes.filter(item => typeof item.frameUrl === "string"
+      && item.frameUrl.startsWith("/sloptogether/api/v1/media/")).map(item => item.frameUrl));
     nodes.upcoming.hidden = scenes.length === 0;
     nodes.upcomingList.replaceChildren();
     if (!scenes.length) return;
@@ -555,7 +558,7 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
         image.alt = `Start frame for clip ${Number(scene.position) + 1}`;
         image.loading = "lazy";
         if(scene.frameUrl.startsWith("/sloptogether/api/v1/media/")){
-          image.src = `https://www.clips.gg${scene.frameUrl}`;
+          loadUpcomingFrame(image, scene.frameUrl);
           card.append(image);
         }
       }
@@ -679,6 +682,47 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
     }
     nodes.subscriber.append(title, text);
     nodes.subscriber.hidden = false;
+  }
+
+  function loadUpcomingFrame(image, path) {
+    const cached = framePreviewUrls.get(path);
+    if (cached) {
+      void cached.then(url => { if (url && image.isConnected) image.src = url; });
+      return;
+    }
+
+    const requestIdentity = identityEpoch;
+    const requestAuthorization = authorization;
+    const preview = fetch(`https://www.clips.gg${path}`, {
+      cache: "no-store",
+      headers: { Accept: "image/png,image/jpeg,image/webp", "x-extension-jwt": requestAuthorization?.token || "" },
+    }).then(async response => {
+      if (!response.ok || !response.headers.get("content-type")?.startsWith("image/")) return null;
+      const url = URL.createObjectURL(await response.blob());
+      if (requestIdentity !== identityEpoch || framePreviewUrls.get(path) !== preview) {
+        URL.revokeObjectURL(url);
+        return null;
+      }
+      return url;
+    }).catch(() => null);
+    framePreviewUrls.set(path, preview);
+    void preview.then(url => {
+      if (!url) {
+        if (framePreviewUrls.get(path) === preview) framePreviewUrls.delete(path);
+        return;
+      }
+      if (image.isConnected && framePreviewUrls.get(path) === preview) image.src = url;
+      else if (framePreviewUrls.get(path) !== preview) URL.revokeObjectURL(url);
+    });
+  }
+
+  function keepUpcomingFrames(paths) {
+    const retained = new Set(paths);
+    for (const [path, preview] of framePreviewUrls) {
+      if (retained.has(path)) continue;
+      framePreviewUrls.delete(path);
+      void preview.then(url => { if (url) URL.revokeObjectURL(url); });
+    }
   }
 
   async function refresh() {
