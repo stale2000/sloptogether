@@ -407,20 +407,24 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
     }
   }
 
+  async function createPromptProposal(prompt,currentAuthorization,streamSlug,segmentId){
+    const response=await fetch(`${API}/channels/${encodeURIComponent(currentChannelLogin||currentAuthorization.channelId)}/streams/${encodeURIComponent(streamSlug)}/proposals`,{
+      method:"POST",headers:{"Content-Type":"application/json","x-extension-jwt":currentAuthorization.token},
+      body:JSON.stringify({prompt,planningMode:"continuation",...(segmentId?{segmentId}:{})}),
+    });
+    const result=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(result.message||result.error||"Prompt could not be submitted.");
+    return result;
+  }
+
   async function submitPromptLock(product){
     const helper=window.Twitch?.ext;
     const prompt=nodes.promptLockInput.value.trim();
     if(!authorization||!linkedIdentity(authorization)||!promptLockState?.enabled||!helper?.bits||!prompt||isSubmittingPromptLock||bitsBusy||bitsPending)return;
-    if(!currentChannelLogin){promptLockStatusText="Channel unavailable.";renderPromptLock();return;}
     const requestEpoch=identityEpoch,requestStreamEpoch=streamEpoch,currentAuthorization=authorization;
     isSubmittingPromptLock=true;promptLockStatusText="Submitting prompt…";clearError();renderPromptLock();
     try{
-      const response=await fetch(`${API}/channels/${encodeURIComponent(currentChannelLogin)}/streams/${encodeURIComponent(selectedStreamSlug)}/proposals`,{
-        method:"POST",headers:{"Content-Type":"application/json","x-extension-jwt":currentAuthorization.token},
-        body:JSON.stringify({prompt,planningMode:"continuation"}),
-      });
-      const result=await response.json().catch(()=>({}));
-      if(!response.ok)throw new Error(result.message||"Prompt could not be submitted.");
+      const result=await createPromptProposal(prompt,currentAuthorization,selectedStreamSlug,currentElection?.segmentId);
       if(requestEpoch!==identityEpoch||requestStreamEpoch!==streamEpoch)return;
       if(result.state!=="eligible"){
         promptLockStatusText="Prompt submitted; waiting for approval.";
@@ -815,14 +819,8 @@ import { bitsOutcome, isLateReceiptGracePending, promptLockBitsOutcome } from ".
     clearError();
     renderPromptForm();
     try {
-      const response = await fetch(`${API}/channels/${encodeURIComponent(currentChannelLogin||currentAuthorization.channelId)}/streams/${encodeURIComponent(selectedStreamSlug)}/proposals`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-extension-jwt": currentAuthorization.token },
-        body: JSON.stringify({ prompt, planningMode: "continuation", ...(currentElection?.segmentId ? { segmentId: currentElection.segmentId } : {}) }),
-      });
-      const result = await response.json().catch(() => ({}));
+      const result = await createPromptProposal(prompt,currentAuthorization,selectedStreamSlug,currentElection?.segmentId);
       if (requestEpoch !== identityEpoch || requestStreamEpoch !== streamEpoch) return;
-      if (!response.ok) throw new Error(result.message || result.error || "Prompt could not be submitted.");
       nodes.promptInput.value = "";
       isPromptFormOpen = false;
       nodes.status.textContent = result.state === "pending" ? "Prompt sent for review." : "Prompt added to the vote.";
