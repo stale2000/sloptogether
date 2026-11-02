@@ -39,14 +39,12 @@
       </section>
       <section id="prompt-lock" class="prompt-lock" aria-label="Prompt Lock" hidden>
         <h2>Prompt Lock</h2>
+        <label for="prompt-lock-input">Prompt</label>
+        <textarea id="prompt-lock-input" maxlength="1000" rows="2" placeholder="Prompt for this segment" aria-label="Prompt for this segment"></textarea>
         <div id="prompt-lock-products" class="prompt-lock-products"></div>
         <p id="prompt-lock-status" class="note" role="status" aria-live="polite" hidden></p>
         <button id="prompt-lock-link" class="secondary" type="button" hidden>Link account</button>
         <button id="prompt-lock-reconcile" class="secondary" type="button" hidden>Retry transaction check</button>
-      </section>
-      <section id="bits-eventsub-test" class="bits-eventsub-test" aria-label="Bits EventSub test" hidden>
-        <button id="bits-eventsub-test-run" class="secondary" type="button" disabled>Buy Segment with Bits</button>
-        <p id="bits-eventsub-test-status" class="note" role="status" aria-live="polite" hidden></p>
       </section>
       <section id="prompt-section" class="prompt-section" aria-label="Suggest a scene" hidden>
         <button id="prompt-toggle" class="prompt-toggle" type="button" aria-expanded="false" aria-controls="prompt-form">Suggest a scene</button>

@@ -30,8 +30,8 @@ class Element {
   click() { this.handlers.click?.(); }
 }
 
-function panelHarness({ proposalResponse = { ok:true, json:async()=>({state:"eligible"}) }, promptLockState = {enabled:false,products:[],proposals:[]},
-  promptLockIntentResponse = {ok:true,json:async()=>({intentId:"prompt-intent",proposalId:"choice-one",streamSlug:"main"})},
+function panelHarness({ proposalResponse = { ok:true, json:async()=>({state:"eligible",proposalId:"new-proposal",revisionId:"new-revision"}) }, promptLockState = {enabled:false,products:[],proposals:[]},
+  promptLockIntentResponse = {ok:true,json:async()=>({intentId:"prompt-intent",proposalId:"new-proposal",streamSlug:"main"})},
   receiptResponse = {ok:true,json:async()=>({accepted:true,actionKind:"prompt_lock",state:"receipt_seen"})},
   intentStatusResponse = {ok:true,json:async()=>({actionKind:"prompt_lock",state:"reserved",expiresAt:"2026-10-27T14:00:00Z",transactionReceived:true})},
   bitsProducts = [{ sku:"turbo", cost:{type:"bits",amount:"100"}, inDevelopment:false }],
@@ -177,29 +177,54 @@ test("a free Extension prompt submits to the channel proposal API while paid Tur
   assert.equal(panel.elements.get("turbo").hidden, true);
 });
 
-test("the Bits Prompt Lock action is separate from hidden Turbo and binds to the selected proposal",async()=>{
+test("a freeform prompt is screened through proposals before the Bits lock intent is created",async()=>{
   const panel=panelHarness({
-    promptLockState:{enabled:true,requiresLinkedIdentity:false,stream:{slug:"main"},products:[{sku:"prompt-lock-400",amountBits:400,displayName:"Prompt Lock"}],
-      proposals:[{proposalId:"choice-one",electionId:"election-one",segmentId:"segment-one",promptPreview:"A scene"}]},
+    promptLockState:{enabled:true,requiresLinkedIdentity:false,stream:{slug:"main"},products:[{sku:"prompt-lock-400",amountBits:400,displayName:"Prompt Lock"}],proposals:[]},
+    proposalResponse:{ok:true,json:async()=>({state:"eligible",proposalId:"new-proposal",revisionId:"new-revision"})},
+    promptLockIntentResponse:{ok:true,json:async()=>({intentId:"prompt-intent",proposalId:"new-proposal",streamSlug:"main"})},
     bitsProducts:[{sku:"prompt-lock-400",cost:{type:"bits",amount:"400"},inDevelopment:false}],
   });
   panel.authorize({channelId:"channel",userId:"viewer-one",token:"one"});
   await settle();
-  panel.elements.get("choices").children[0].click();
+  assert.equal(panel.elements.has("bits-eventsub-test-run"),false,"the development test control is not part of the viewer UI");
+  assert.ok(panel.elements.has("prompt-lock-input"),"the Bits action exposes its prompt field");
+  panel.elements.get("prompt-lock-input").value="A cinematic anime scene at a moonlit train station.";
+  panel.elements.get("prompt-lock-input").handlers.input();
   const lockButton=panel.elements.get("prompt-lock-products").children[0];
-  assert.ok(lockButton,"the viewer's selected proposal has a lock action");
+  assert.ok(lockButton,"the prompt form exposes the Bits purchase action");
+  assert.equal(lockButton.children[0].textContent,"Buy Segment with Bits");
   assert.equal(lockButton.children[1].textContent,"400 Bits");
   lockButton.click();
   await settle();
+  const proposal=panel.calls.find(call=>call.url.endsWith("/channels/channel/streams/main/proposals"));
+  assert.deepEqual(JSON.parse(proposal.options.body),{prompt:"A cinematic anime scene at a moonlit train station.",planningMode:"continuation"});
   const intent=panel.calls.find(call=>call.url.endsWith("/extension/bits/prompt-lock/intents"));
-  assert.deepEqual(JSON.parse(intent.options.body),{sku:"prompt-lock-400",proposalId:"choice-one",stream:"main"});
+  assert.deepEqual(JSON.parse(intent.options.body),{sku:"prompt-lock-400",proposalId:"new-proposal",stream:"main"});
   assert.equal(panel.usedBitsSku,"prompt-lock-400");
+  assert.ok(panel.calls.indexOf(proposal)<panel.calls.indexOf(intent),"the screened prompt is submitted before Bits confirmation");
   assert.equal(panel.elements.get("turbo").hidden,true);
 
   panel.completeTransaction({initiator:"current_user",transactionReceipt:"synthetic-receipt-token-long-enough"});
   await settle();
   assert.ok(panel.calls.some(call=>call.url.endsWith("/extension/bits/receipt")),"the Twitch receipt goes to the shared verification endpoint");
   assert.equal(panel.elements.get("prompt-lock-status").textContent,"Prompt locked.");
+});
+
+test("a prompt awaiting moderator approval cannot open a Bits purchase",async()=>{
+  const panel=panelHarness({
+    promptLockState:{enabled:true,requiresLinkedIdentity:false,stream:{slug:"main"},products:[{sku:"prompt-lock-400",amountBits:400,displayName:"Prompt Lock"}],proposals:[]},
+    proposalResponse:{ok:true,json:async()=>({state:"pending",proposalId:"pending-proposal",revisionId:null})},
+    bitsProducts:[{sku:"prompt-lock-400",cost:{type:"bits",amount:"400"},inDevelopment:false}],
+  });
+  panel.authorize({channelId:"channel",userId:"viewer-one",token:"one"});
+  await settle();
+  panel.elements.get("prompt-lock-input").value="An anime courier finds a hidden signal.";
+  panel.elements.get("prompt-lock-input").handlers.input();
+  panel.elements.get("prompt-lock-products").children[0].click();
+  await settle();
+  assert.equal(panel.elements.get("prompt-lock-status").textContent,"Prompt submitted; waiting for approval.");
+  assert.equal(panel.calls.some(call=>call.url.endsWith("/extension/bits/prompt-lock/intents")),false);
+  assert.equal(panel.usedBitsSku,null);
 });
 
 test("a prompt rejection stays visible through the next successful poll", async () => {
