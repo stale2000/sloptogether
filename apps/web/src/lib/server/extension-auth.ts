@@ -101,16 +101,3 @@ export function verifyExtensionBitsReceipt(token:string,now=Date.now()):Extensio
     throw new HttpError(401,"bits_receipt_payload_invalid");
   return {transactionId,userId,occurredAt:new Date(occurredAt),inDevelopment:payload.product==="inDevelopment"||receipt.product==="inDevelopment"};
 }
-
-export function extensionCorsHeaders(origin: string | null): Headers {
-  const headers = new Headers({"Vary":"Origin","Cache-Control":"no-store"});
-  const clientId = process.env.TWITCH_EXTENSION_CLIENT_ID;
-  const valid = clientId ? `https://${clientId}.ext-twitch.tv` : "";
-  if (origin && (origin === valid || origin === "https://www.twitch.tv")) {
-    headers.set("Access-Control-Allow-Origin",origin);
-    headers.set("Access-Control-Allow-Methods","GET, POST, OPTIONS");
-    headers.set("Access-Control-Allow-Headers","Content-Type, Authorization, X-Extension-Jwt, Twitch-Eventsub-Message-Id, Twitch-Eventsub-Message-Timestamp, Twitch-Eventsub-Message-Signature, Twitch-Eventsub-Message-Type");
-    headers.set("Access-Control-Max-Age","600");
-  }
-  return headers;
-}

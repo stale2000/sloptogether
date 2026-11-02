@@ -6,10 +6,6 @@ export function sha256(value: string | Buffer) {
   return createHash("sha256").update(value).digest();
 }
 
-export function digestHex(value: string | Buffer) {
-  return createHash("sha256").update(value).digest("hex");
-}
-
 export const hash = sha256;
 
 export function randomToken(bytes = 32) {
@@ -28,11 +24,7 @@ export function constantTimeEqual(a: Buffer, b: Buffer) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-export function hmacKeySecret(value:string){
-  const secret=process.env.SLOPTOGETHER_KEY_HASH_PEPPER;
-  if(!secret||secret.length<32)throw new Error("SLOPTOGETHER_KEY_HASH_PEPPER is not configured");
-  return createHash("sha256").update(secret).update("\0").update(value).digest();
-}
+export const hmacKeySecret = hashWorkerSecret;
 
 export function signUploadTicket(payload:Record<string,unknown>):string{
   const secret=process.env.SLOPTOGETHER_UPLOAD_TICKET_KEY;

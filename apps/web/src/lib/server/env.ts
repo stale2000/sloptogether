@@ -1,17 +1,5 @@
 import { hasScopedClipsDatabaseUser,isClipsDatabase } from "./database-target";
 
-export const appBasePath = "/sloptogether";
-
-export function publicOrigin(): string {
-  const value = process.env.PUBLIC_APP_URL;
-  if (!value) throw new Error("PUBLIC_APP_URL is not configured");
-  const url = new URL(value);
-  if (url.protocol !== "https:" && url.hostname !== "localhost") {
-    throw new Error("PUBLIC_APP_ORIGIN must use HTTPS");
-  }
-  return url.origin;
-}
-
 export function requiredSecret(name: string): string {
   const value = process.env[name];
   if (!value || value.length < 32) throw new Error(`${name} is not configured or too short`);

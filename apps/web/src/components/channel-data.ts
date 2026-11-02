@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { API_BASE, ApiError, type LiveElection, type ProgramOutput, type PublicTimelineResponse, apiFetch, displayProblem } from "./api";
+import { API_BASE, ApiError, type LiveElection, type ProgramOutput, type PublicTimelineResponse, displayProblem } from "./api";
 import type { PublicTimelineSegment } from "@sloptogether/contracts";
 import type { ProgramManifest } from "./program-player";
 import { startChannelPolling } from "./channel-polling";
@@ -150,11 +150,4 @@ export function useChannelProgram(channel: string,streamSlug="main"): Loadable<P
   if (currentValue) return { state: "ready", value:currentValue, ...(currentError?{refreshError:currentError}:{}) };
   if (currentError) return { state: "error", error:currentError, retry };
   return { state: "loading" };
-}
-
-export async function submitBallot(electionId: string, choiceId: string): Promise<void> {
-  await apiFetch(`/elections/${encodeURIComponent(electionId)}/ballots`, {
-    method: "POST",
-    body: JSON.stringify({ choiceId }),
-  });
 }

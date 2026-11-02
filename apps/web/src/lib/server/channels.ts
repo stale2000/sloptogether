@@ -3,7 +3,7 @@ import { contributionModeSchema } from "@sloptogether/contracts";
 import { ApiError } from "./http";
 import { query } from "./db";
 import { getModeratedChannelIds } from "./twitch-subs";
-import type { RequestPrincipal,WorkerGrant } from "./principals";
+import type { RequestPrincipal } from "./principals";
 import { requireKeyScope } from "./principals";
 
 export interface ChannelRow extends QueryResultRow {
@@ -161,11 +161,6 @@ export async function canContribute(channel:ChannelRow,principal:RequestPrincipa
   if(broadcaster||(mode==="combined"&&listed))return true;
   if(mode==="broadcaster_and_moderators")return broadcaster||moderator;
   return broadcaster||moderator||listed;
-}
-
-export function requireWorkerScope(grant:WorkerGrant,channelId:string,scope:string){
-  if(grant.channelId!==channelId)throw new ApiError(403,"worker_channel_mismatch");
-  requireKeyScope(grant,scope);
 }
 
 export async function requireStreamerController(channel:ChannelRow,principal:RequestPrincipal|null){

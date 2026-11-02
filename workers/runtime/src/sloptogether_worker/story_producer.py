@@ -12,22 +12,9 @@ from typing import Any
 from .client import WorkerApi
 from .config import WorkerConfig
 from .errors import WorkerError
-from .h3_prompt import compile_h3_prompt, validate_scene
+from .h3_prompt import SCENE_SCHEMA as SCHEMA, compile_h3_prompt, validate_scene
 
 MODEL = "gpt-6-luna"
-SCHEMA = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["visual_action", "camera", "speaker_character", "voice_description", "dialogue", "soundscape"],
-    "properties": {
-        "visual_action": {"type": "string", "minLength": 1, "maxLength": 900},
-        "camera": {"type": "string", "minLength": 1, "maxLength": 200},
-        "speaker_character": {"type": "string", "minLength": 1, "maxLength": 100},
-        "voice_description": {"type": "string", "minLength": 1, "maxLength": 140},
-        "dialogue": {"type": "string", "minLength": 1, "maxLength": 300},
-        "soundscape": {"type": "string", "maxLength": 240},
-    },
-}
 
 SUBSCRIBER_GAGS = (
     ("rocket_confetti", "A tiny cartoon rocket blasts off, puffs into confetti, then lowers its smiling astronaut onto a moon cushion.", "{name} just subscribed! The rocket's new fuel is pure confetti!", "Soft rocket hum and two gentle confetti pops."),

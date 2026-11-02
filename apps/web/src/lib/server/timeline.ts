@@ -4,7 +4,6 @@ import type { ChannelRow } from "./channels";
 import { principalTwitchId } from "./channels";
 import type { RequestPrincipal } from "./principals";
 import { query } from "./db";
-import { ApiError } from "./http";
 import { getDefaultStreamId,getStreamById } from "./stream-service";
 
 interface SegmentRow extends QueryResultRow {
@@ -158,14 +157,4 @@ export async function getPublicTimeline(channel:ChannelRow,principal:RequestPrin
     },
     revision:channel.layout_revision,
   };
-}
-
-export async function publishedAsset(channelId:string,assetId:string){
-  const result=await query<{id:string;storage_key:string;content_type:string|null}>(
-    "SELECT a.id,a.storage_key,a.content_type FROM sloptogether.assets a "+
-    "WHERE a.id=$1 AND a.twitch_channel_id=$2 AND a.status='published' "+
-    "AND EXISTS(SELECT 1 FROM sloptogether.program_items pi WHERE pi.asset_id=a.id AND pi.twitch_channel_id=$2 AND pi.committed_at IS NOT NULL)",
-    [assetId,channelId],
-  );
-  const row=result.rows[0];if(!row)throw new ApiError(404,"media_not_found");return row;
 }

@@ -30,10 +30,3 @@ export async function getModeratedChannelIds(accessToken:string,userId:string):P
   }
   return ids;
 }
-
-export async function currentBroadcasterId(accessToken:string):Promise<string>{
-  const credentials=twitchCredentials();
-  const response=await fetch("https://api.twitch.tv/helix/users",{cache:"no-store",signal:AbortSignal.timeout(8000),headers:{"Client-Id":credentials.clientId,Authorization:`Bearer ${accessToken}`} });
-  if(!response.ok)throw new ApiError(response.status===401?401:502,"twitch_identity_failed","Twitch identity could not be refreshed.");
-  const data=await response.json() as {data?:Array<{id?:string}>};const id=data.data?.[0]?.id;if(!id)throw new ApiError(401,"twitch_identity_missing");return id;
-}

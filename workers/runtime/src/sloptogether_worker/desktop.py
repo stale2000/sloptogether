@@ -343,13 +343,13 @@ def run_desktop(root: Path, helpers: dict[str, Callable[..., int]]) -> int:
                                                         state="disabled", style="Needed.TCheckbutton")
             self.install_check_button.grid(row=1, column=0, sticky="w", padx=(0, 8), pady=3)
             self.install_button = ttk.Button(tools, text="Install everything", style="Needed.TButton",
-                                             command=lambda: self._run_setup_action("installed", "Install everything", True))
+                                             command=lambda: self._run_setup_action("Install everything", True))
             self.install_button.grid(row=1, column=1, sticky="ew", pady=3)
             self.models_check_button = ttk.Checkbutton(tools, text="Needed", variable=self.models_check,
                                                        state="disabled", style="Needed.TCheckbutton")
             self.models_check_button.grid(row=2, column=0, sticky="w", padx=(0, 8), pady=3)
             self.models_button = ttk.Button(tools, text="Download models", style="Needed.TButton",
-                                            command=lambda: self._run_setup_action("models", "Download models", False))
+                                            command=lambda: self._run_setup_action("Download models", False))
             self.models_button.grid(row=2, column=1, sticky="ew", pady=3)
             tools.columnconfigure(1, weight=1)
 
@@ -489,7 +489,7 @@ def run_desktop(root: Path, helpers: dict[str, Callable[..., int]]) -> int:
             except OSError:
                 self._write("Could not stop worker process.")
 
-        def _run_setup_action(self, stage: str, label: str, install_everything: bool) -> None:
+        def _run_setup_action(self, label: str, install_everything: bool) -> None:
             if self.busy or self.process is not None:
                 return
             role = self.role.get()
@@ -507,7 +507,7 @@ def run_desktop(root: Path, helpers: dict[str, Callable[..., int]]) -> int:
                 except Exception as error:  # show a concise failure without exposing environment values
                     result = 1
                     self.queue.put(("setup_log", f"{label} failed: {type(error).__name__}."))
-                self.queue.put(("setup_done", {"role": role, "stage": stage, "label": label, "status": result}))
+                self.queue.put(("setup_done", {"label": label, "status": result}))
 
             threading.Thread(target=execute, daemon=True).start()
 
@@ -553,7 +553,6 @@ def run_desktop(root: Path, helpers: dict[str, Callable[..., int]]) -> int:
             threading.Thread(target=execute, daemon=True).start()
 
         def _record_setup_done(self, result: dict[str, object]) -> None:
-            role, stage = result.get("role"), result.get("stage")
             label = str(result.get("label", "Setup"))
             status = int(result.get("status", 1))
             self._write(f"{label} {'completed' if status == 0 else 'needs attention'}.")

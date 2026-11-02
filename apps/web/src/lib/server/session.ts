@@ -105,12 +105,6 @@ export async function currentSession(request?: Request): Promise<UserSession | n
   return { id: row.id, twitchUserId: row.twitch_user_id, twitchLogin: row.twitch_login, displayName: row.display_name, accessToken, scopes: validatedScopes, expiresAt: row.expires_at };
 }
 
-export async function requireSession(request?: Request): Promise<UserSession> {
-  const session = await currentSession(request);
-  if (!session) throw new HttpError(401, "login_required", "Connect your Twitch account first.");
-  return session;
-}
-
 export function readCookie(header: string, name: string): string | undefined {
   for (const part of header.split(";")) {
     const [rawName, ...rawValue] = part.trim().split("=");

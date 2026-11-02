@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { query } from "./db";
 import { hashWorkerSecret, constantTimeEqual } from "./crypto";
-import { currentSession, readCookie, type UserSession } from "./session";
+import { currentSession, type UserSession } from "./session";
 import { ApiError } from "./http";
 import { verifyExtensionRequest, type ExtensionPrincipal } from "./extension-auth";
 
@@ -74,8 +74,4 @@ export async function requestPrincipal(request:Request):Promise<RequestPrincipal
 
 export function requireKeyScope(grant:WorkerGrant,scope:string){
   if(!grant.scopes.includes(scope))throw new ApiError(403,"worker_key_scope_denied");
-}
-
-export function readSessionCookie(request:Request){
-  return readCookie(request.headers.get("cookie")??"","slop_sid");
 }

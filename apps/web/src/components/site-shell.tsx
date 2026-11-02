@@ -27,10 +27,6 @@ export function SiteFooter({ compact = false }: { compact?: boolean }) {
   );
 }
 
-export function PageWrap({ children, narrow = false }: { children: ReactNode; narrow?: boolean }) {
-  return <main className={narrow ? "narrow page-main" : "shell page-main"}>{children}</main>;
-}
-
 export function Breadcrumbs({ items }: { items: Array<{ label: string; href?: string }> }) {
   return (
     <nav className="breadcrumbs" aria-label="Breadcrumb">
